@@ -88,27 +88,27 @@ const generarResumenCuenta = async (cuenta) => {
   }
 };
 
+const enviarResumen = async (ctx, resumen) => {
+  const limiteCaracteres = 4096;
+  const cantidadMensajes = Math.ceil(resumen.length / limiteCaracteres);
+
+  for (let i = 0; i < cantidadMensajes; i++) {
+      const mensaje = resumen.slice(i * limiteCaracteres, (i + 1) * limiteCaracteres);
+      await ctx.reply(mensaje);
+  }
+};
+
 const resumenTotal = async (ctx) => {
   const tablas = await obtenerTablas();
 
   if (tablas.length === 0) {
-    ctx.reply('❌ No hay cuentas existentes en la base de datos.');
-    return;
+      ctx.reply('❌ No hay cuentas existentes en la base de datos.');
+      return;
   }
-
-  let resumenCompleto = '';
 
   for (const tabla of tablas) {
-    const resumen = await generarResumenCuenta(tabla);
-    resumenCompleto += resumen;
-  }
-
-  const limiteCaracteres = 4096;
-  const cantidadMensajes = Math.ceil(resumenCompleto.length / limiteCaracteres);
-
-  for (let i = 0; i < cantidadMensajes; i++) {
-    const mensaje = resumenCompleto.slice(i * limiteCaracteres, (i + 1) * limiteCaracteres);
-    ctx.reply(mensaje);
+      const resumen = await generarResumenCuenta(tabla);
+      await enviarResumen(ctx, resumen); // Enviamos el resumen de cada cuenta de forma individual.
   }
 };
 
