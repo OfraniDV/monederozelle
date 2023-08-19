@@ -26,6 +26,9 @@ const resumen = async (ctx) => {
     let fechaAnterior = null;
     let subTotal = 0;
     let totalMes = 0;
+    let totalCreditoMes = 0;  // Nuevo: total de crédito del mes
+    let totalDebitoMes = 0;   // Nuevo: total de débito del mes
+
     const resumenText = `Resumen de la cuenta "${escapeMarkdown(cuenta)}"\n\n${
       result.rows.map((row, index) => {
         const { id, descripcion, debito, credito, total, fecha } = row;
@@ -48,14 +51,14 @@ const resumen = async (ctx) => {
           transactionText += `${id}. ${escapeMarkdown(descripcion)}: `;
         }
 
-        console.log(`Debito: ${debito}, Credito: ${credito}`);
-
         if (debito && debito !== '0.00') {
           transactionText += `(-) $${parseFloat(debito).toFixed(2)}\n`;
           subTotal -= parseFloat(debito);
+          totalDebitoMes += parseFloat(debito); // Sumamos al total de débito del mes
         } else if (credito && credito !== '0.00') {
           transactionText += `(+) $${parseFloat(credito).toFixed(2)}\n`;
           subTotal += parseFloat(credito);
+          totalCreditoMes += parseFloat(credito); // Sumamos al total de crédito del mes
         }
 
         if (index === result.rows.length - 1) {
@@ -68,7 +71,8 @@ const resumen = async (ctx) => {
       }).join('')
     }`;
 
-    ctx.reply(`${resumenText}\nSaldo final del mes: $${totalMes.toFixed(2)}`);
+    ctx.reply(`${resumenText}\nSaldo final del mes: $${totalMes.toFixed(2)}\nTotal débito del mes: $${totalDebitoMes.toFixed(2)}\nTotal crédito del mes: $${totalCreditoMes.toFixed(2)}`);
+
   } catch (err) {
     console.error(err);
     ctx.reply(`⚠️ Hubo un error al generar el resumen para la cuenta "${escapeMarkdown(cuenta)}". Por favor, verifica que la cuenta exista y que haya transacciones registradas.`);
@@ -76,3 +80,4 @@ const resumen = async (ctx) => {
 };
 
 module.exports = resumen;
+
