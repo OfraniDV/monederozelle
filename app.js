@@ -6,6 +6,10 @@ const agregarCredito = require('./commands/credito');
 const agregarDebito = require('./commands/debito'); 
 const resumirCuenta = require('./commands/resumen'); 
 const resumenTotal = require('./commands/resumentotal');
+
+// Importamos el archivo de comandos
+const comandos = require('./commands/comandos');
+
 const {
   agregarUsuario,
   eliminarUsuario,
@@ -43,6 +47,15 @@ const verificarAcceso = async (ctx, next) => {
     ctx.reply('No tienes permiso para ejecutar este comando.');
   }
 };
+
+// Añadir comando para listar todos los comandos
+bot.command('comandos', verificarAcceso, (ctx) => {
+  let message = 'Lista de comandos disponibles:\n\n';
+  comandos.forEach(comando => {
+    message += `\nNombre: ${comando.nombre}\nDescripción: ${comando.descripcion}\nPermiso: ${comando.permiso}\nUso: ${comando.uso}\n`;
+  });
+  ctx.reply(message);
+});
 
 bot.command('crearcuenta', verificarAcceso, async (ctx) => {
   try {
