@@ -9,10 +9,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "date-fns": "^2.30.0",
-    "dotenv": "^16.0.3",
-    "pg": "^8.10.0",
-    "telegraf": "^4.12.2",
+    "date-fns": "^4.1.0",
+    "dotenv": "^17.2.1",
+    "pg": "^8.16.3",
+    "telegraf": "^4.16.3",
     "telegraf-session-local": "^2.1.1",
     "telegram-escape": "^1.1.1"
   }
