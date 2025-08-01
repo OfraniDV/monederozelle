@@ -41,6 +41,7 @@ const registerAgente  = require('./commands/agente');
 const tarjetaWizard   = require('./commands/tarjeta_wizard');
 const listarTarjetas  = require('./commands/tarjetas');
 const saldoWizard     = require('./commands/saldo');
+const monitor = require('./commands/monitor');
 
 /* ───────── 6. Inicializar BD (idempotente) ───────── */
 (async () => {
@@ -57,6 +58,7 @@ bot.use(stage.middleware());
 registerMoneda(bot, stage);
 registerBanco(bot, stage);
 registerAgente(bot, stage);
+monitor(bot);  
 
 /* ───────── 8. Middleware de verificación de acceso ───────── */
 const verificarAcceso = async (ctx, next) => {
@@ -135,10 +137,66 @@ bot.command('denegaracceso', safe(async (ctx) => {
   ctx.reply(`⛔ Acceso revocado a ${id}.`);
 }));
 
-/* ───────── 14. Arranque y final limpio ───────── */
-bot.launch()
-  .then(() => console.log('🤖 Bot en línea.'))
-  .catch((e) => console.error('❌ Error al lanzar bot:', e));
+/* ───────── arranque robusto y cierre limpio ───────── */
 
-process.once('SIGINT',  () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+const MAX_LAUNCH_ATTEMPTS = 6; // después de esto se detiene y se espera a un supervisor externo
+let launchAttempt = 0;
+let botRunning = false;
+
+const startBot = async () => {
+  launchAttempt++;
+  try {
+    await bot.launch();
+    botRunning = true;
+    console.log(`[${new Date().toISOString()}] 🤖 Bot en línea. (intento ${launchAttempt})`);
+  } catch (err) {
+    botRunning = false;
+    console.error(
+      `[${new Date().toISOString()}] ❌ Error al lanzar bot (intento ${launchAttempt}):`,
+      err
+    );
+    if (launchAttempt >= MAX_LAUNCH_ATTEMPTS) {
+      console.error(
+        `[${new Date().toISOString()}] Se alcanzó el máximo de reintentos (${MAX_LAUNCH_ATTEMPTS}). ` +
+          `Deja que un supervisor externo (PM2 / systemd) lo reinicie.`
+      );
+      return;
+    }
+    // backoff exponencial con tope en 60s
+    const delayMs = Math.min(60000, 1000 * Math.pow(2, launchAttempt));
+    console.log(`[${new Date().toISOString()}] Reintentando en ${Math.round(delayMs / 1000)}s...`);
+    setTimeout(startBot, delayMs);
+  }
+};
+
+/* capturar errores globales para no morir silenciosamente */
+process.on('unhandledRejection', (reason, promise) => {
+  console.error(`[${new Date().toISOString()}] Rechazo no manejado:`, reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error(`[${new Date().toISOString()}] Excepción no capturada:`, err);
+  // opcional: decidir si se quiere salir para que el supervisor externo reinicie
+  // process.exit(1);
+});
+
+/* limpieza y apagado ordenado */
+const cleanExit = async (signal) => {
+  console.log(`[${new Date().toISOString()}] Recibido ${signal}, deteniendo bot...`);
+  try {
+    if (botRunning) {
+      await bot.stop('SIGTERM');
+      console.log(`[${new Date().toISOString()}] Bot detenido correctamente.`);
+    }
+  } catch (e) {
+    console.error(`[${new Date().toISOString()}] Error al detener bot:`, e);
+  }
+  process.exit(0);
+};
+
+/* señales */
+process.once('SIGINT', () => cleanExit('SIGINT'));
+process.once('SIGTERM', () => cleanExit('SIGTERM'));
+
+/* arrancar */
+startBot();
