@@ -1,31 +1,24 @@
- // commands/monitor.js
- /**
-  * /monitor [dia|mes|año] [banco|agente|moneda|tarjeta]
-  * Ejemplos:
-  *   /monitor
-  *   /monitor mes banco
-  *   /monitor año agente
-  *
-  * Compara el snapshot final del periodo actual vs el anterior y muestra
-  * totales y deltas. No usa librerías externas para fechas.
-  */
+// commands/monitor.js
+/**
+ * /monitor [dia|mes|año] [banco|agente|moneda|tarjeta]
+ * Ejemplos:
+ *   /monitor
+ *   /monitor mes banco
+ *   /monitor año agente
+ *
+ * Compara el snapshot final del periodo actual vs el anterior y muestra
+ * detalle por tarjeta y, opcionalmente, resumen agrupado.
+ */
 const { Markup } = require('telegraf');
-const pool = require('../psql/db.js.js');
+const pool = require('../psql/db.js'); // ajuste según tu ruta real
 
 /* ───────── util: cálculo de rangos ───────── */
 function calcFechas(nivel = 'dia') {
   const now = new Date();
 
-  // helper para truncar a UTC midnight
-  const utcStartOfDay = (d) => {
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  };
-  const utcStartOfMonth = (d) => {
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
-  };
-  const utcStartOfYear = (d) => {
-    return new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  };
+  const utcStartOfDay = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const utcStartOfMonth = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+  const utcStartOfYear = (d) => new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
 
   let start, end, prevStart, label, prevLabel;
 
@@ -33,7 +26,6 @@ function calcFechas(nivel = 'dia') {
     start = utcStartOfMonth(now);
     end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
     prevStart = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1));
-    const prevEnd = start;
     label = `${start.toLocaleString('default', { month: 'long' })} ${start.getUTCFullYear()}`;
     prevLabel = `${prevStart.toLocaleString('default', { month: 'long' })} ${prevStart.getUTCFullYear()}`;
   } else if (nivel === 'año') {
@@ -52,49 +44,7 @@ function calcFechas(nivel = 'dia') {
     prevLabel = fmt(prevStart);
   }
 
-  return {
-    start,
-    end,
-    prevStart,
-    label,
-    prevLabel
-  };
-}
-
-/* ───────── util: armar resumen textual ───────── */
-function buildResumen(rows, detalle, labels) {
-  const keyFn = (r) => {
-    if (!detalle) return 'TOTAL';
-    // map detalle to property
-    if (detalle === 'tarjeta') return r.numero || '—';
-    return (r[detalle] || '—').toString();
-  };
-
-  const agrup = new Map();
-  rows.forEach((r) => {
-    const k = keyFn(r);
-    const existente = agrup.get(k) || { saldo_ini: 0, saldo_fin: 0 };
-    existente.saldo_ini += Number(r.saldo_ini || 0);
-    existente.saldo_fin += Number(r.saldo_fin || 0);
-    agrup.set(k, existente);
-  });
-
-  let texto = `📊 *${labels.label}* vs *${labels.prevLabel}*\n`;
-  let totalIni = 0;
-  let totalFin = 0;
-  agrup.forEach((v, k) => {
-    const delta = v.saldo_fin - v.saldo_ini;
-    totalIni += v.saldo_ini;
-    totalFin += v.saldo_fin;
-    const emoji = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
-    texto += `• *${k}*: ${v.saldo_fin.toFixed(2)} (antes ${v.saldo_ini.toFixed(2)}) ${emoji} ${delta.toFixed(2)}\n`;
-  });
-
-  const totalDelta = totalFin - totalIni;
-  const totalEmoji = totalDelta > 0 ? '📈' : totalDelta < 0 ? '📉' : '➖';
-  texto += `\n*Total*: ${totalFin.toFixed(2)} (antes ${totalIni.toFixed(2)}) ${totalEmoji} ${totalDelta.toFixed(2)}`;
-
-  return texto;
+  return { start, end, prevStart, label, prevLabel };
 }
 
 /* ───────── SQL base ───────── */
@@ -141,7 +91,20 @@ LEFT JOIN agente ag     ON ag.id = t.agente_id
 LEFT JOIN moneda m      ON m.id = t.moneda_id;
 `;
 
-/* ───────── export: registro del comando ───────── */
+/* ───────── util: resumen agrupado ───────── */
+function agrupar(rows, campo) {
+  const mapa = new Map();
+  rows.forEach((r) => {
+    const key = campo === 'tarjeta' ? r.numero || '—' : (r[campo] || '—') + '';
+    const prev = mapa.get(key) || { saldo_ini: 0, saldo_fin: 0 };
+    prev.saldo_ini += Number(r.saldo_ini || 0);
+    prev.saldo_fin += Number(r.saldo_fin || 0);
+    mapa.set(key, prev);
+  });
+  return mapa;
+}
+
+/* ───────── export: comando monitor ───────── */
 module.exports = (bot) => {
   bot.command('monitor', async (ctx) => {
     try {
@@ -149,24 +112,94 @@ module.exports = (bot) => {
       const parts = raw.trim().split(/\s+/).slice(1).map(p => p.toLowerCase());
 
       const nivel = parts.find(p => ['dia', 'mes', 'año', 'ano', 'anio'].includes(p)) || 'dia';
-      const detalle = parts.find(p => ['banco', 'agente', 'moneda', 'tarjeta'].includes(p));
-      // normalizar 'anio' y 'ano' -> 'año'
+      const detalle = parts.find(p => ['banco', 'agente', 'moneda', 'tarjeta'].includes(p)); // opcional
       const nivelNorm = nivel === 'ano' || nivel === 'anio' ? 'año' : nivel;
 
       const { start, end, prevStart, label, prevLabel } = calcFechas(nivelNorm);
 
-      // snapshot final del periodo actual (< end) y final del anterior (< start)
       const { rows } = await pool.query(SQL_CORE, [end.toISOString(), start.toISOString()]);
 
       if (!rows.length) {
-        return ctx.reply('No hay datos de movimientos suficientes para generar estadísticas.');
+        return ctx.reply('No hay movimientos suficientes para generar el reporte.');
       }
 
-      const resumenTexto = buildResumen(rows, detalle, { label, prevLabel });
-      await ctx.reply(resumenTexto, { parse_mode: 'Markdown' });
+      // Totales generales (sumas)
+      let totalIni = 0,
+        totalFin = 0,
+        aumentos = 0,
+        disminuciones = 0,
+        sinCambios = 0;
+
+      const tarjetas = rows.map((r) => {
+        const ini = Number(r.saldo_ini || 0);
+        const fin = Number(r.saldo_fin || 0);
+        const delta = fin - ini;
+        const pct = ini !== 0 ? ((delta / ini) * 100).toFixed(2) : '—';
+        let estadoEmoji = '➖';
+        if (delta > 0) estadoEmoji = '📈';
+        else if (delta < 0) estadoEmoji = '📉';
+
+        if (delta > 0) aumentos++;
+        else if (delta < 0) disminuciones++;
+        else sinCambios++;
+
+        totalIni += ini;
+        totalFin += fin;
+
+        return {
+          id: r.id,
+          numero: r.numero,
+          banco: r.banco || '—',
+          agente: r.agente || '—',
+          moneda: r.moneda || '—',
+          saldo_ini: ini,
+          saldo_fin: fin,
+          delta,
+          pct: ini === 0 ? 'nuevo' : `${pct}%`,
+          emoji: estadoEmoji
+        };
+      });
+
+      // Ordenar tarjetas por cambio absoluto descendente
+      tarjetas.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+      // Encabezado
+      let msg = `📊 *${label}* vs *${prevLabel}*\n`;
+      msg += `Total anterior: *${totalIni.toFixed(2)}*  →  Actual: *${totalFin.toFixed(2)}*  `;
+      const deltaTotal = totalFin - totalIni;
+      const totalEmoji = deltaTotal > 0 ? '📈' : deltaTotal < 0 ? '📉' : '➖';
+      msg += `${totalEmoji} *${deltaTotal.toFixed(2)}*\n`;
+      msg += `Aumentos: ${aumentos}, Disminuciones: ${disminuciones}, Sin cambio: ${sinCambios}\n\n`;
+
+      if (totalIni === 0 && totalFin > 0) {
+        msg += '_Nota: no había saldo previo (posible primer registro), se muestra el balance actual como base._\n\n';
+      }
+
+      // Detalle por tarjeta (top 20 para no saturar)
+      msg += '*Detalle por tarjeta:*\n';
+      tarjetas.slice(0, 30).forEach((t) => {
+        const cambioStr =
+          t.saldo_ini === 0
+            ? `nuevo ${t.saldo_fin.toFixed(2)}`
+            : `${t.saldo_ini.toFixed(2)} → ${t.saldo_fin.toFixed(2)} (${t.pct})`;
+        msg += `• ${t.emoji} ${t.numero} — ${t.agente} — ${t.banco} — ${t.moneda}: ${cambioStr} (Δ ${t.delta.toFixed(2)})\n`;
+      });
+
+      // Si se pidió detalle agrupado (banco/agente/moneda/tarjeta), agregarlo
+      if (detalle) {
+        msg += `\n*Resumen por ${detalle}:*\n`;
+        const agrup = agrupar(rows, detalle);
+        for (const [key, val] of agrup.entries()) {
+          const delta = val.saldo_fin - val.saldo_ini;
+          const emoji = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
+          msg += `• ${key}: ${val.saldo_ini.toFixed(2)} → ${val.saldo_fin.toFixed(2)} ${emoji} ${delta.toFixed(2)}\n`;
+        }
+      }
+
+      await ctx.reply(msg, { parse_mode: 'Markdown' });
     } catch (e) {
       console.error('[monitor] error:', e);
-      await ctx.reply('❌ Ocurrió un error al generar estadísticas.');
+      await ctx.reply('❌ Ocurrió un error al generar el monitoreo.');
     }
   });
 };
