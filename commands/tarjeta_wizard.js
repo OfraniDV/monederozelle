@@ -44,7 +44,18 @@ const tarjetaWizard = new Scenes.WizardScene(
       await ctx.reply('⚠️ No hay agentes. Crea uno con /agentes y vuelve a /tarjeta.');
       return ctx.scene.leave();
     }
-    const kb = agents.map(a => [Markup.button.callback(a.nombre, `AG_${a.id}`)]);
+    const kb = [];
+    for (let i = 0; i < agents.length; i += 2) {
+      const row = [
+        Markup.button.callback(agents[i].nombre, `AG_${agents[i].id}`)
+      ];
+      if (agents[i + 1]) {
+        row.push(
+          Markup.button.callback(agents[i + 1].nombre, `AG_${agents[i + 1].id}`)
+        );
+      }
+      kb.push(row);
+    }
     await ctx.reply('👤 Elige agente:', Markup.inlineKeyboard(kb));
     return ctx.wizard.next();
   },

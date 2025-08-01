@@ -50,7 +50,18 @@ const saldoWizard = new Scenes.WizardScene(
       await ctx.reply('⚠️ No hay agentes registrados.');
       return ctx.scene.leave();
     }
-    const kb = agentes.map(a => [Markup.button.callback(a.nombre, `AG_${a.id}`)]);
+    const kb = [];
+    for (let i = 0; i < agentes.length; i += 2) {
+      const row = [
+        Markup.button.callback(agentes[i].nombre, `AG_${agentes[i].id}`)
+      ];
+      if (agentes[i + 1]) {
+        row.push(
+          Markup.button.callback(agentes[i + 1].nombre, `AG_${agentes[i + 1].id}`)
+        );
+      }
+      kb.push(row);
+    }
     await ctx.reply('👤 Selecciona un agente:', Markup.inlineKeyboard(kb));
     return ctx.wizard.next();
   },
