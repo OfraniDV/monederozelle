@@ -1,135 +1,144 @@
-// app.js — versión completa
-// -----------------------------------------------------------------------------
-// 1. Carga de dependencias y configuración
-// -----------------------------------------------------------------------------
+/****************************************************************************************
+ * app.js — bot completo con control de acceso y manejo de errores en **TODOS** los
+ *          comandos (legacy + nuevos asistentes).
+ *---------------------------------------------------------------------------------------
+ *  Requiere:
+ *   - ./bot.js        → instancia de Telegraf( token )
+ *   - ./psql/*        → pool de PostgreSQL y esquema
+ *   - ./commands/*    → todos los módulos de comandos y wizards
+ ****************************************************************************************/
 require('dotenv').config();
 const { Scenes, session } = require('telegraf');
 
-// Bot principal (./bot.js debe exportar una instancia de Telegraf ya configurada)
+/* ───────── 1. Bot base ───────── */
 const bot = require('./bot');
 
-// Pool y esquema
+/* ───────── 2. Base de datos (tablas) ───────── */
 const crearTablaUsuarios = require('./psql/tablausuarios');
 const initWalletSchema   = require('./psql/initWalletSchema');
 
-// Legacy commands (monotabla)
-/* eslint-disable sort-imports */
-const crearCuenta     = require('./commands/crearcuenta');
-const listarCuentas   = require('./commands/cuentas');
-const eliminarCuenta  = require('./commands/eliminarcuentas');
-const agregarCredito  = require('./commands/credito');
-const agregarDebito   = require('./commands/debito');
-const resumirCuenta   = require('./commands/resumen');
-const resumenTotal    = require('./commands/resumentotal');
-const comandosMeta    = require('./commands/comandos');
-/* eslint-enable sort-imports */
+/* ───────── 3. Legacy commands (monotabla) ───────── */
+const crearCuenta    = require('./commands/crearcuenta');
+const listarCuentas  = require('./commands/cuentas');
+const eliminarCuenta = require('./commands/eliminarcuentas');
+const agregarCredito = require('./commands/credito');
+const agregarDebito  = require('./commands/debito');
+const resumirCuenta  = require('./commands/resumen');
+const resumenTotal   = require('./commands/resumentotal');
+const comandosMeta   = require('./commands/comandos');
 
-// Accesos
+/* ───────── 4. Control de accesos ───────── */
 const {
   agregarUsuario,
   eliminarUsuario,
   usuarioExiste,
 } = require('./commands/usuariosconacceso');
 
-// Asistentes (nuevo sistema)
-const registerMoneda = require('./commands/moneda');
-const registerBanco  = require('./commands/banco');
-const registerAgente = require('./commands/agente');
-const tarjetaWizard  = require('./commands/tarjeta_wizard');
-const listarTarjetas = require('./commands/tarjetas');
+/* ───────── 5. Nuevo sistema (wizards) ───────── */
+const registerMoneda  = require('./commands/moneda');
+const registerBanco   = require('./commands/banco');
+const registerAgente  = require('./commands/agente');
+const tarjetaWizard   = require('./commands/tarjeta_wizard');
+const listarTarjetas  = require('./commands/tarjetas');
+const saldoWizard     = require('./commands/saldo');
 
-
-// -----------------------------------------------------------------------------
-// 2. Inicialización de la base (sin poblar datos)
-// -----------------------------------------------------------------------------
+/* ───────── 6. Inicializar BD (idempotente) ───────── */
 (async () => {
-  await crearTablaUsuarios();   // tabla 'usuarios'
-  await initWalletSchema();     // esquema wallet vacío
+  await crearTablaUsuarios();
+  await initWalletSchema();
 })();
 
-// -----------------------------------------------------------------------------
-// 3. Configuración de Scenes / Stage (para wizards)
-// -----------------------------------------------------------------------------
-const stage = new Scenes.Stage([tarjetaWizard], { ttl: 300 });
+/* ───────── 7. Scenes / Stage ───────── */
+const stage = new Scenes.Stage([tarjetaWizard, saldoWizard], { ttl: 300 });
 bot.use(session());
 bot.use(stage.middleware());
 
-
-// Registrar CRUDs que añaden sus propios wizards al stage
+/* Wizards que se auto-registran en el stage */
 registerMoneda(bot, stage);
-registerBanco(bot, stage);   
-registerAgente(bot, stage);  
+registerBanco(bot, stage);
+registerAgente(bot, stage);
 
-listarTarjetas(bot); 
-
-// Atajo para lanzar el wizard de tarjeta
-bot.command('tarjeta', (ctx) => ctx.scene.enter('TARJETA_WIZ'));
-
-// -----------------------------------------------------------------------------
-// 4. Comando /start básico
-// -----------------------------------------------------------------------------
-bot.command('start', (ctx) => {
-  const username = ctx.from.first_name || 'Usuario';
-  ctx.reply(`Hola, ${username} 😊 Aún estoy aprendiendo, pero pronto podré ayudarte…`);
-});
-
-// -----------------------------------------------------------------------------
-// 5. Middleware de verificación de acceso
-// -----------------------------------------------------------------------------
+/* ───────── 8. Middleware de verificación de acceso ───────── */
 const verificarAcceso = async (ctx, next) => {
-  const userId = ctx.from.id.toString();
-  const esPropietario = userId === process.env.OWNER_ID;
-  const tieneAcceso   = await usuarioExiste(userId);
-  console.log(`Verificando acceso – ID:${userId} propietario:${esPropietario} acceso:${tieneAcceso}`);
-  return (esPropietario || tieneAcceso) ? next(ctx) : ctx.reply('No tienes permiso.');
+  /* /start siempre disponible                                                    */
+  if (ctx.updateType === 'message' && ctx.message.text?.startsWith('/start')) {
+    return next();
+  }
+
+  const uid = ctx.from?.id?.toString() || '0';
+  const esOwner  = uid === process.env.OWNER_ID;
+  const permitido = esOwner || (await usuarioExiste(uid));
+
+  console.log(`🛂 acceso uid:${uid} permitido:${permitido}`);
+  if (!permitido) return ctx.reply('🚫 No tienes permiso para usar el bot.');
+
+  return next();
 };
 
-// -----------------------------------------------------------------------------
-// 6. Comandos legacy (seguirán funcionando)
-// -----------------------------------------------------------------------------
-bot.command('comandos', verificarAcceso, (ctx) => {
-  let msg = 'Lista de comandos disponibles:\n\n';
-  comandosMeta.forEach(c =>
-    msg += `• ${c.nombre}\n  ${c.descripcion}\n  Uso: ${c.uso}\n\n`
-  );
-  ctx.reply(msg);
+/* EL ORDEN IMPORTA: todo lo que viene después requerirá permiso */
+bot.use(verificarAcceso);
+
+/* ───────── 9. Helpers para envolver comandos con try/catch ───────── */
+const safe = (fn) => async (ctx) => {
+  try { await fn(ctx); } catch (e) {
+    console.error('[ERROR]', e);
+    ctx.reply('⚠️ Ocurrió un error, intenta de nuevo.');
+  }
+};
+
+/* ───────── 10. Comando /start ───────── */
+bot.command('start', (ctx) => {
+  const nombre = ctx.from.first_name || 'Usuario';
+  ctx.reply(`¡Hola, ${nombre}! 🤖`);
 });
 
-bot.command('crearcuenta',   verificarAcceso, (ctx) => crearCuenta(ctx));
-bot.command('miscuentas',    verificarAcceso, (ctx) => listarCuentas(ctx));
-bot.command('eliminarcuenta',verificarAcceso, (ctx) => eliminarCuenta(ctx));
-bot.command('credito',       verificarAcceso, (ctx) => agregarCredito(ctx));
-bot.command('debito',        verificarAcceso, (ctx) => agregarDebito(ctx));
-bot.command('resumen',       verificarAcceso, (ctx) => resumirCuenta(ctx));
-bot.command('resumentotal',  verificarAcceso, (ctx) => resumenTotal(ctx));
+/* ───────── 11. Legacy commands (protegidos) ───────── */
+bot.command('comandos',      safe((ctx) => {
+  let msg = '📜 *Comandos disponibles*\n\n';
+  comandosMeta.forEach(c => {
+    msg += `• *${c.nombre}* — ${c.descripcion}\n  _${c.uso}_\n\n`;
+  });
+  ctx.reply(msg, { parse_mode: 'Markdown' });
+}));
+bot.command('crearcuenta',    safe(crearCuenta));
+bot.command('miscuentas',     safe(listarCuentas));
+bot.command('eliminarcuenta', safe(eliminarCuenta));
+bot.command('credito',        safe(agregarCredito));
+bot.command('debito',         safe(agregarDebito));
+bot.command('resumen',        safe(resumirCuenta));
+bot.command('resumentotal',   safe(resumenTotal));
 
-// -----------------------------------------------------------------------------
-// 7. Gestión de accesos (propietario)
-// -----------------------------------------------------------------------------
-bot.command('daracceso', async (ctx) => {
-  if (ctx.from.id.toString() !== process.env.OWNER_ID) return ctx.reply('Sin permiso.');
+/* ───────── 12. Nuevos comandos (wizards) ───────── */
+bot.command('monedas',  (ctx) => ctx.scene.enter('MONEDA_WIZ'));   // protegido por middleware
+bot.command('bancos',   (ctx) => ctx.scene.enter('BANCO_CREATE_WIZ'));
+bot.command('agentes',  (ctx) => ctx.scene.enter('AGENTE_WIZ'));
+bot.command('tarjeta',  (ctx) => ctx.scene.enter('TARJETA_WIZ'));
+bot.command('saldo',    (ctx) => ctx.scene.enter('SALDO_WIZ'));
+listarTarjetas(bot); // /tarjetas
+
+/* ───────── 13. Gestión de accesos (solo OWNER) ───────── */
+bot.command('daracceso', safe(async (ctx) => {
+  if (ctx.from.id.toString() !== process.env.OWNER_ID) return ctx.reply('Solo propietario.');
   const id = ctx.message.text.split(' ')[1];
-  if (!id) return ctx.reply('Indica un ID.');
-  if (await usuarioExiste(id)) return ctx.reply('Ese usuario ya tiene acceso.');
+  if (!id) return ctx.reply('Indica el ID.');
+  if (await usuarioExiste(id)) return ctx.reply('Ya tenía acceso.');
   await agregarUsuario(id);
-  ctx.reply(`Acceso otorgado a ${id}.`);
-});
+  ctx.reply(`✅ Acceso otorgado a ${id}.`);
+}));
 
-bot.command('denegaracceso', async (ctx) => {
-  if (ctx.from.id.toString() !== process.env.OWNER_ID) return ctx.reply('Sin permiso.');
+bot.command('denegaracceso', safe(async (ctx) => {
+  if (ctx.from.id.toString() !== process.env.OWNER_ID) return ctx.reply('Solo propietario.');
   const id = ctx.message.text.split(' ')[1];
-  if (!id) return ctx.reply('Indica un ID.');
-  if (!(await usuarioExiste(id))) return ctx.reply('Ese usuario no existe.');
+  if (!id) return ctx.reply('Indica el ID.');
+  if (!(await usuarioExiste(id))) return ctx.reply('No estaba registrado.');
   await eliminarUsuario(id);
-  ctx.reply(`Acceso revocado a ${id}.`);
-});
+  ctx.reply(`⛔ Acceso revocado a ${id}.`);
+}));
 
-// -----------------------------------------------------------------------------
-// 8. Arranque
-// -----------------------------------------------------------------------------
+/* ───────── 14. Arranque y final limpio ───────── */
 bot.launch()
   .then(() => console.log('🤖 Bot en línea.'))
-  .catch((e) => console.error('Fallo al lanzar bot:', e));
+  .catch((e) => console.error('❌ Error al lanzar bot:', e));
 
-process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGINT',  () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
