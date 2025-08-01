@@ -1,21 +1,23 @@
 // commands/tarjetas.js
-// Lista tarjetas agrupadas (moneda → banco) con subtotales y conversión a USD,
-// y envía un desglose detallado por agente (moneda → tarjetas).
+// Lista tarjetas agrupadas (moneda → banco) con subtotales, tasa y resumen por
+// agente. Incluye Total activo · Total deuda · Neto, y pausa entre mensajes
+// para evitar flood de la API de Telegram.
 
 const pool = require('../psql/db.js');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ───────── helpers ───────── */
 const fmt = (v, d = 2) =>
   Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 
 const mdEscape = (s) =>
-  String(s ?? '').replace(/[_*`[\]()~>#+\-=|{}.!]/g, '\\$&'); // Markdown escape
+  String(s ?? '').replace(/[_*`[\]()~>#+\-=|{}.!]/g, '\\$&'); // Markdown-simple escape
 
 /* ───────── comando /tarjetas ───────── */
 module.exports = (bot) => {
   bot.command('tarjetas', async (ctx) => {
     try {
-      /* 1. obtener snapshot saldo actual de cada tarjeta */
+      /* 1. snapshot saldo actual de cada tarjeta */
       const sql = `
         SELECT t.id, t.numero,
                COALESCE(ag.nombre,'—')  AS agente,
@@ -41,80 +43,86 @@ module.exports = (bot) => {
       const rows = (await pool.query(sql)).rows;
       if (!rows.length) return ctx.reply('No hay tarjetas registradas todavía.');
 
-      /* 2. estructuras: byMon, bankUsd, agentMap */
-      const byMon = {};   // moneda -> { emoji, rate, banks {banco}, totalPos, totalNeg }
-      const bankUsd = {}; // banco  -> usd
-      const agentMap = {};/* agente -> { emoji, totalUsd, perMon { mon -> { total, filas[] } } } */
+      /* 2. estructuras */
+      const byMon   = {}; // moneda -> { emoji, rate, banks, totalPos, totalNeg }
+      const bankUsd = {}; // banco  -> total USD
+      const agentMap= {}; // agente -> { emoji, totalUsd, perMon{ moneda->{ total, filas[], emoji, rate } } }
       let globalUsd = 0;
 
       rows.forEach((r) => {
-        /* ---- moneda / banco ---- */
+        /* moneda y banco */
         byMon[r.moneda] ??= {
           emoji: r.moneda_emoji,
-          rate: Number(r.tasa_usd),
+          rate:  Number(r.tasa_usd),
           banks: {},
           totalPos: 0,
           totalNeg: 0
         };
-        const monObj = byMon[r.moneda];
+        const mon = byMon[r.moneda];
+        mon.banks[r.banco] ??= { emoji: r.banco_emoji, filas: [], pos: 0, neg: 0 };
+        const bank = mon.banks[r.banco];
+        bank.filas.push(r);
 
-        monObj.banks[r.banco] ??= { emoji: r.banco_emoji, filas: [], pos: 0, neg: 0 };
-        const bankObj = monObj.banks[r.banco];
-        bankObj.filas.push(r);
+        if (r.saldo >= 0) { bank.pos += +r.saldo; mon.totalPos += +r.saldo; }
+        else              { bank.neg += +r.saldo; mon.totalNeg += +r.saldo; }
 
-        if (r.saldo >= 0) { bankObj.pos += +r.saldo; monObj.totalPos += +r.saldo; }
-        else              { bankObj.neg += +r.saldo; monObj.totalNeg += +r.saldo; }
-
-        /* ---- USD totales ---- */
-        const usd = +r.saldo * monObj.rate;
+        /* USD totales */
+        const usd = +r.saldo * mon.rate;
         bankUsd[r.banco] = (bankUsd[r.banco] || 0) + usd;
         globalUsd += usd;
 
-        /* ---- agente ---- */
+        /* agente */
         agentMap[r.agente] ??= { emoji: r.agente_emoji, totalUsd: 0, perMon: {} };
         const ag = agentMap[r.agente];
         ag.totalUsd += usd;
-        ag.perMon[r.moneda] ??= { total: 0, filas: [], emoji: r.moneda_emoji, rate: monObj.rate };
+        ag.perMon[r.moneda] ??= { total: 0, filas: [], emoji: mon.emoji, rate: mon.rate };
         ag.perMon[r.moneda].total += +r.saldo;
         ag.perMon[r.moneda].filas.push(r);
       });
 
       /* 3. mensajes por moneda */
-      for (const [mon, info] of Object.entries(byMon)) {
+      for (const [monCode, info] of Object.entries(byMon)) {
         let msg =
-          `💱 *Moneda:* ${info.emoji} ${mdEscape(mon)}\n\n` +
+          `💱 *Moneda:* ${info.emoji} ${mdEscape(monCode)}\n\n` +
           `📊 *Subtotales por banco:*\n`;
 
+        /* bancos */
         Object.entries(info.banks)
-          .sort(([a], [b]) => a.localeCompare(b))
-          .forEach(([bank, data]) => {
-            msg += `\n${data.emoji} *${mdEscape(bank)}*\n`;
+          .sort(([a],[b])=>a.localeCompare(b))
+          .forEach(([bankCode, data]) => {
+            msg += `\n${data.emoji} *${mdEscape(bankCode)}*\n`;
             data.filas.forEach((r) => {
-              const ag = `${r.agente_emoji ? r.agente_emoji + ' ' : ''}${mdEscape(r.agente)}`;
-              const monTxt = `${r.moneda_emoji ? r.moneda_emoji + ' ' : ''}${mdEscape(r.moneda)}`;
-              msg += `• ${mdEscape(r.numero)} – ${ag} – ${monTxt} ⇒ ${fmt(r.saldo)}\n`;
+              const agTxt   = `${r.agente_emoji ? r.agente_emoji + ' ' : ''}${mdEscape(r.agente)}`;
+              const monTxt  = `${r.moneda_emoji ? r.moneda_emoji + ' ' : ''}${mdEscape(r.moneda)}`;
+              msg += `• ${mdEscape(r.numero)} – ${agTxt} – ${monTxt} ⇒ ${fmt(r.saldo)}\n`;
             });
-            if (data.pos) msg += `  _Subtotal ${mdEscape(bank)} (activo):_ ${fmt(data.pos)} ${mdEscape(mon)}\n`;
-            if (data.neg) msg += `  _Subtotal ${mdEscape(bank)} (deuda):_ ${fmt(data.neg)} ${mdEscape(mon)}\n`;
+            if (data.pos) msg += `  _Subtotal ${mdEscape(bankCode)} (activo):_ ${fmt(data.pos)} ${mdEscape(monCode)}\n`;
+            if (data.neg) msg += `  _Subtotal ${mdEscape(bankCode)} (deuda):_ ${fmt(data.neg)} ${mdEscape(monCode)}\n`;
           });
 
+        /* totales moneda */
         const rateToUsd   = fmt(info.rate, 6);
         const rateFromUsd = fmt(1 / info.rate, 2);
         const activeUsd   = info.totalPos * info.rate;
         const debtUsd     = info.totalNeg * info.rate;
+        const neto        = info.totalPos + info.totalNeg;
+        const netoUsd     = activeUsd + debtUsd;
 
         msg += `\n*Total activo:* ${fmt(info.totalPos)}\n`;
         if (info.totalNeg) msg += `*Total deuda:* ${fmt(info.totalNeg)}\n`;
-        msg += `*Equivalente activo en USD:* ${fmt(activeUsd)}\n`;
+        msg += `*Neto:* ${fmt(neto)}\n`;
+        msg += `\n*Equivalente activo en USD:* ${fmt(activeUsd)}\n`;
         if (info.totalNeg) msg += `*Equivalente deuda en USD:* ${fmt(debtUsd)}\n`;
+        msg += `*Equivalente neto en USD:* ${fmt(netoUsd)}\n`;
         msg += `\n_Tasa usada:_\n` +
-               `  • 1 ${mdEscape(mon)} = ${rateToUsd} USD\n` +
-               `  • 1 USD ≈ ${rateFromUsd} ${mdEscape(mon)}`;
+               `  • 1 ${mdEscape(monCode)} = ${rateToUsd} USD\n` +
+               `  • 1 USD ≈ ${rateFromUsd} ${mdEscape(monCode)}`;
 
         await ctx.replyWithMarkdown(msg);
+        await sleep(350);                  // anti-flood
       }
 
-      /* 4. resumen global USD por banco */
+      /* 4. resumen global USD */
       let resumen = '🧮 *Resumen general en USD*\n';
       Object.entries(bankUsd)
         .sort(([a],[b])=>a.localeCompare(b))
@@ -123,29 +131,33 @@ module.exports = (bot) => {
         });
       resumen += `\n*Total general:* ${fmt(globalUsd)} USD`;
       await ctx.replyWithMarkdown(resumen);
+      await sleep(350);
 
-      /* 5. resumen por agente (detallado) */
+      /* 5. resumen por agente (detallado con tarjetas) */
       const today = new Date().toLocaleDateString('es-CU', { timeZone:'America/Havana' });
       for (const [agName, agData] of Object.entries(agentMap)) {
+        if (agData.totalUsd === 0) continue; // nada relevante
         let agMsg =
           `📅 *${today}*\n` +
           `👤 *Resumen de ${agData.emoji ? agData.emoji + ' ' : ''}${mdEscape(agName)}*\n\n`;
 
-        Object.entries(agData.perMon).forEach(([mon, mData]) => {
-          const monLine = `${mData.emoji} *${mdEscape(mon)}*: ${fmt(mData.total)} ` +
-                          `(≈ ${fmt(mData.total * mData.rate)} USD)`;
-          agMsg += monLine + '\n';
-          // Detalle de tarjetas
+        Object.entries(agData.perMon).forEach(([monCode, mData]) => {
+          if (mData.total === 0) return; // omite monedas a cero
+          const line =
+            `${mData.emoji} *${mdEscape(monCode)}*: ${fmt(mData.total)} ` +
+            `(≈ ${fmt(mData.total * mData.rate)} USD)`;
+          agMsg += line + '\n';
+
           mData.filas.forEach((r) => {
-            const deudaTxt = r.saldo < 0 ? ' (deuda)' : '';
-            agMsg += `   • ${mdEscape(r.numero)} – ${mdEscape(r.banco)} ⇒ ${fmt(r.saldo)}${deudaTxt}\n`;
+            const deuda = r.saldo < 0 ? ' (deuda)' : '';
+            agMsg += `   • ${mdEscape(r.numero)} ⇒ ${fmt(r.saldo)}${deuda}\n`;
           });
           agMsg += '\n';
         });
 
         agMsg += `*Total en USD:* ${fmt(agData.totalUsd)}`;
-
         await ctx.replyWithMarkdown(agMsg);
+        await sleep(350);
       }
     } catch (err) {
       console.error('[tarjetas] error:', err);
