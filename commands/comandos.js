@@ -1,61 +1,114 @@
 // commands/comandos.js
 
 const comandos = [
-    {
-      nombre: 'crearcuenta',
-      descripcion: 'Crear una nueva cuenta.',
-      permiso: 'Propietario o usuario con acceso',
-      uso: '/crearcuenta'
-    },
-    {
-      nombre: 'miscuentas',
-      descripcion: 'Listar todas tus cuentas.',
-      permiso: 'Propietario o usuario con acceso',
-      uso: '/miscuentas'
-    },
-    {
-      nombre: 'eliminarcuenta',
-      descripcion: 'Eliminar una cuenta existente.',
-      permiso: 'Propietario o usuario con acceso',
-      uso: '/eliminarcuenta'
-    },
-    {
-      nombre: 'credito',
-      descripcion: 'Agregar crédito a una cuenta.',
-      permiso: 'Propietario o usuario con acceso',
-      uso: '/credito'
-    },
-    {
-      nombre: 'debito',
-      descripcion: 'Agregar débito a una cuenta.',
-      permiso: 'Propietario o usuario con acceso',
-      uso: '/debito'
-    },
-    {
-      nombre: 'resumen',
-      descripcion: 'Obtener un resumen de una cuenta.',
-      permiso: 'Propietario o usuario con acceso',
-      uso: '/resumen'
-    },
-    {
-      nombre: 'resumentotal',
-      descripcion: 'Obtener un resumen total de todas las cuentas.',
-      permiso: 'Propietario o usuario con acceso',
-      uso: '/resumentotal'
-    },
-    {
-      nombre: 'daracceso',
-      descripcion: 'Dar acceso a un usuario.',
-      permiso: 'Solo propietario',
-      uso: '/daracceso <user_id>'
-    },
-    {
-      nombre: 'denegaracceso',
-      descripcion: 'Revocar acceso de un usuario.',
-      permiso: 'Solo propietario',
-      uso: '/denegaracceso <user_id>'
-    }
-  ];
-  
-  module.exports = comandos;
-  
+  {
+    nombre: 'start',
+    descripcion: 'Saluda y prueba que el bot está activo.',
+    permiso: 'Cualquiera',
+    uso: '/start'
+  },
+  {
+    nombre: 'ping',
+    descripcion: 'Comprueba la latencia y salud del bot.',
+    permiso: 'Cualquiera',
+    uso: '/ping'
+  },
+  {
+    nombre: 'crearcuenta',
+    descripcion: 'Crear una nueva cuenta en el sistema legacy.',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/crearcuenta'
+  },
+  {
+    nombre: 'miscuentas',
+    descripcion: 'Listar todas tus cuentas existentes (legacy).',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/miscuentas'
+  },
+  {
+    nombre: 'eliminarcuenta',
+    descripcion: 'Eliminar una cuenta existente (legacy).',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/eliminarcuenta'
+  },
+  {
+    nombre: 'credito',
+    descripcion: 'Agregar crédito a una cuenta (legacy).',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/credito <alias> <monto> [descripcion]'
+  },
+  {
+    nombre: 'debito',
+    descripcion: 'Agregar débito a una cuenta (legacy).',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/debito <alias> <monto> [descripcion]'
+  },
+  {
+    nombre: 'resumen',
+    descripcion: 'Obtener un resumen de una cuenta específica (legacy).',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/resumen <alias>'
+  },
+  {
+    nombre: 'resumentotal',
+    descripcion: 'Obtener un resumen consolidado de todas las cuentas (legacy).',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/resumentotal'
+  },
+  {
+    nombre: 'monedas',
+    descripcion: 'Listar, crear, editar o eliminar monedas (multi-moneda).',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/monedas'
+  },
+  {
+    nombre: 'bancos',
+    descripcion: 'Listar, crear, editar o eliminar bancos con emoji y código.',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/bancos'
+  },
+  {
+    nombre: 'agentes',
+    descripcion: 'Listar, crear, editar o eliminar agentes/dueños de tarjetas.',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/agentes'
+  },
+  {
+    nombre: 'tarjeta',
+    descripcion: 'Iniciar wizard para crear o actualizar una tarjeta/subcuenta (asignar agente, banco, moneda y saldo inicial).',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/tarjeta'
+  },
+  {
+    nombre: 'tarjetas',
+    descripcion: 'Listar todas las tarjetas existentes con su saldo actual y atributos (agente, banco, moneda).',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/tarjetas'
+  },
+  {
+    nombre: 'saldo',
+    descripcion: 'Actualizar el saldo actual de una tarjeta y registrar movimiento con delta (aumento/disminución).',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/saldo'
+  },
+  {
+    nombre: 'monitor',
+    descripcion: 'Comparar salud financiera: periodo actual vs anterior (día/mes/año) y ver deltas por banco/agente/moneda/tarjeta.',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/monitor [dia|mes|año] [banco|agente|moneda|tarjeta]'
+  },
+  {
+    nombre: 'daracceso',
+    descripcion: 'Dar acceso a un usuario para que use el bot.',
+    permiso: 'Solo propietario',
+    uso: '/daracceso <user_id>'
+  },
+  {
+    nombre: 'denegaracceso',
+    descripcion: 'Revocar acceso de un usuario.',
+    permiso: 'Solo propietario',
+    uso: '/denegaracceso <user_id>'
+  }
+];
+
+module.exports = comandos;
