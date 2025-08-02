@@ -42,6 +42,7 @@ const saldoWizard     = require('./commands/saldo');
 const tarjetasAssist  = require('./commands/tarjetas_assist');
 const monitorAssist   = require('./commands/monitor_assist');
 const accesoAssist    = require('./commands/acceso_assist');
+const extractoAssist  = require('./commands/extracto_assist');
 
 /* ───────── 6. Inicializar BD (idempotente) ───────── */
 (async () => {
@@ -50,7 +51,7 @@ const accesoAssist    = require('./commands/acceso_assist');
 })();
 
 /* ───────── 7. Scenes / Stage ───────── */
-const stage = new Scenes.Stage([tarjetaWizard, saldoWizard, tarjetasAssist, monitorAssist, accesoAssist], { ttl: 300 });
+const stage = new Scenes.Stage([tarjetaWizard, saldoWizard, tarjetasAssist, monitorAssist, accesoAssist, extractoAssist], { ttl: 300 });
 bot.use(session());
 bot.use(stage.middleware());
 
@@ -118,6 +119,7 @@ bot.command('saldo',    (ctx) => ctx.scene.enter('SALDO_WIZ'));
 bot.command('tarjetas', (ctx) => ctx.scene.enter('TARJETAS_ASSIST'));
 bot.command('monitor',  (ctx) => ctx.scene.enter('MONITOR_ASSIST'));
 bot.command('acceso',   (ctx) => ctx.scene.enter('ACCESO_ASSIST'));
+bot.command('extracto', (ctx) => ctx.scene.enter('EXTRACTO_ASSIST'));
 
 /* ───────── 13. Gestión de accesos (solo OWNER) ───────── */
 

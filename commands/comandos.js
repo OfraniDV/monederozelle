@@ -98,6 +98,12 @@ const comandos = [
     uso: '/monitor [dia|mes|año]'
   },
   {
+    nombre: 'extracto',
+    descripcion: 'Ver un extracto bancario por tarjeta. Permite filtrar por agente o banco y escoger periodo (día, semana, mes).',
+    permiso: 'Propietario o usuario con acceso',
+    uso: '/extracto'
+  },
+  {
     nombre: 'acceso',
     descripcion: 'Asistente para gestionar usuarios con acceso (agregar o eliminar).',
     permiso: 'Solo propietario',
