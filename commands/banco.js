@@ -232,8 +232,26 @@ const registerBanco = (bot, stage) => {
     const id = parseInt(ctx.match[1], 10);
     console.log('[action] BANCO_DEL solicitud para id=', id);
     await ctx.answerCbQuery().catch(() => {});
+    let msg = `¿Eliminar el banco con ID ${id}?`;
+    try {
+      const dep = await pool.query(
+        `SELECT
+           (SELECT COUNT(*) FROM tarjeta WHERE banco_id=$1) AS tarjetas,
+           (SELECT COUNT(*) FROM movimiento m
+              JOIN tarjeta t ON m.tarjeta_id=t.id
+            WHERE t.banco_id=$1) AS movimientos`,
+        [id]
+      );
+      const { tarjetas, movimientos } = dep.rows[0];
+      if (tarjetas > 0 || movimientos > 0) {
+        msg = `⚠️ Este banco tiene ${tarjetas} tarjeta(s) y ${movimientos} movimiento(s) asociados. ` +
+              'Si lo eliminas, se borrarán estas informaciones. ¿Continuar?';
+      }
+    } catch (e) {
+      console.error('[action] BANCO_DEL dependency check error:', e);
+    }
     await ctx.reply(
-      `¿Eliminar el banco con ID ${id}?`,
+      msg,
       Markup.inlineKeyboard([
         Markup.button.callback('Sí, eliminar', `BANCO_DEL_CONF_${id}`),
         Markup.button.callback('Cancelar', 'BANCO_CANCEL'),
@@ -246,9 +264,13 @@ const registerBanco = (bot, stage) => {
     console.log('[action] BANCO_DEL_CONF para id=', id);
     await ctx.answerCbQuery().catch(() => {});
     try {
+      await pool.query('BEGIN');
+      await pool.query('DELETE FROM tarjeta WHERE banco_id=$1', [id]);
       await pool.query('DELETE FROM banco WHERE id=$1', [id]);
+      await pool.query('COMMIT');
       await ctx.reply('✅ Banco eliminado.');
     } catch (e) {
+      await pool.query('ROLLBACK');
       console.error('[action] Error eliminando banco:', e);
       await ctx.reply('❌ No se pudo eliminar el banco.');
     }

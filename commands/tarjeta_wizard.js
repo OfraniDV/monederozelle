@@ -44,6 +44,7 @@ async function getMonedaKb() {
 
 function getEditKb() {
   return Markup.inlineKeyboard([
+    [Markup.button.callback('🔢 Número', 'EDIT_NUM')],
     [
       Markup.button.callback('🏦 Banco', 'EDIT_BANK'),
       Markup.button.callback('💱 Moneda', 'EDIT_CURR')
@@ -51,6 +52,27 @@ function getEditKb() {
     [Markup.button.callback('✅ Nada', 'CANCEL_EDIT')],
     [Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')]
   ]);
+}
+
+async function showTarjetasMenu(ctx) {
+  const { agente_id } = ctx.wizard.state.data;
+  const tarjetas = (
+    await pool.query(
+      'SELECT id, numero FROM tarjeta WHERE agente_id=$1 ORDER BY numero',
+      [agente_id]
+    )
+  ).rows;
+  const kb = tarjetas.map(t => [
+    Markup.button.callback(t.numero, `TA_NOP_${t.id}`),
+    Markup.button.callback('✏️', `TA_EDIT_${t.id}`),
+    Markup.button.callback('🗑️', `TA_DEL_${t.id}`)
+  ]);
+  kb.push([Markup.button.callback('➕ Añadir nueva tarjeta', 'TA_ADD')]);
+  kb.push([Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')]);
+  const texto = tarjetas.length
+    ? '💳 Tarjetas existentes:'
+    : '💳 Este agente aún no tiene tarjetas.';
+  await ctx.reply(texto, Markup.inlineKeyboard(kb));
 }
 
 /* ─── salir / cancelar ─── */
@@ -80,6 +102,7 @@ const tarjetaWizard = new Scenes.WizardScene(
 
   /* Paso 0 – Agente -------------------------------------------------------- */
   async ctx => {
+    if (await wantExit(ctx)) return;
     const agents = (
       await pool.query('SELECT id, nombre FROM agente ORDER BY nombre')
     ).rows;
@@ -99,11 +122,12 @@ const tarjetaWizard = new Scenes.WizardScene(
       }
       kb.push(row);
     }
+    kb.push([Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')]);
     await ctx.reply('👤 Elige agente:', Markup.inlineKeyboard(kb));
     return ctx.wizard.next();
   },
 
-  /* Paso 1 – Mostrar tarjetas existentes del agente y pedir número/alias -- */
+  /* Paso 1 – Seleccionar agente y mostrar tarjetas ------------------------- */
   async ctx => {
     if (await wantExit(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('AG_')) {
@@ -112,45 +136,108 @@ const tarjetaWizard = new Scenes.WizardScene(
     await ctx.answerCbQuery().catch(() => {});
     const agente_id = +ctx.callbackQuery.data.split('_')[1];
     ctx.wizard.state.data = { agente_id };
-
-    /* obtener tarjetas actuales de ese agente */
-    const rows = (
-      await pool.query(
-        `
-        SELECT t.numero,
-               COALESCE(mv.saldo_nuevo, 0)     AS saldo,
-               COALESCE(m.codigo, '—')         AS moneda
-        FROM   tarjeta t
-        LEFT JOIN moneda m       ON m.id = t.moneda_id
-        LEFT JOIN LATERAL (
-          SELECT saldo_nuevo
-          FROM   movimiento
-          WHERE  tarjeta_id = t.id
-          ORDER  BY creado_en DESC
-          LIMIT  1
-        ) mv ON true
-        WHERE  t.agente_id = $1
-        ORDER  BY t.numero;
-      `,
-        [agente_id]
-      )
-    ).rows;
-
-    if (rows.length) {
-      const listado = rows
-        .map(r => `• ${r.numero} – saldo: ${r.saldo} ${r.moneda}`)
-        .join('\n');
-      await ctx.reply(`📋 Tarjetas actuales de este agente:\n${listado}`);
-    } else {
-      await ctx.reply('ℹ️ Este agente aún no tiene tarjetas.');
-    }
-
-    /* pedir número / alias */
-    await ctx.reply('🔢 Número o alias de la tarjeta:', kbCancel);
+    await showTarjetasMenu(ctx);
     return ctx.wizard.next();
   },
 
-  /* Paso 2 – Banco o edición ---------------------------------------------- */
+  /* Paso 2 – Acciones sobre tarjetas o añadir nueva ----------------------- */
+  async ctx => {
+    if (await wantExit(ctx)) return;
+    const data = ctx.callbackQuery?.data;
+    if (!data) return;
+    await ctx.answerCbQuery().catch(() => {});
+    if (data.startsWith('TA_EDIT_')) {
+      const id = +data.split('_')[2];
+      const existing = (
+        await pool.query(
+          `
+          SELECT t.id, t.numero, t.banco_id, t.moneda_id,
+                 COALESCE(b.codigo, '—') AS banco,
+                 COALESCE(m.codigo, '—') AS moneda,
+                 COALESCE(mv.saldo_nuevo, 0) AS saldo
+          FROM   tarjeta t
+          LEFT JOIN banco   b ON b.id = t.banco_id
+          LEFT JOIN moneda  m ON m.id = t.moneda_id
+          LEFT JOIN LATERAL (
+            SELECT saldo_nuevo
+            FROM   movimiento
+            WHERE  tarjeta_id = t.id
+            ORDER BY creado_en DESC
+            LIMIT 1
+          ) mv ON true
+          WHERE  t.id = $1;
+        `,
+          [id]
+        )
+      ).rows[0];
+      if (!existing) {
+        await ctx.reply('Tarjeta no encontrada.');
+        return showTarjetasMenu(ctx);
+      }
+      ctx.wizard.state.edit = {
+        tarjeta_id: existing.id,
+        numero: existing.numero,
+        banco_id: existing.banco_id,
+        moneda_id: existing.moneda_id
+      };
+      await ctx.reply(
+        `Tarjeta existente:\n<b>Banco:</b> ${existing.banco}\n<b>Moneda:</b> ${existing.moneda}\n<b>Saldo:</b> ${existing.saldo}`,
+        { parse_mode: 'HTML' }
+      );
+      await ctx.reply(
+        '¿Qué deseas actualizar? 🏦 Banco, 💱 Moneda, o ✅ Nada',
+        { parse_mode: 'HTML', ...getEditKb() }
+      );
+      return ctx.wizard.selectStep(7);
+    }
+    if (data.startsWith('TA_DEL_CONF_')) {
+      const id = +data.split('_')[3];
+      try {
+        await pool.query('DELETE FROM tarjeta WHERE id=$1', [id]);
+        await ctx.reply('🗑️ Tarjeta eliminada.');
+      } catch (e) {
+        console.error('[TARJETA_DEL] Error:', e);
+        await ctx.reply('❌ No se pudo eliminar la tarjeta.');
+      }
+      return showTarjetasMenu(ctx);
+    }
+    if (data.startsWith('TA_DEL_')) {
+      const id = +data.split('_')[2];
+      try {
+        const res = await pool.query(
+          'SELECT COUNT(*) FROM movimiento WHERE tarjeta_id=$1',
+          [id]
+        );
+        const movimientos = +res.rows[0].count;
+        let msg = '¿Eliminar esta tarjeta?';
+        if (movimientos > 0) {
+          msg = `⚠️ Esta tarjeta tiene ${movimientos} movimiento(s). ` +
+                'Si la eliminas, se perderán. ¿Continuar?';
+        }
+        await ctx.reply(
+          msg,
+          Markup.inlineKeyboard([
+            [Markup.button.callback('Eliminar', `TA_DEL_CONF_${id}`)],
+            [Markup.button.callback('Cancelar', 'DEL_CANCEL')]
+          ])
+        );
+      } catch (e) {
+        console.error('[TARJETA_DEL] check error:', e);
+        await ctx.reply('❌ Error verificando la tarjeta.');
+      }
+      return;
+    }
+    if (data === 'DEL_CANCEL') {
+      return showTarjetasMenu(ctx);
+    }
+    if (data === 'TA_ADD') {
+      await ctx.reply('🔢 Número o alias de la tarjeta:', kbCancel);
+      return ctx.wizard.next();
+    }
+    // no-op
+  },
+
+  /* Paso 3 – Banco o edición ---------------------------------------------- */
   async ctx => {
     if (await wantExit(ctx)) return;
     const numero = (ctx.message?.text || '').trim();
@@ -163,6 +250,7 @@ const tarjetaWizard = new Scenes.WizardScene(
       await pool.query(
         `
         SELECT t.id,
+               t.numero,
                t.banco_id,
                t.moneda_id,
                COALESCE(b.codigo, '—') AS banco,
@@ -188,6 +276,7 @@ const tarjetaWizard = new Scenes.WizardScene(
       console.log('[TARJETA_EDIT] tarjeta existente detectada');
       ctx.wizard.state.edit = {
         tarjeta_id: existing.id,
+        numero: existing.numero,
         banco_id: existing.banco_id,
         moneda_id: existing.moneda_id
       };
@@ -199,7 +288,7 @@ const tarjetaWizard = new Scenes.WizardScene(
         '¿Qué deseas actualizar? 🏦 Banco, 💱 Moneda, o ✅ Nada',
         { parse_mode: 'HTML', ...getEditKb() }
       );
-      return ctx.wizard.selectStep(6);
+      return ctx.wizard.selectStep(7);
     }
 
     const kb = await getBancoKb();
@@ -211,7 +300,7 @@ const tarjetaWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
 
-  /* Paso 3 – Moneda ------------------------------------------------------- */
+  /* Paso 4 – Moneda ------------------------------------------------------- */
   async ctx => {
     if (await wantExit(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('BN_')) {
@@ -230,7 +319,7 @@ const tarjetaWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
 
-  /* Paso 4 – Saldo inicial ------------------------------------------------- */
+  /* Paso 5 – Saldo inicial ------------------------------------------------- */
   async ctx => {
     if (await wantExit(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('MO_')) {
@@ -243,7 +332,7 @@ const tarjetaWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
 
-  /* Paso 5 – Guardar tarjeta + primer movimiento -------------------------- */
+  /* Paso 6 – Guardar tarjeta + primer movimiento -------------------------- */
   async ctx => {
     if (await wantExit(ctx)) return;
 
@@ -288,7 +377,7 @@ const tarjetaWizard = new Scenes.WizardScene(
     return ctx.scene.leave();
   },
 
-  /* Paso 6 – Menú de edición ---------------------------------------------- */
+  /* Paso 7 – Menú de edición ---------------------------------------------- */
   async ctx => {
     if (await wantExit(ctx)) return;
     const data = ctx.callbackQuery?.data;
@@ -302,7 +391,7 @@ const tarjetaWizard = new Scenes.WizardScene(
         return ctx.scene.leave();
       }
       await ctx.reply('🏦 Elige banco:', { parse_mode: 'HTML', ...kb });
-      return ctx.wizard.selectStep(7);
+      return ctx.wizard.selectStep(8);
     }
     if (data === 'EDIT_CURR') {
       const kb = await getMonedaKb();
@@ -311,14 +400,18 @@ const tarjetaWizard = new Scenes.WizardScene(
         return ctx.scene.leave();
       }
       await ctx.reply('💱 Elige moneda:', { parse_mode: 'HTML', ...kb });
-      return ctx.wizard.selectStep(8);
+      return ctx.wizard.selectStep(9);
+    }
+    if (data === 'EDIT_NUM') {
+      await ctx.reply('🔢 Nuevo número de la tarjeta:', kbCancel);
+      return ctx.wizard.selectStep(10);
     }
     if (data === 'CANCEL_EDIT') {
-      const { tarjeta_id, banco_id, moneda_id } = ctx.wizard.state.edit;
+      const { tarjeta_id, banco_id, moneda_id, numero } = ctx.wizard.state.edit;
       try {
         await pool.query(
-          'UPDATE tarjeta SET banco_id=$1, moneda_id=$2 WHERE id=$3',
-          [banco_id, moneda_id, tarjeta_id]
+          'UPDATE tarjeta SET numero=$1, banco_id=$2, moneda_id=$3 WHERE id=$4',
+          [numero, banco_id, moneda_id, tarjeta_id]
         );
         console.log('[TARJETA_EDIT] tarjeta actualizada', tarjeta_id);
         await ctx.reply('✅ Tarjeta actualizada.', { parse_mode: 'HTML' });
@@ -330,7 +423,7 @@ const tarjetaWizard = new Scenes.WizardScene(
     }
   },
 
-  /* Paso 7 – Editar banco ------------------------------------------------- */
+  /* Paso 8 – Editar banco ------------------------------------------------- */
   async ctx => {
     if (await wantExit(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('BN_')) {
@@ -345,10 +438,10 @@ const tarjetaWizard = new Scenes.WizardScene(
       '¿Qué deseas actualizar? 🏦 Banco, 💱 Moneda, o ✅ Nada',
       { parse_mode: 'HTML', ...getEditKb() }
     );
-    return ctx.wizard.selectStep(6);
+    return ctx.wizard.selectStep(7);
   },
 
-  /* Paso 8 – Editar moneda ------------------------------------------------ */
+  /* Paso 9 – Editar moneda ------------------------------------------------ */
   async ctx => {
     if (await wantExit(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('MO_')) {
@@ -362,7 +455,21 @@ const tarjetaWizard = new Scenes.WizardScene(
       '¿Qué deseas actualizar? 🏦 Banco, 💱 Moneda, o ✅ Nada',
       { parse_mode: 'HTML', ...getEditKb() }
     );
-    return ctx.wizard.selectStep(6);
+    return ctx.wizard.selectStep(7);
+  },
+
+  /* Paso 10 – Editar número ----------------------------------------------- */
+  async ctx => {
+    if (await wantExit(ctx)) return;
+    const numero = (ctx.message?.text || '').trim();
+    if (!numero) return ctx.reply('Número inválido.');
+    ctx.wizard.state.edit.numero = numero;
+    await ctx.reply('🔢 Número actualizado.', { parse_mode: 'HTML' });
+    await ctx.reply(
+      '¿Qué deseas actualizar? 🏦 Banco, 💱 Moneda, o ✅ Nada',
+      { parse_mode: 'HTML', ...getEditKb() }
+    );
+    return ctx.wizard.selectStep(7);
   }
 );
 
