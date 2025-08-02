@@ -9,6 +9,9 @@
  ****************************************************************************************/
 require('dotenv').config();
 const { Scenes, session } = require('telegraf');
+// Migrated responses to HTML parse mode; escapeHtml centralizes sanitization
+// to prevent markup breakage when interpolating dynamic content.
+const { escapeHtml } = require('./helpers/format');
 
 /* ───────── 1. Bot base ───────── */
 const bot = require('./bot');
@@ -95,11 +98,11 @@ bot.command('start', (ctx) => {
 
 /* ───────── 11. Legacy commands (protegidos) ───────── */
 bot.command('comandos',      safe((ctx) => {
-  let msg = '📜 *Comandos disponibles*\n\n';
+  let msg = '📜 <b>Comandos disponibles</b>\n\n';
   comandosMeta.forEach(c => {
-    msg += `• *${c.nombre}* — ${c.descripcion}\n  _${c.uso}_\n\n`;
+    msg += `• <b>${escapeHtml(c.nombre)}</b> — ${escapeHtml(c.descripcion)}\n  <i>${escapeHtml(c.uso)}</i>\n\n`;
   });
-  ctx.reply(msg, { parse_mode: 'Markdown' });
+  ctx.reply(msg, { parse_mode: 'HTML' });
 }));
 bot.command('crearcuenta',    safe(crearCuenta));
 bot.command('miscuentas',     safe(listarCuentas));

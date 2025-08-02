@@ -1,4 +1,8 @@
+// commands/tarjeta_wizard.js
+// Migrado a parse mode HTML con escapeHtml para sanear datos dinámicos.
+// Ajustar textos y parse_mode si se requiere volver a Markdown.
 const { Scenes, Markup } = require('telegraf');
+const { escapeHtml } = require('../helpers/format');
 const pool = require('../psql/db.js');
 
 /* Botones comunes */
@@ -102,6 +106,7 @@ const tarjetaWizard = new Scenes.WizardScene(
 
   /* Paso 0 – Agente -------------------------------------------------------- */
   async ctx => {
+    console.log('[TARJETA_WIZ] paso 0: agente');
     if (await wantExit(ctx)) return;
     const agents = (
       await pool.query('SELECT id, nombre FROM agente ORDER BY nombre')
@@ -129,6 +134,7 @@ const tarjetaWizard = new Scenes.WizardScene(
 
   /* Paso 1 – Seleccionar agente y mostrar tarjetas ------------------------- */
   async ctx => {
+    console.log('[TARJETA_WIZ] paso 1: tarjetas del agente');
     if (await wantExit(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('AG_')) {
       return ctx.reply('Usa los botones para elegir agente.');
@@ -142,6 +148,7 @@ const tarjetaWizard = new Scenes.WizardScene(
 
   /* Paso 2 – Acciones sobre tarjetas o añadir nueva ----------------------- */
   async ctx => {
+    console.log('[TARJETA_WIZ] paso 2: menú tarjetas');
     if (await wantExit(ctx)) return;
     const data = ctx.callbackQuery?.data;
     if (!data) return;
@@ -181,7 +188,7 @@ const tarjetaWizard = new Scenes.WizardScene(
         moneda_id: existing.moneda_id
       };
       await ctx.reply(
-        `Tarjeta existente:\n<b>Banco:</b> ${existing.banco}\n<b>Moneda:</b> ${existing.moneda}\n<b>Saldo:</b> ${existing.saldo}`,
+        `Tarjeta existente:\n<b>Banco:</b> ${escapeHtml(existing.banco)}\n<b>Moneda:</b> ${escapeHtml(existing.moneda)}\n<b>Saldo:</b> ${escapeHtml(existing.saldo)}`,
         { parse_mode: 'HTML' }
       );
       await ctx.reply(
@@ -239,6 +246,7 @@ const tarjetaWizard = new Scenes.WizardScene(
 
   /* Paso 3 – Banco o edición ---------------------------------------------- */
   async ctx => {
+    console.log('[TARJETA_WIZ] paso 3: seleccionar banco');
     if (await wantExit(ctx)) return;
     const numero = (ctx.message?.text || '').trim();
     if (!numero) return ctx.reply('Número inválido.');
@@ -302,6 +310,7 @@ const tarjetaWizard = new Scenes.WizardScene(
 
   /* Paso 4 – Moneda ------------------------------------------------------- */
   async ctx => {
+    console.log('[TARJETA_WIZ] paso 4: seleccionar moneda');
     if (await wantExit(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('BN_')) {
       return ctx.reply('Usa los botones para elegir banco.');
@@ -321,6 +330,7 @@ const tarjetaWizard = new Scenes.WizardScene(
 
   /* Paso 5 – Saldo inicial ------------------------------------------------- */
   async ctx => {
+    console.log('[TARJETA_WIZ] paso 5: saldo inicial');
     if (await wantExit(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('MO_')) {
       return ctx.reply('Usa los botones para elegir moneda.');
@@ -334,6 +344,7 @@ const tarjetaWizard = new Scenes.WizardScene(
 
   /* Paso 6 – Guardar tarjeta + primer movimiento -------------------------- */
   async ctx => {
+    console.log('[TARJETA_WIZ] paso 6: guardar tarjeta');
     if (await wantExit(ctx)) return;
 
     let saldo = 0;
@@ -379,6 +390,7 @@ const tarjetaWizard = new Scenes.WizardScene(
 
   /* Paso 7 – Menú de edición ---------------------------------------------- */
   async ctx => {
+    console.log('[TARJETA_WIZ] paso 7: menú edición');
     if (await wantExit(ctx)) return;
     const data = ctx.callbackQuery?.data;
     if (!data) return;
@@ -425,6 +437,7 @@ const tarjetaWizard = new Scenes.WizardScene(
 
   /* Paso 8 – Editar banco ------------------------------------------------- */
   async ctx => {
+    console.log('[TARJETA_WIZ] paso 8: editar banco');
     if (await wantExit(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('BN_')) {
       return ctx.reply('Usa los botones para elegir banco.');
@@ -443,6 +456,7 @@ const tarjetaWizard = new Scenes.WizardScene(
 
   /* Paso 9 – Editar moneda ------------------------------------------------ */
   async ctx => {
+    console.log('[TARJETA_WIZ] paso 9: editar moneda');
     if (await wantExit(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('MO_')) {
       return ctx.reply('Usa los botones para elegir moneda.');
@@ -460,6 +474,7 @@ const tarjetaWizard = new Scenes.WizardScene(
 
   /* Paso 10 – Editar número ----------------------------------------------- */
   async ctx => {
+    console.log('[TARJETA_WIZ] paso 10: editar número');
     if (await wantExit(ctx)) return;
     const numero = (ctx.message?.text || '').trim();
     if (!numero) return ctx.reply('Número inválido.');

@@ -4,6 +4,8 @@
 
 const moment = require('moment-timezone');
 const path = require('path');
+// Migrado a HTML parse mode con sanitización centralizada en escapeHtml.
+const { escapeHtml } = require('../helpers/format');
 
 let db;
 try {
@@ -106,14 +108,6 @@ function calcRanges(period, tz) {
   return { start, end, prevStart, prevEnd };
 }
 
-function escapeHtml(str = '') {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 const moneyFmt = new Intl.NumberFormat('es-ES', {
   minimumFractionDigits: 2,
