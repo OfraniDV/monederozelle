@@ -18,8 +18,9 @@ const { escapeHtml } = require('../helpers/format');
 const pool = require('../psql/db.js');
 
 /* ───────── helpers ───────── */
-const kbCancel = Markup.inlineKeyboard([
-  Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')
+const kbBackOrCancel = Markup.inlineKeyboard([
+  [Markup.button.callback('🔙 Volver', 'VOLVER_TA')],
+  [Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')]
 ]);
 
 const kbContinue = Markup.inlineKeyboard([
@@ -147,7 +148,7 @@ async function showTarjetas(ctx) {
 async function askSaldo(ctx, tarjeta) {
   const txt =
     `✏️ <b>Introduce el saldo actual de tu tarjeta</b>\n\n` +
-    `Tarjeta ${escapeHtml(tarjeta.numero)} (saldo anterior: ${escapeHtml((parseFloat(tarjeta.saldo) || 0).toFixed(2))}).\n` +
+    `Tarjeta ${escapeHtml(tarjeta.numero)} (saldo actual: ${escapeHtml((parseFloat(tarjeta.saldo) || 0).toFixed(2))}).\n` +
     'Por favor coloca el saldo actual de tu tarjeta. No te preocupes, te diré si ha aumentado o disminuido y en cuánto.\n\n' +
     'Ejemplo: 1500.50';
   await ctx.telegram.editMessageText(
@@ -155,7 +156,7 @@ async function askSaldo(ctx, tarjeta) {
     ctx.wizard.state.data.msgId,
     undefined,
     txt,
-    { parse_mode: 'HTML', ...kbCancel }
+    { parse_mode: 'HTML', ...kbBackOrCancel }
   );
 }
 
@@ -217,6 +218,16 @@ const saldoWizard = new Scenes.WizardScene(
   async ctx => {
     console.log('[SALDO_WIZ] paso 3: registrar movimiento');
     if (await wantExit(ctx)) return;
+    if (ctx.callbackQuery) {
+      const { data } = ctx.callbackQuery;
+      if (data === 'VOLVER_TA') {
+        await ctx.answerCbQuery().catch(() => {});
+        const ok = await showTarjetas(ctx);
+        if (ok) return ctx.wizard.selectStep(2);
+        return;
+      }
+      return ctx.reply('Usa los botones o escribe el saldo.');
+    }
     const num = parseFloat((ctx.message?.text || '').replace(',', '.'));
     if (isNaN(num)) {
       return ctx.reply('Valor inválido, escribe solo el saldo numérico.');
