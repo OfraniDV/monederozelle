@@ -41,7 +41,7 @@ const registerAgente  = require('./commands/agente');
 const tarjetaWizard   = require('./commands/tarjeta_wizard');
 const saldoWizard     = require('./commands/saldo');
 const tarjetasAssist  = require('./commands/tarjetas_assist');
-const { registerMonitor } = require('./commands/monitor');
+const monitorAssist   = require('./commands/monitor_assist');
 
 /* ───────── 6. Inicializar BD (idempotente) ───────── */
 (async () => {
@@ -50,7 +50,7 @@ const { registerMonitor } = require('./commands/monitor');
 })();
 
 /* ───────── 7. Scenes / Stage ───────── */
-const stage = new Scenes.Stage([tarjetaWizard, saldoWizard, tarjetasAssist], { ttl: 300 });
+const stage = new Scenes.Stage([tarjetaWizard, saldoWizard, tarjetasAssist, monitorAssist], { ttl: 300 });
 bot.use(session());
 bot.use(stage.middleware());
 
@@ -58,7 +58,6 @@ bot.use(stage.middleware());
 registerMoneda(bot, stage);
 registerBanco(bot, stage);
 registerAgente(bot, stage);
-registerMonitor(bot);  
 
 /* ───────── 8. Middleware de verificación de acceso ───────── */
 const verificarAcceso = async (ctx, next) => {
@@ -117,6 +116,7 @@ bot.command('agentes',  (ctx) => ctx.scene.enter('AGENTE_WIZ'));
 bot.command('tarjeta',  (ctx) => ctx.scene.enter('TARJETA_WIZ'));
 bot.command('saldo',    (ctx) => ctx.scene.enter('SALDO_WIZ'));
 bot.command('tarjetas', (ctx) => ctx.scene.enter('TARJETAS_ASSIST'));
+bot.command('monitor',  (ctx) => ctx.scene.enter('MONITOR_ASSIST'));
 
 /* ───────── 13. Gestión de accesos (solo OWNER) ───────── */
 bot.command('daracceso', safe(async (ctx) => {

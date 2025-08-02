@@ -424,11 +424,7 @@ async function runMonitor(ctx, rawText) {
   }
 }
 
-function registerMonitor(bot) {
-  bot.command('monitor', (ctx) => runMonitor(ctx, ctx.message?.text || ''));
-}
-
-module.exports = { registerMonitor, runMonitor };
+module.exports = { runMonitor };
 
 // Comentarios de modificaciones:
 // - Se implementó el comando /monitor con soporte de rangos (día, semana, mes, año).

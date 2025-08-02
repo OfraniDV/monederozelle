@@ -16,14 +16,16 @@ const LINES_PER_PAGE = 12; // Líneas máximas por página
 const MAX_LEN = Telegram.MAX_MESSAGE_LENGTH;
 
 /* ───────── helpers ───────── */
-const fmt = (v, d = 2) =>
-  Number(v || 0).toLocaleString('en-US', {
-    minimumFractionDigits: d,
-    maximumFractionDigits: d,
-  });
-
 const mdEscape = (s) =>
   String(s ?? '').replace(/[_*`[\]()~>#+\-=|{}.!]/g, '\\$&');
+
+const fmt = (v, d = 2) =>
+  mdEscape(
+    Number(v || 0).toLocaleString('en-US', {
+      minimumFractionDigits: d,
+      maximumFractionDigits: d,
+    })
+  );
 
 function paginate(text, linesPerPage = LINES_PER_PAGE) {
   const lines = text.split('\n');
