@@ -7,7 +7,11 @@
 - Gestión de <span style="color:#3498db;">monedas</span>, <span style="color:#2ecc71;">bancos</span>, <span style="color:#e67e22;">agentes</span> y <span style="color:#9b59b6;">tarjetas</span>.
 - Asistentes interactivos con botones para crear, editar y eliminar elementos.
 - Registro de movimientos y saldos con múltiples monedas.
-- Controles de acceso para varios usuarios.
+- Asistente de acceso para agregar o eliminar usuarios permitidos.
+- Formato HTML consistente con sanitización y edición inteligente para evitar errores.
+- Teclados inline de dos botones por fila y navegación con paginación reutilizable.
+- `/tarjetas` permite hacer drill-down por agente o por combinación moneda+banco sin mezclar entidades.
+- `/monitor` combina filtros de periodo, agente y banco, con opción de "Ver en privado".
 
 ## 🚀 Instalación
 
@@ -17,6 +21,15 @@ cd monederozelle
 npm install
 node bot.js
 ```
+
+## 🧩 Helpers comunes
+
+Estas utilidades facilitan la creación de asistentes consistentes:
+
+- `escapeHtml(text)`: sanitiza valores dinámicos para usarlos con `parse_mode: 'HTML'`.
+- `editIfChanged(ctx, text, options)`: evita editar mensajes cuando el contenido no cambia.
+- `buildNavKeyboard(opts)`: genera un teclado de navegación con paginación y controles Volver/Salir.
+- `arrangeInlineButtons(buttons)`: organiza botones en filas de dos para teclados más elegantes.
 
 ## 📚 Uso de comandos
 
@@ -179,22 +192,15 @@ Compara la salud financiera en distintos periodos.
 Resultados del mes actual vs anterior...
 ```
 
-### 🛡️ <span style="color:#c0392b;">/daracceso &lt;user_id&gt;</span>
-Concede acceso a otro usuario.
+### 🛂 <span style="color:#c0392b;">/acceso</span>
+Abre un asistente para listar los usuarios con acceso y permitir añadir o eliminar IDs.
 
 **Ejemplo:**
 ```text
-/daracceso 123456
-✅ Acceso concedido.
-```
-
-### 🚫 <span style="color:#c0392b;">/denegaracceso &lt;user_id&gt;</span>
-Revoca el acceso de un usuario.
-
-**Ejemplo:**
-```text
-/denegaracceso 123456
-❌ Acceso revocado.
+/acceso
+🛂 Usuarios con acceso:
+👤 Juan (123456) 🗑️
+➕ Añadir
 ```
 
 ## 📄 Licencia

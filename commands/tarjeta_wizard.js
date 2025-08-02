@@ -1,8 +1,10 @@
 // commands/tarjeta_wizard.js
 // Migrado a parse mode HTML con escapeHtml para sanear datos dinámicos.
 // Ajustar textos y parse_mode si se requiere volver a Markdown.
+// Los teclados dinámicos usan arrangeInlineButtons para máximo dos botones por fila.
 const { Scenes, Markup } = require('telegraf');
 const { escapeHtml } = require('../helpers/format');
+const { arrangeInlineButtons } = require('../helpers/ui');
 const pool = require('../psql/db.js');
 
 /* Botones comunes */
@@ -20,15 +22,16 @@ async function getBancoKb() {
     await pool.query('SELECT id, codigo, emoji FROM banco ORDER BY codigo')
   ).rows;
   if (!bancos.length) return null;
-  const kb = [
-    [Markup.button.callback('Sin banco', 'BN_NONE')],
-    ...bancos.map(b => [
-      Markup.button.callback(
-        `${b.emoji ? b.emoji + ' ' : ''}${b.codigo}`,
-        `BN_${b.id}`
-      )
-    ])
-  ];
+  const buttons = bancos.map(b =>
+    Markup.button.callback(
+      `${b.emoji ? b.emoji + ' ' : ''}${b.codigo}`,
+      `BN_${b.id}`
+    )
+  );
+  const kb = arrangeInlineButtons([
+    Markup.button.callback('Sin banco', 'BN_NONE'),
+    ...buttons,
+  ]);
   return Markup.inlineKeyboard(kb);
 }
 
@@ -37,13 +40,13 @@ async function getMonedaKb() {
     await pool.query('SELECT id, codigo, emoji FROM moneda ORDER BY codigo')
   ).rows;
   if (!monedas.length) return null;
-  const kb = monedas.map(m => [
+  const buttons = monedas.map(m =>
     Markup.button.callback(
       `${m.emoji ? m.emoji + ' ' : ''}${m.codigo}`,
       `MO_${m.id}`
     )
-  ]);
-  return Markup.inlineKeyboard(kb);
+  );
+  return Markup.inlineKeyboard(arrangeInlineButtons(buttons));
 }
 
 function getEditKb() {
@@ -115,18 +118,8 @@ const tarjetaWizard = new Scenes.WizardScene(
       await ctx.reply('⚠️ No hay agentes. Crea uno con /agentes y vuelve a /tarjeta.');
       return ctx.scene.leave();
     }
-    const kb = [];
-    for (let i = 0; i < agents.length; i += 2) {
-      const row = [
-        Markup.button.callback(agents[i].nombre, `AG_${agents[i].id}`)
-      ];
-      if (agents[i + 1]) {
-        row.push(
-          Markup.button.callback(agents[i + 1].nombre, `AG_${agents[i + 1].id}`)
-        );
-      }
-      kb.push(row);
-    }
+    const buttons = agents.map(a => Markup.button.callback(a.nombre, `AG_${a.id}`));
+    const kb = arrangeInlineButtons(buttons);
     kb.push([Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')]);
     await ctx.reply('👤 Elige agente:', Markup.inlineKeyboard(kb));
     return ctx.wizard.next();

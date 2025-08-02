@@ -8,6 +8,7 @@
  * - Menú jerárquico para elegir periodo, agente y banco con posibilidad de
  *   combinar filtros.
  * - Botón "💬 Ver en privado" cuando se ejecuta en grupos.
+ * - Distribución de botones en filas de dos usando arrangeInlineButtons.
  *
  * Todo el texto dinámico se sanitiza con escapeHtml y se usa parse_mode HTML.
  *
@@ -19,7 +20,11 @@
 
 const { Scenes, Markup } = require('telegraf');
 const { escapeHtml } = require('../helpers/format');
-const { editIfChanged, buildBackExitRow } = require('../helpers/ui');
+const {
+  editIfChanged,
+  buildBackExitRow,
+  arrangeInlineButtons,
+} = require('../helpers/ui');
 const pool = require('../psql/db.js');
 const { runMonitor } = require('./monitor');
 
@@ -48,17 +53,18 @@ async function showMain(ctx) {
     `Agente: <b>${escapeHtml(f.agenteNombre || 'Todos')}</b>\n` +
     `Banco: <b>${escapeHtml(f.bancoNombre || 'Todos')}</b>\n\n` +
     'Selecciona un filtro o ejecuta el reporte:';
-  const kb = [
-    [Markup.button.callback('📆 Periodo', 'PERIOD')],
-    [Markup.button.callback('👤 Agente', 'AGENT')],
-    [Markup.button.callback('🏦 Banco', 'BANK')],
-    [Markup.button.callback('🔍 Consultar', 'RUN')],
+  const buttons = [
+    Markup.button.callback('📆 Periodo', 'PERIOD'),
+    Markup.button.callback('👤 Agente', 'AGENT'),
+    Markup.button.callback('🏦 Banco', 'BANK'),
+    Markup.button.callback('🔍 Consultar', 'RUN'),
   ];
   if (ctx.chat.type !== 'private') {
-    kb.push([Markup.button.callback('💬 Ver en privado', 'PRIVATE')]);
+    buttons.push(Markup.button.callback('💬 Ver en privado', 'PRIVATE'));
   }
-  kb.push([Markup.button.callback('❌ Salir', 'EXIT')]);
-  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, text, {
+  buttons.push(Markup.button.callback('❌ Salir', 'EXIT'));
+  const kb = arrangeInlineButtons(buttons);
+  await editIfChanged(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: kb },
   });
@@ -66,17 +72,18 @@ async function showMain(ctx) {
 }
 
 async function showPeriodMenu(ctx) {
-  const kb = Markup.inlineKeyboard([
-    [Markup.button.callback('📊 Día', 'PER_dia')],
-    [Markup.button.callback('📆 Semana', 'PER_semana')],
-    [Markup.button.callback('📅 Mes', 'PER_mes')],
-    [Markup.button.callback('🗓 Año', 'PER_ano')],
-    buildBackExitRow(),
-  ]);
+  const buttons = [
+    Markup.button.callback('📊 Día', 'PER_dia'),
+    Markup.button.callback('📆 Semana', 'PER_semana'),
+    Markup.button.callback('📅 Mes', 'PER_mes'),
+    Markup.button.callback('🗓 Año', 'PER_ano'),
+  ];
+  const kb = arrangeInlineButtons(buttons);
+  kb.push(buildBackExitRow());
   const text = 'Selecciona el periodo:';
-  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, text, {
+  await editIfChanged(ctx, text, {
     parse_mode: 'HTML',
-    ...kb,
+    reply_markup: { inline_keyboard: kb },
   });
   ctx.wizard.state.route = 'PERIOD';
 }
@@ -85,16 +92,19 @@ async function showAgentMenu(ctx) {
   const rows = (
     await pool.query('SELECT id,nombre,emoji FROM agente ORDER BY nombre')
   ).rows;
-  const kb = rows.map((a) => [
-    Markup.button.callback(
-      `${a.emoji ? a.emoji + ' ' : ''}${escapeHtml(a.nombre)}`,
-      `AG_${a.id}`
+  const buttons = [
+    Markup.button.callback('Todos', 'AG_0'),
+    ...rows.map((a) =>
+      Markup.button.callback(
+        `${a.emoji ? a.emoji + ' ' : ''}${escapeHtml(a.nombre)}`,
+        `AG_${a.id}`
+      )
     ),
-  ]);
-  kb.unshift([Markup.button.callback('Todos', 'AG_0')]);
+  ];
+  const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
   const text = 'Selecciona el agente:';
-  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, text, {
+  await editIfChanged(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: kb },
   });
@@ -106,16 +116,19 @@ async function showBankMenu(ctx) {
   const rows = (
     await pool.query('SELECT id,codigo,emoji FROM banco ORDER BY codigo')
   ).rows;
-  const kb = rows.map((b) => [
-    Markup.button.callback(
-      `${b.emoji ? b.emoji + ' ' : ''}${escapeHtml(b.codigo)}`,
-      `BK_${b.id}`
+  const buttons = [
+    Markup.button.callback('Todos', 'BK_0'),
+    ...rows.map((b) =>
+      Markup.button.callback(
+        `${b.emoji ? b.emoji + ' ' : ''}${escapeHtml(b.codigo)}`,
+        `BK_${b.id}`
+      )
     ),
-  ]);
-  kb.unshift([Markup.button.callback('Todos', 'BK_0')]);
+  ];
+  const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
   const text = 'Selecciona el banco:';
-  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, text, {
+  await editIfChanged(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: kb },
   });
@@ -150,7 +163,7 @@ const monitorAssist = new Scenes.WizardScene(
           let cmd = `/monitor ${f.period}`;
           if (f.agenteId) cmd += ` --agente=${f.agenteId}`;
           if (f.bancoId) cmd += ` --banco=${f.bancoId}`;
-          await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, 'Generando reporte...', { parse_mode: 'HTML' });
+          await editIfChanged(ctx, 'Generando reporte...', { parse_mode: 'HTML' });
           await runMonitor(ctx, cmd);
           return ctx.scene.leave();
         }
