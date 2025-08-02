@@ -204,6 +204,15 @@ Compara la salud financiera en distintos periodos. Desde el asistente puedes fil
 Resultados del mes actual vs anterior...
 ```
 
+### 📄 <span style="color:#34495e;">/extracto</span>
+Muestra un extracto bancario por tarjeta basado en los movimientos registrados. Permite filtrar por agente o banco y elegir el periodo (día, semana o mes).
+
+**Ejemplo:**
+```text
+/extracto
+Selecciona un agente...
+```
+
 ### 🛂 <span style="color:#c0392b;">/acceso</span>
 Abre un asistente para listar los usuarios con acceso y permitir añadir o eliminar IDs.
 

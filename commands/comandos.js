@@ -99,7 +99,8 @@ const comandos = [
   },
   {
     nombre: 'extracto',
-    descripcion: 'Ver un extracto bancario por tarjeta. Permite filtrar por agente o banco y escoger periodo (día, semana, mes).',
+    descripcion:
+      'Ver un extracto bancario por tarjeta basado en los movimientos registrados. Permite filtrar por agente o banco y escoger periodo (día, semana, mes).',
     permiso: 'Propietario o usuario con acceso',
     uso: '/extracto'
   },
