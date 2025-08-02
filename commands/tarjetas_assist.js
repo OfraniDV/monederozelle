@@ -3,12 +3,17 @@
  *
  * Asistente interactivo para listar tarjetas en un solo mensaje.
  *
+ * Migrado a parse mode HTML. El helper escapeHtml se encarga de sanear los
+ * valores dinámicos para evitar errores de parseo e inyecciones. Si se
+ * necesitara volver a Markdown, ajustar los textos y parse_mode.
+ *
  * README: Ajusta `LINES_PER_PAGE` para cambiar cuántas líneas se muestran
  * por página. Para añadir nuevas vistas al menú principal, agrega una
  * opción en `showMenu` y maneja su lógica en `buildView`.
  */
 
 const { Scenes, Markup, Telegram } = require('telegraf');
+const { escapeHtml } = require('../helpers/format');
 const pool = require('../psql/db.js');
 
 /* Configuración */
@@ -16,11 +21,8 @@ const LINES_PER_PAGE = 12; // Líneas máximas por página
 const MAX_LEN = Telegram.MAX_MESSAGE_LENGTH;
 
 /* ───────── helpers ───────── */
-const mdEscape = (s) =>
-  String(s ?? '').replace(/[_*`[\]()~>#+\-=|{}.!]/g, '\\$&');
-
 const fmt = (v, d = 2) =>
-  mdEscape(
+  escapeHtml(
     Number(v || 0).toLocaleString('en-US', {
       minimumFractionDigits: d,
       maximumFractionDigits: d,
@@ -59,7 +61,7 @@ async function wantExit(ctx) {
         msgId,
         undefined,
         '❌ Operación cancelada.',
-        { parse_mode: 'MarkdownV2' }
+        { parse_mode: 'HTML' }
       );
     } else {
       await ctx.reply('❌ Operación cancelada.');
@@ -77,7 +79,7 @@ async function wantExit(ctx) {
           msgId,
           undefined,
           '❌ Operación cancelada.',
-          { parse_mode: 'MarkdownV2' }
+          { parse_mode: 'HTML' }
         );
       } else {
         await ctx.reply('❌ Operación cancelada.');
@@ -111,8 +113,8 @@ async function showMenu(ctx) {
     [Markup.button.callback('🧮 Resumen USD global', 'VIEW_SUM')],
     [Markup.button.callback('❌ Salir', 'EXIT')],
   ]);
-  const text = '💳 *Tarjetas*\nElige la vista deseada:';
-  const extra = { parse_mode: 'MarkdownV2', ...kb };
+  const text = '💳 <b>Tarjetas</b>\nElige la vista deseada:';
+  const extra = { parse_mode: 'HTML', ...kb };
   const msgId = ctx.wizard.state.msgId;
   if (msgId) {
     await ctx.telegram.editMessageText(ctx.chat.id, msgId, undefined, text, extra);
@@ -131,7 +133,7 @@ function renderPage(ctx) {
     ctx.wizard.state.msgId,
     undefined,
     text,
-    { parse_mode: 'MarkdownV2', ...navKeyboard(pages.length) }
+    { parse_mode: 'HTML', ...navKeyboard(pages.length) }
   );
 }
 
@@ -212,44 +214,44 @@ async function buildView(view) {
     for (const [monCode, info] of Object.entries(byMon)) {
       const neto = info.totalPos + info.totalNeg;
       if (neto === 0) continue;
-      let msg = `💱 *Moneda:* ${info.emoji} ${mdEscape(monCode)}\n\n`;
-      msg += `📊 *Subtotales por banco:*\n`;
+      let msg = `💱 <b>Moneda:</b> ${info.emoji} ${escapeHtml(monCode)}\n\n`;
+      msg += `📊 <b>Subtotales por banco:</b>\n`;
       Object.entries(info.banks)
         .filter(([, d]) => d.pos + d.neg !== 0)
         .sort(([a], [b]) => a.localeCompare(b))
         .forEach(([bankCode, data]) => {
-          msg += `\n${data.emoji} *${mdEscape(bankCode)}*\n`;
+          msg += `\n${data.emoji} <b>${escapeHtml(bankCode)}</b>\n`;
           data.filas
             .filter((f) => f.saldo !== 0)
             .forEach((r) => {
-              const agTxt = `${r.agente_emoji ? r.agente_emoji + ' ' : ''}${mdEscape(r.agente)}`;
-              const monTx = `${r.moneda_emoji ? r.moneda_emoji + ' ' : ''}${mdEscape(r.moneda)}`;
-              msg += `• ${mdEscape(r.numero)} – ${agTxt} – ${monTx} ⇒ ${fmt(r.saldo)}\n`;
+              const agTxt = `${r.agente_emoji ? r.agente_emoji + ' ' : ''}${escapeHtml(r.agente)}`;
+              const monTx = `${r.moneda_emoji ? r.moneda_emoji + ' ' : ''}${escapeHtml(r.moneda)}`;
+              msg += `• ${escapeHtml(r.numero)} – ${agTxt} – ${monTx} ⇒ ${fmt(r.saldo)}\n`;
             });
           if (data.pos)
-            msg += `  _Subtotal ${mdEscape(bankCode)} (activo):_ ${fmt(data.pos)} ${mdEscape(monCode)}\n`;
+            msg += `  <i>Subtotal ${escapeHtml(bankCode)} (activo):</i> ${fmt(data.pos)} ${escapeHtml(monCode)}\n`;
           if (data.neg)
-            msg += `  _Subtotal ${mdEscape(bankCode)} (deuda):_ ${fmt(data.neg)} ${mdEscape(monCode)}\n`;
+            msg += `  <i>Subtotal ${escapeHtml(bankCode)} (deuda):</i> ${fmt(data.neg)} ${escapeHtml(monCode)}\n`;
         });
       const rateToUsd = fmt(info.rate, 6);
       const rateFromUsd = fmt(1 / info.rate, 2);
       const activeUsd = info.totalPos * info.rate;
       const debtUsd = info.totalNeg * info.rate;
       const netoUsd = activeUsd + debtUsd;
-      msg += `\n*Total activo:* ${fmt(info.totalPos)}\n`;
-      if (info.totalNeg) msg += `*Total deuda:* ${fmt(info.totalNeg)}\n`;
-      msg += `*Neto:* ${fmt(neto)}\n`;
-      msg += `\n*Equivalente activo en USD:* ${fmt(activeUsd)}\n`;
-      if (info.totalNeg) msg += `*Equivalente deuda en USD:* ${fmt(debtUsd)}\n`;
-      msg += `*Equivalente neto en USD:* ${fmt(netoUsd)}\n`;
-      msg += `\n_Tasa usada:_\n`;
-      msg += `  • 1 ${mdEscape(monCode)} = ${rateToUsd} USD\n`;
-      msg += `  • 1 USD ≈ ${rateFromUsd} ${mdEscape(monCode)}`;
+      msg += `\n<b>Total activo:</b> ${fmt(info.totalPos)}\n`;
+      if (info.totalNeg) msg += `<b>Total deuda:</b> ${fmt(info.totalNeg)}\n`;
+      msg += `<b>Neto:</b> ${fmt(neto)}\n`;
+      msg += `\n<b>Equivalente activo en USD:</b> ${fmt(activeUsd)}\n`;
+      if (info.totalNeg) msg += `<b>Equivalente deuda en USD:</b> ${fmt(debtUsd)}\n`;
+      msg += `<b>Equivalente neto en USD:</b> ${fmt(netoUsd)}\n`;
+      msg += `\n<i>Tasa usada:</i>\n`;
+      msg += `  • 1 ${escapeHtml(monCode)} = ${rateToUsd} USD\n`;
+      msg += `  • 1 USD ≈ ${rateFromUsd} ${escapeHtml(monCode)}`;
       blocks.push(msg);
     }
     const body = blocks.join('\n\n');
     const text = body
-      ? `📊 *Por moneda y banco*\n\n${body}`
+      ? `📊 <b>Por moneda y banco</b>\n\n${body}`
       : 'No hay tarjetas registradas todavía.';
     return paginate(text);
   }
@@ -261,42 +263,42 @@ async function buildView(view) {
     });
     for (const [agName, agData] of Object.entries(agentMap)) {
       if (agData.totalUsd === 0) continue;
-      let agMsg = `📅 *${mdEscape(today)}*\n`;
-      agMsg += `👤 *Resumen de ${agData.emoji ? agData.emoji + ' ' : ''}${mdEscape(agName)}*\n\n`;
+      let agMsg = `📅 <b>${escapeHtml(today)}</b>\n`;
+      agMsg += `👤 <b>Resumen de ${agData.emoji ? agData.emoji + ' ' : ''}${escapeHtml(agName)}</b>\n\n`;
       Object.entries(agData.perMon)
         .filter(([, m]) => m.total !== 0)
         .forEach(([monCode, mData]) => {
           const line =
-            `${mData.emoji} *${mdEscape(monCode)}*: ${fmt(mData.total)} ` +
+            `${mData.emoji} <b>${escapeHtml(monCode)}</b>: ${fmt(mData.total)} ` +
             `(≈ ${fmt(mData.total * mData.rate)} USD)`;
           agMsg += line + '\n';
           mData.filas
             .filter((f) => f.saldo !== 0)
             .forEach((r) => {
               const deuda = r.saldo < 0 ? ' (deuda)' : '';
-              agMsg += `   • ${mdEscape(r.numero)} ⇒ ${fmt(r.saldo)}${deuda}\n`;
+              agMsg += `   • ${escapeHtml(r.numero)} ⇒ ${fmt(r.saldo)}${deuda}\n`;
             });
           agMsg += '\n';
         });
-      agMsg += `*Total en USD:* ${fmt(agData.totalUsd)}`;
+      agMsg += `<b>Total en USD:</b> ${fmt(agData.totalUsd)}`;
       blocks.push(agMsg);
     }
     const body = blocks.join('\n\n');
     const text = body
-      ? `👤 *Por agente*\n\n${body}`
+      ? `👤 <b>Por agente</b>\n\n${body}`
       : 'No hay tarjetas registradas todavía.';
     return paginate(text);
   }
 
   if (view === 'VIEW_SUM') {
-    let resumen = '🧮 *Resumen general en USD*\n';
+    let resumen = '🧮 <b>Resumen general en USD</b>\n';
     Object.entries(bankUsd)
       .filter(([, usd]) => usd !== 0)
       .sort(([a], [b]) => a.localeCompare(b))
       .forEach(([bank, usd]) => {
-        resumen += `• *${mdEscape(bank)}*: ${fmt(usd)} USD\n`;
+        resumen += `• <b>${escapeHtml(bank)}</b>: ${fmt(usd)} USD\n`;
       });
-    resumen += `\n*Total general:* ${fmt(globalUsd)} USD`;
+    resumen += `\n<b>Total general:</b> ${fmt(globalUsd)} USD`;
     return paginate(resumen);
   }
 
@@ -309,12 +311,14 @@ const tarjetasAssist = new Scenes.WizardScene(
 
   /* Paso 0 – menú inicial */
   async (ctx) => {
+    console.log('[TARJETAS_ASSIST] paso 0: menú inicial');
     await showMenu(ctx);
     return ctx.wizard.next();
   },
 
   /* Paso 1 – elegir vista y mostrar página 0 */
   async (ctx) => {
+    console.log('[TARJETAS_ASSIST] paso 1: elegir vista');
     if (await wantExit(ctx)) return;
     const choice = ctx.callbackQuery?.data;
     if (!choice?.startsWith('VIEW_')) return ctx.reply('Usa los botones.');
@@ -329,6 +333,7 @@ const tarjetasAssist = new Scenes.WizardScene(
 
   /* Paso 2 – navegación */
   async (ctx) => {
+    console.log('[TARJETAS_ASSIST] paso 2: navegación');
     if (await wantExit(ctx)) return;
     const data = ctx.callbackQuery?.data;
     if (!data) return;

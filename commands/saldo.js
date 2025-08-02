@@ -1,5 +1,9 @@
 // commands/saldo.js
 //
+// Migrado a parse mode HTML. Se usa escapeHtml para sanear datos dinámicos y
+// evitar errores de parseo. Si se necesitara volver a Markdown, ajustar los
+// constructores de texto y parse_mode en las llamadas a Telegram.
+//
 // 1) El usuario elige AGENTE.
 // 2) Se muestran sus tarjetas con el saldo actual  ➜ elige una.
 // 3) Escribe el SALDO ACTUAL (número).            ➜ el bot calcula ↑/↓ y registra
@@ -10,6 +14,7 @@
 // Requiere que las tablas ya existan con las columnas definidas en initWalletSchema.
 
 const { Scenes, Markup } = require('telegraf');
+const { escapeHtml } = require('../helpers/format');
 const pool = require('../psql/db.js');
 
 /* ───────── helpers ───────── */
@@ -64,8 +69,8 @@ async function showAgentes(ctx) {
   }
   kb.push([Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')]);
 
-  const txt = '👥 *Seleccione uno de los Agentes disponibles*';
-  const extra = { parse_mode: 'Markdown', ...Markup.inlineKeyboard(kb) };
+  const txt = '👥 <b>Seleccione uno de los Agentes disponibles</b>';
+  const extra = { parse_mode: 'HTML', ...Markup.inlineKeyboard(kb) };
 
   const msgId = ctx.wizard.state.data?.msgId;
   if (msgId) {
@@ -111,7 +116,7 @@ async function showTarjetas(ctx) {
       ctx.wizard.state.data.msgId,
       undefined,
       'Este agente todavía no tiene tarjetas.',
-      { parse_mode: 'Markdown' }
+      { parse_mode: 'HTML' }
     );
     await ctx.scene.leave();
     return false;
@@ -127,13 +132,13 @@ async function showTarjetas(ctx) {
     Markup.button.callback('👥 Agentes', 'OTROS_AG'),
     Markup.button.callback('🚪 Salir', 'GLOBAL_CANCEL')
   ]);
-  const txt = `💳 *Tarjetas de ${agente_nombre}*`;
+  const txt = `💳 <b>Tarjetas de ${escapeHtml(agente_nombre)}</b>`;
   await ctx.telegram.editMessageText(
     ctx.chat.id,
     ctx.wizard.state.data.msgId,
     undefined,
     txt,
-    { parse_mode: 'Markdown', ...Markup.inlineKeyboard(kb) }
+    { parse_mode: 'HTML', ...Markup.inlineKeyboard(kb) }
   );
   ctx.wizard.state.data.tarjetas = tarjetas; // caché
   return true;
@@ -141,16 +146,16 @@ async function showTarjetas(ctx) {
 
 async function askSaldo(ctx, tarjeta) {
   const txt =
-    `✏️ *Introduce el saldo actual de tu tarjeta*\n\n` +
-    `Tarjeta ${tarjeta.numero} (saldo anterior: ${tarjeta.saldo}).\n` +
-    `Por favor coloca el saldo actual de tu tarjeta. No te preocupes, te diré si ha aumentado o disminuido y en cuánto.\n\n` +
-    `Ejemplo: 1500.50`;
+    `✏️ <b>Introduce el saldo actual de tu tarjeta</b>\n\n` +
+    `Tarjeta ${escapeHtml(tarjeta.numero)} (saldo anterior: ${escapeHtml(tarjeta.saldo)}).\n` +
+    'Por favor coloca el saldo actual de tu tarjeta. No te preocupes, te diré si ha aumentado o disminuido y en cuánto.\n\n' +
+    'Ejemplo: 1500.50';
   await ctx.telegram.editMessageText(
     ctx.chat.id,
     ctx.wizard.state.data.msgId,
     undefined,
     txt,
-    { parse_mode: 'Markdown', ...kbCancel }
+    { parse_mode: 'HTML', ...kbCancel }
   );
 }
 
@@ -160,6 +165,7 @@ const saldoWizard = new Scenes.WizardScene(
 
   /* 0 – mostrar agentes */
   async ctx => {
+    console.log('[SALDO_WIZ] paso 0: mostrar agentes');
     const ok = await showAgentes(ctx);
     if (!ok) return ctx.scene.leave();
     return ctx.wizard.next();
@@ -167,6 +173,7 @@ const saldoWizard = new Scenes.WizardScene(
 
   /* 1 – elegir tarjeta del agente */
   async ctx => {
+    console.log('[SALDO_WIZ] paso 1: elegir tarjeta');
     if (await wantExit(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('AG_')) {
       return ctx.reply('Usa los botones para seleccionar agente.');
@@ -184,6 +191,7 @@ const saldoWizard = new Scenes.WizardScene(
 
   /* 2 – pedir saldo actual */
   async ctx => {
+    console.log('[SALDO_WIZ] paso 2: pedir saldo actual');
     if (await wantExit(ctx)) return;
     if (!ctx.callbackQuery) return;
     const { data } = ctx.callbackQuery;
@@ -207,6 +215,7 @@ const saldoWizard = new Scenes.WizardScene(
 
   /* 3 – registrar movimiento y preguntar continuación */
   async ctx => {
+    console.log('[SALDO_WIZ] paso 3: registrar movimiento');
     if (await wantExit(ctx)) return;
     const num = parseFloat((ctx.message?.text || '').replace(',', '.'));
     if (isNaN(num)) {
@@ -236,15 +245,15 @@ const saldoWizard = new Scenes.WizardScene(
       const signo =
         delta > 0 ? '📈 Aumentó' : delta < 0 ? '📉 Disminuyó' : '➖ Sin cambio';
       const txt =
-        `${signo} ${Math.abs(delta).toFixed(2)} ${tarjeta.moneda}.\n` +
-        `Saldo nuevo de *${tarjeta.numero}*: ${saldoNuevo.toFixed(2)} ${tarjeta.moneda}.\n\n` +
-        `¿Deseas actualizar otra tarjeta?`;
+        `${signo} ${escapeHtml(Math.abs(delta).toFixed(2))} ${escapeHtml(tarjeta.moneda)}.\n` +
+        `Saldo nuevo de <b>${escapeHtml(tarjeta.numero)}</b>: ${escapeHtml(saldoNuevo.toFixed(2))} ${escapeHtml(tarjeta.moneda)}.\n\n` +
+        '¿Deseas actualizar otra tarjeta?';
       await ctx.telegram.editMessageText(
         ctx.chat.id,
         ctx.wizard.state.data.msgId,
         undefined,
         txt,
-        { parse_mode: 'Markdown', ...kbContinue }
+        { parse_mode: 'HTML', ...kbContinue }
       );
     } catch (e) {
       console.error('[SALDO_WIZ] error insert movimiento:', e);
@@ -257,6 +266,7 @@ const saldoWizard = new Scenes.WizardScene(
 
   /* 4 – decidir si continuar o salir */
   async ctx => {
+    console.log('[SALDO_WIZ] paso 4: continuar o salir');
     if (await wantExit(ctx)) return;
     if (!ctx.callbackQuery) return;
     const { data } = ctx.callbackQuery;
