@@ -1,62 +1,200 @@
 /**
  * commands/monitor_assist.js
  *
- * Wizard interactivo para el comando /monitor.
- * Muestra un menú de periodos y delega en runMonitor para generar los reportes.
+ * Wizard interactivo para /monitor con filtros combinables.
+ *
+ * Correcciones:
+ * - Uso de editIfChanged para evitar errores de "message is not modified".
+ * - Menú jerárquico para elegir periodo, agente y banco con posibilidad de
+ *   combinar filtros.
+ * - Botón "💬 Ver en privado" cuando se ejecuta en grupos.
+ *
+ * Todo el texto dinámico se sanitiza con escapeHtml y se usa parse_mode HTML.
+ *
+ * Casos de prueba manuales:
+ * - Combinar filtros: seleccionar periodo y agente, ejecutar y volver.
+ * - Usar en grupo y presionar "Ver en privado".
+ * - Navegación entre menús sin crear mensajes nuevos ni errores 400.
  */
 
-// Migrado a HTML parse mode; escapeHtml centraliza la sanitización de datos
-// dinámicos. Para un fallback a Markdown, ajustar los textos y parse_mode.
 const { Scenes, Markup } = require('telegraf');
 const { escapeHtml } = require('../helpers/format');
+const { editIfChanged, buildBackExitRow } = require('../helpers/ui');
+const pool = require('../psql/db.js');
 const { runMonitor } = require('./monitor');
 
-function mainMenu() {
-  return Markup.inlineKeyboard([
+async function wantExit(ctx) {
+  if (ctx.callbackQuery?.data === 'EXIT') {
+    await ctx.answerCbQuery().catch(() => {});
+    const msgId = ctx.wizard.state.msgId;
+    await ctx.telegram.editMessageText(
+      ctx.chat.id,
+      msgId,
+      undefined,
+      '❌ Operación cancelada.',
+      { parse_mode: 'HTML' }
+    );
+    await ctx.scene.leave();
+    return true;
+  }
+  return false;
+}
+
+async function showMain(ctx) {
+  const f = ctx.wizard.state.filters;
+  const text =
+    `📈 <b>Monitor</b>\n` +
+    `Periodo: <b>${escapeHtml(f.period)}</b>\n` +
+    `Agente: <b>${escapeHtml(f.agenteNombre || 'Todos')}</b>\n` +
+    `Banco: <b>${escapeHtml(f.bancoNombre || 'Todos')}</b>\n\n` +
+    'Selecciona un filtro o ejecuta el reporte:';
+  const kb = [
+    [Markup.button.callback('📆 Periodo', 'PERIOD')],
+    [Markup.button.callback('👤 Agente', 'AGENT')],
+    [Markup.button.callback('🏦 Banco', 'BANK')],
+    [Markup.button.callback('🔍 Consultar', 'RUN')],
+  ];
+  if (ctx.chat.type !== 'private') {
+    kb.push([Markup.button.callback('💬 Ver en privado', 'PRIVATE')]);
+  }
+  kb.push([Markup.button.callback('❌ Salir', 'EXIT')]);
+  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, text, {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: kb },
+  });
+  ctx.wizard.state.route = 'MAIN';
+}
+
+async function showPeriodMenu(ctx) {
+  const kb = Markup.inlineKeyboard([
     [Markup.button.callback('📊 Día', 'PER_dia')],
     [Markup.button.callback('📆 Semana', 'PER_semana')],
     [Markup.button.callback('📅 Mes', 'PER_mes')],
     [Markup.button.callback('🗓 Año', 'PER_ano')],
-    [Markup.button.callback('❌ Salir', 'EXIT')],
+    buildBackExitRow(),
   ]);
+  const text = 'Selecciona el periodo:';
+  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, text, {
+    parse_mode: 'HTML',
+    ...kb,
+  });
+  ctx.wizard.state.route = 'PERIOD';
 }
 
+async function showAgentMenu(ctx) {
+  const rows = (
+    await pool.query('SELECT id,nombre,emoji FROM agente ORDER BY nombre')
+  ).rows;
+  const kb = rows.map((a) => [
+    Markup.button.callback(
+      `${a.emoji ? a.emoji + ' ' : ''}${escapeHtml(a.nombre)}`,
+      `AG_${a.id}`
+    ),
+  ]);
+  kb.unshift([Markup.button.callback('Todos', 'AG_0')]);
+  kb.push(buildBackExitRow());
+  const text = 'Selecciona el agente:';
+  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, text, {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: kb },
+  });
+  ctx.wizard.state.route = 'AGENT';
+  ctx.wizard.state.tmpAgents = rows; // para buscar nombre luego
+}
+
+async function showBankMenu(ctx) {
+  const rows = (
+    await pool.query('SELECT id,codigo,emoji FROM banco ORDER BY codigo')
+  ).rows;
+  const kb = rows.map((b) => [
+    Markup.button.callback(
+      `${b.emoji ? b.emoji + ' ' : ''}${escapeHtml(b.codigo)}`,
+      `BK_${b.id}`
+    ),
+  ]);
+  kb.unshift([Markup.button.callback('Todos', 'BK_0')]);
+  kb.push(buildBackExitRow());
+  const text = 'Selecciona el banco:';
+  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, text, {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: kb },
+  });
+  ctx.wizard.state.route = 'BANK';
+  ctx.wizard.state.tmpBanks = rows;
+}
+
+/* ───────── Wizard ───────── */
 const monitorAssist = new Scenes.WizardScene(
   'MONITOR_ASSIST',
   async (ctx) => {
-    console.log('[MONITOR_ASSIST] paso 0: menú de periodos');
-    const msg = await ctx.reply(
-      '📈 <b>Monitor</b>\nElige el periodo que deseas consultar:',
-      { parse_mode: 'HTML', ...mainMenu() }
-    );
+    console.log('[MONITOR_ASSIST] paso 0: menú principal');
+    const msg = await ctx.reply('Cargando…', { parse_mode: 'HTML' });
     ctx.wizard.state.msgId = msg.message_id;
+    ctx.wizard.state.filters = { period: 'dia' };
+    await showMain(ctx);
     return ctx.wizard.next();
   },
   async (ctx) => {
-    console.log('[MONITOR_ASSIST] paso 1: ejecutar monitor');
+    if (await wantExit(ctx)) return;
     const data = ctx.callbackQuery?.data;
     if (!data) return;
     await ctx.answerCbQuery().catch(() => {});
-    if (data === 'EXIT') {
-      await ctx.telegram.editMessageText(
-        ctx.chat.id,
-        ctx.wizard.state.msgId,
-        undefined,
-        '❌ Operación cancelada.',
-        { parse_mode: 'HTML' }
-      );
-      return ctx.scene.leave();
+    const route = ctx.wizard.state.route;
+    switch (route) {
+      case 'MAIN':
+        if (data === 'PERIOD') return showPeriodMenu(ctx);
+        if (data === 'AGENT') return showAgentMenu(ctx);
+        if (data === 'BANK') return showBankMenu(ctx);
+        if (data === 'RUN') {
+          const f = ctx.wizard.state.filters;
+          let cmd = `/monitor ${f.period}`;
+          if (f.agenteId) cmd += ` --agente=${f.agenteId}`;
+          if (f.bancoId) cmd += ` --banco=${f.bancoId}`;
+          await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, 'Generando reporte...', { parse_mode: 'HTML' });
+          await runMonitor(ctx, cmd);
+          return ctx.scene.leave();
+        }
+        if (data === 'PRIVATE') {
+          const username = ctx.botInfo?.username;
+          if (username) {
+            await ctx.reply(`💬 https://t.me/${username}`);
+          }
+          return showMain(ctx);
+        }
+        break;
+      case 'PERIOD':
+        if (data === 'BACK') return showMain(ctx);
+        if (data.startsWith('PER_')) {
+          const period = data.split('_')[1];
+          ctx.wizard.state.filters.period = period;
+          return showMain(ctx);
+        }
+        break;
+      case 'AGENT':
+        if (data === 'BACK') return showMain(ctx);
+        if (data.startsWith('AG_')) {
+          const id = +data.split('_')[1];
+          ctx.wizard.state.filters.agenteId = id || null;
+          ctx.wizard.state.filters.agenteNombre = id
+            ? ctx.wizard.state.tmpAgents.find((a) => a.id === id)?.nombre || ''
+            : 'Todos';
+          return showMain(ctx);
+        }
+        break;
+      case 'BANK':
+        if (data === 'BACK') return showMain(ctx);
+        if (data.startsWith('BK_')) {
+          const id = +data.split('_')[1];
+          ctx.wizard.state.filters.bancoId = id || null;
+          ctx.wizard.state.filters.bancoNombre = id
+            ? ctx.wizard.state.tmpBanks.find((b) => b.id === id)?.codigo || ''
+            : 'Todos';
+          return showMain(ctx);
+        }
+        break;
+      default:
+        break;
     }
-    const periodo = escapeHtml(data.split('_')[1]);
-    await ctx.telegram.editMessageText(
-      ctx.chat.id,
-      ctx.wizard.state.msgId,
-      undefined,
-      'Generando reporte...',
-      { parse_mode: 'HTML' }
-    );
-    await runMonitor(ctx, `/monitor ${periodo}`);
-    return ctx.scene.leave();
   }
 );
 
