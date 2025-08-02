@@ -205,7 +205,7 @@ Resultados del mes actual vs anterior...
 ```
 
 ### 📄 <span style="color:#34495e;">/extracto</span>
-Muestra un extracto bancario por tarjeta basado en los movimientos registrados. Permite filtrar por agente o banco y elegir el periodo (día, semana o mes).
+Genera un extracto bancario con filtros combinables. Puedes elegir el agente y luego filtrar por moneda, banco o tarjeta, con botones de **Todos** para obtener resúmenes globales. El reporte indica entradas, salidas, saldo actual y su equivalente en USD para cada moneda.
 
 **Ejemplo:**
 ```text
