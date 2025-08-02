@@ -5,7 +5,7 @@
  *
  * Correcciones:
  * - Uso de editIfChanged para evitar errores de "message is not modified".
- * - Menú jerárquico para elegir periodo, agente y banco con posibilidad de
+ * - Menú jerárquico para elegir periodo, moneda, agente y banco con posibilidad de
  *   combinar filtros.
  * - Botón "💬 Ver en privado" cuando se ejecuta en grupos.
  * - Distribución de botones en filas de dos usando arrangeInlineButtons.
@@ -50,11 +50,13 @@ async function showMain(ctx) {
   const text =
     `📈 <b>Monitor</b>\n` +
     `Periodo: <b>${escapeHtml(f.period)}</b>\n` +
+    `Moneda: <b>${escapeHtml(f.monedaNombre || 'Todas')}</b>\n` +
     `Agente: <b>${escapeHtml(f.agenteNombre || 'Todos')}</b>\n` +
     `Banco: <b>${escapeHtml(f.bancoNombre || 'Todos')}</b>\n\n` +
     'Selecciona un filtro o ejecuta el reporte:';
   const buttons = [
     Markup.button.callback('📆 Periodo', 'PERIOD'),
+    Markup.button.callback('💱 Moneda', 'CURR'),
     Markup.button.callback('👤 Agente', 'AGENT'),
     Markup.button.callback('🏦 Banco', 'BANK'),
     Markup.button.callback('🔍 Consultar', 'RUN'),
@@ -136,6 +138,30 @@ async function showBankMenu(ctx) {
   ctx.wizard.state.tmpBanks = rows;
 }
 
+async function showCurrMenu(ctx) {
+  const rows = (
+    await pool.query('SELECT id,codigo,emoji FROM moneda ORDER BY codigo')
+  ).rows;
+  const buttons = [
+    Markup.button.callback('Todas', 'MO_0'),
+    ...rows.map((m) =>
+      Markup.button.callback(
+        `${m.emoji ? m.emoji + ' ' : ''}${escapeHtml(m.codigo)}`,
+        `MO_${m.id}`
+      )
+    ),
+  ];
+  const kb = arrangeInlineButtons(buttons);
+  kb.push(buildBackExitRow());
+  const text = 'Selecciona la moneda:';
+  await editIfChanged(ctx, text, {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: kb },
+  });
+  ctx.wizard.state.route = 'CURR';
+  ctx.wizard.state.tmpMons = rows;
+}
+
 /* ───────── Wizard ───────── */
 const monitorAssist = new Scenes.WizardScene(
   'MONITOR_ASSIST',
@@ -143,7 +169,7 @@ const monitorAssist = new Scenes.WizardScene(
     console.log('[MONITOR_ASSIST] paso 0: menú principal');
     const msg = await ctx.reply('Cargando…', { parse_mode: 'HTML' });
     ctx.wizard.state.msgId = msg.message_id;
-    ctx.wizard.state.filters = { period: 'dia' };
+    ctx.wizard.state.filters = { period: 'dia', monedaNombre: 'Todas' };
     await showMain(ctx);
     return ctx.wizard.next();
   },
@@ -156,6 +182,7 @@ const monitorAssist = new Scenes.WizardScene(
     switch (route) {
       case 'MAIN':
         if (data === 'PERIOD') return showPeriodMenu(ctx);
+        if (data === 'CURR') return showCurrMenu(ctx);
         if (data === 'AGENT') return showAgentMenu(ctx);
         if (data === 'BANK') return showBankMenu(ctx);
         if (data === 'RUN') {
@@ -163,6 +190,7 @@ const monitorAssist = new Scenes.WizardScene(
           let cmd = `/monitor ${f.period}`;
           if (f.agenteId) cmd += ` --agente=${f.agenteId}`;
           if (f.bancoId) cmd += ` --banco=${f.bancoId}`;
+          if (f.monedaId) cmd += ` --moneda=${f.monedaNombre}`;
           await editIfChanged(ctx, 'Generando reporte...', { parse_mode: 'HTML' });
           await runMonitor(ctx, cmd);
           return ctx.scene.leave();
@@ -180,6 +208,17 @@ const monitorAssist = new Scenes.WizardScene(
         if (data.startsWith('PER_')) {
           const period = data.split('_')[1];
           ctx.wizard.state.filters.period = period;
+          return showMain(ctx);
+        }
+        break;
+      case 'CURR':
+        if (data === 'BACK') return showMain(ctx);
+        if (data.startsWith('MO_')) {
+          const id = +data.split('_')[1];
+          ctx.wizard.state.filters.monedaId = id || null;
+          ctx.wizard.state.filters.monedaNombre = id
+            ? ctx.wizard.state.tmpMons.find((m) => m.id === id)?.codigo || ''
+            : 'Todas';
           return showMain(ctx);
         }
         break;

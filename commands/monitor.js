@@ -114,7 +114,7 @@ const moneyFmt = new Intl.NumberFormat('es-ES', {
   maximumFractionDigits: 2,
 });
 function fmtMoney(n) {
-  return moneyFmt.format(Number(n || 0));
+  return moneyFmt.format(parseFloat(n || 0));
 }
 function fmtPct(p) {
   return p === null || p === undefined ? '—' : `${p.toFixed(2)}%`;
@@ -331,17 +331,17 @@ async function runMonitor(ctx, rawText) {
     if (opts.moneda) {
       params.push(opts.moneda);
       idx++;
-      condiciones.push(`unaccent(lower(m.codigo)) = unaccent(lower($${idx}))`);
+      condiciones.push(`lower(m.codigo) = lower($${idx})`);
     }
     if (opts.agente) {
       params.push(`%${opts.agente}%`);
       idx++;
-      condiciones.push(`unaccent(lower(ag.nombre)) LIKE unaccent(lower($${idx}))`);
+      condiciones.push(`lower(ag.nombre) LIKE lower($${idx})`);
     }
     if (opts.banco) {
       params.push(`%${opts.banco}%`);
       idx++;
-      condiciones.push(`unaccent(lower(b.codigo || ' ' || b.nombre)) LIKE unaccent(lower($${idx}))`);
+      condiciones.push(`lower(b.codigo || ' ' || b.nombre) LIKE lower($${idx})`);
     }
 
     let sql = SQL_BASE;
@@ -350,8 +350,8 @@ async function runMonitor(ctx, rawText) {
 
     const { rows } = await query(sql, params);
     let datos = rows.map((r) => {
-      const saldo_ini = Number(r.saldo_ini || 0);
-      const saldo_fin = Number(r.saldo_fin || 0);
+      const saldo_ini = parseFloat(r.saldo_ini) || 0;
+      const saldo_fin = parseFloat(r.saldo_fin) || 0;
       const delta = saldo_fin - saldo_ini;
       const pct = saldo_ini !== 0 ? (delta / saldo_ini) * 100 : null;
       return {
@@ -364,10 +364,10 @@ async function runMonitor(ctx, rawText) {
         saldo_fin,
         delta,
         pct,
-        movs: Number(r.movs || 0),
-        n_up: Number(r.n_up || 0),
-        n_down: Number(r.n_down || 0),
-        vol: Number(r.vol || 0),
+        movs: parseFloat(r.movs || 0),
+        n_up: parseFloat(r.n_up || 0),
+        n_down: parseFloat(r.n_down || 0),
+        vol: parseFloat(r.vol || 0),
         estado: estadoEmoji(delta, pct, r.n_up, r.n_down),
       };
     });

@@ -81,7 +81,7 @@ const comandos = [
   },
   {
     nombre: 'tarjetas',
-    descripcion: 'Listar todas las tarjetas existentes con su saldo actual y atributos (agente, banco, moneda).',
+    descripcion: 'Listar todas las tarjetas existentes con su saldo actual y atributos (agente, banco, moneda). El menú principal se muestra en forma de lista y los agentes se muestran en filas de dos.',
     permiso: 'Propietario o usuario con acceso',
     uso: '/tarjetas'
   },
@@ -93,9 +93,9 @@ const comandos = [
   },
   {
     nombre: 'monitor',
-    descripcion: 'Comparar salud financiera: periodo actual vs anterior (día/mes/año) y ver deltas por banco/agente/moneda/tarjeta.',
+    descripcion: 'Comparar salud financiera: periodo actual vs anterior (día/mes/año) con filtros de moneda, agente y banco. Cada menú incluye la opción "Todos" para ver un resumen global.',
     permiso: 'Propietario o usuario con acceso',
-    uso: '/monitor [dia|mes|año] [banco|agente|moneda|tarjeta]'
+    uso: '/monitor [dia|mes|año]'
   },
   {
     nombre: 'acceso',

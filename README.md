@@ -9,9 +9,10 @@
 - Registro de movimientos y saldos con múltiples monedas.
 - Asistente de acceso para agregar o eliminar usuarios permitidos.
 - Formato HTML consistente con sanitización y edición inteligente para evitar errores.
+- Menú principal de tarjetas en formato de lista; los agentes siempre se muestran de dos en dos.
 - Teclados inline de dos botones por fila y navegación con paginación reutilizable.
 - `/tarjetas` permite hacer drill-down por agente o por combinación moneda+banco sin mezclar entidades.
-- `/monitor` combina filtros de periodo, agente y banco, con opción de "Ver en privado".
+- `/monitor` combina filtros de periodo, moneda, agente y banco, con opción de "Ver en privado" y botones "Todos" para ver resúmenes globales.
 
 ## 🚀 Instalación
 
@@ -21,6 +22,16 @@ cd monederozelle
 npm install
 node bot.js
 ```
+
+## 📦 Tablas principales
+
+El bot utiliza una base de datos PostgreSQL con las siguientes tablas:
+
+- **moneda**: código, nombre, tasa respecto al USD y emoji.
+- **banco**: código, nombre legible y emoji identificador.
+- **agente**: nombre del dueño de las tarjetas y emoji opcional.
+- **tarjeta**: número o alias, referencias a agente, banco y moneda.
+- **movimiento**: historial de cambios de saldo por tarjeta.
 
 ## 🧩 Helpers comunes
 
@@ -183,12 +194,12 @@ Actualiza el saldo de una tarjeta existente registrando el movimiento correspond
 Selecciona agente...
 ```
 
-### 📈 <span style="color:#8e44ad;">/monitor [dia|mes|año] [banco|agente|moneda|tarjeta]</span>
-Compara la salud financiera en distintos periodos.
+### 📈 <span style="color:#8e44ad;">/monitor [dia|mes|año]</span>
+Compara la salud financiera en distintos periodos. Desde el asistente puedes filtrar por moneda, agente y banco, o elegir "Todos" para ver un resumen global.
 
 **Ejemplo:**
 ```text
-/monitor mes banco
+/monitor mes
 Resultados del mes actual vs anterior...
 ```
 
