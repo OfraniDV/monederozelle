@@ -3,9 +3,10 @@
 // Crea / migra el esquema base para el monedero: monedas, bancos, agentes,
 // tarjetas y movimientos. Añade columnas nuevas si se han introducido en versiones
 // posteriores (codigo, emoji, tasa_usd, etc.).
-// No pobla datos: todo queda vacío hasta que el usuario interactúe vía wizard.
+// Al finalizar, sincroniza **todas** las secuencias SERIAL con (MAX(id)+1) de su
+// tabla para evitar errores 23505 cuando se insertaron filas manualmente.
 // -----------------------------------------------------------------------------
-const { pool } = require('./db.js'); // debe exportar el Pool de pg (ej. wrapper sobre db.js.js)
+const { pool } = require('./db.js'); // Exporta un Pool de pg
 
 /**
  * Ejecuta un conjunto de sentencias DDL dentro de una transacción.
@@ -26,6 +27,30 @@ async function runInTransaction(statements) {
   } finally {
     client.release();
   }
+}
+
+/**
+ * Recorre todas las secuencias SERIAL declaradas en la base y las adelanta a
+ * MAX(id)+1 de su tabla. Evita "duplicate key value" si la secuencia quedó
+ * desfasada tras importaciones manuales.
+ */
+async function syncSequences() {
+  const { rows } = await pool.query(`
+    SELECT  c.relname         AS seq_name,
+            t.relname         AS table_name,
+            a.attname         AS col_name
+    FROM    pg_class c
+    JOIN    pg_depend d   ON d.objid = c.oid   AND d.deptype = 'a'
+    JOIN    pg_class t    ON t.oid  = d.refobjid
+    JOIN    pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+    WHERE   c.relkind = 'S';`);
+
+  for (const r of rows) {
+    await pool.query(`
+      SELECT setval($1, (SELECT COALESCE(MAX(${r.col_name}),0)+1 FROM ${r.table_name}), false);`,
+      [r.seq_name]);
+  }
+  console.log('🔄 Secuencias sincronizadas');
 }
 
 /**
@@ -68,7 +93,7 @@ const getAllDDLs = () => [
   );
   `,
 
-  // 4. Tarjeta / sub-cuenta: número/alias, referencia a agente, moneda y banco opcional.
+  // 4. Tarjeta / sub-cuenta: número/alias, referencias.
   `
   CREATE TABLE IF NOT EXISTS tarjeta (
     id          SERIAL PRIMARY KEY,
@@ -81,7 +106,7 @@ const getAllDDLs = () => [
   );
   `,
 
-  // 5. Movimientos: histórico con saldo anterior/nuevo e importe (diferencia).
+  // 5. Movimientos: histórico con saldo anterior/nuevo.
   `
   CREATE TABLE IF NOT EXISTS movimiento (
     id             SERIAL PRIMARY KEY,
@@ -100,34 +125,25 @@ const getAllDDLs = () => [
     ON movimiento(tarjeta_id, creado_en);
   `,
 
-  // 7. Compatibilidad / migración: si alguna tabla ya existía pero le faltan columnas, se agregan.
-  `ALTER TABLE moneda ADD COLUMN IF NOT EXISTS codigo TEXT;`,
-  `ALTER TABLE moneda ADD COLUMN IF NOT EXISTS nombre TEXT;`,
-  `ALTER TABLE moneda ADD COLUMN IF NOT EXISTS tasa_usd NUMERIC(18,6) NOT NULL DEFAULT 1;`,
-  `ALTER TABLE moneda ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '';`,
-  `ALTER TABLE banco ADD COLUMN IF NOT EXISTS codigo TEXT;`,
-  `ALTER TABLE banco ADD COLUMN IF NOT EXISTS nombre TEXT;`,
-  `ALTER TABLE banco ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '';`,
-  `ALTER TABLE agente ADD COLUMN IF NOT EXISTS nombre TEXT;`,
-  `ALTER TABLE agente ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '';`,
-  `ALTER TABLE tarjeta ADD COLUMN IF NOT EXISTS numero TEXT;`,
-  `ALTER TABLE tarjeta ADD COLUMN IF NOT EXISTS agente_id INTEGER REFERENCES agente(id);`,
-  `ALTER TABLE tarjeta ADD COLUMN IF NOT EXISTS moneda_id INTEGER REFERENCES moneda(id);`,
-  `ALTER TABLE tarjeta ADD COLUMN IF NOT EXISTS banco_id INTEGER REFERENCES banco(id);`,
+  // 7. Compatibilidad / migración: añadir columnas que falten.
+  `ALTER TABLE moneda  ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '';`,
+  `ALTER TABLE banco   ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '';`,
+  `ALTER TABLE agente  ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '';`,
   `ALTER TABLE tarjeta ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '';`,
-  // Nota: no reclamamos columnas de movimiento porque ya estaban completas en el esquema base anterior.
+  `ALTER TABLE tarjeta ADD COLUMN IF NOT EXISTS banco_id INTEGER REFERENCES banco(id);`,
 
-  // 8. Asegurar índices únicos en 'codigo' si no se crearon por definición original (para casos antiguos)
+  // 8. Índices únicos de respaldo
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_moneda_codigo ON moneda(codigo);`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS uq_banco_codigo ON banco(codigo);`
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_banco_codigo  ON banco(codigo);`
 ];
 
 /**
- * Inicializa / migra el esquema completo.
+ * Inicializa / migra el esquema completo y sincroniza las secuencias.
  */
 const initWalletSchema = async () => {
   const ddls = getAllDDLs();
   await runInTransaction(ddls);
+  await syncSequences();
 };
 
 module.exports = initWalletSchema;
