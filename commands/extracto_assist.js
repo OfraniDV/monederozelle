@@ -2,8 +2,27 @@
  * commands/extracto_assist.js
  *
  * Asistente para consultar extractos bancarios por tarjeta.
- * Permite seleccionar por agente o por banco, elegir tarjeta y
- * mostrar los movimientos del último día, semana o mes con paginación.
+ * Todas las respuestas se envían en modo HTML y los datos dinámicos se
+ * sanitizan con `escapeHtml` para evitar inyecciones.
+ *
+ * Se usa `editIfChanged(ctx, newText, options)` para mantener un único
+ * mensaje editable. Este helper compara el texto y el teclado previo
+ * (`ctx.wizard.state.lastRender`) y solo edita si hay cambios, evitando
+ * el error "message is not modified" y el spam.
+ *
+ * Modo rápido: establecer `FAST_MODE` en `true` para que, al elegir una
+ * tarjeta, se muestre directamente el extracto del último día sin pedir
+ * periodo. Para agregar nuevos periodos, ampliar el objeto `ranges` en
+ * `showExtract` y el menú generado en `showPeriodMenu`.
+ */
+
+/* Casos de prueba manuales:
+ *  - /extracto → “Por agente” → seleccionar un agente → elegir tarjeta → ver extracto del día.
+ *  - Desde extracto, usar “🔙” para volver a periodo y luego a tarjetas.
+ *  - Usar “❌ Salir” en cualquier punto y verificar mensaje de cancelación.
+ *  - Presionar “Siguiente” en la última página y recibir aviso sin re-editar.
+ *  - Forzar selección de tarjeta inexistente y comprobar retorno a la lista.
+ *  - Activar FAST_MODE=true para obtener extracto directo sin seleccionar periodo.
  */
 
 const { Scenes, Markup } = require('telegraf');
@@ -17,6 +36,8 @@ const {
 const pool = require('../psql/db.js');
 
 const LINES_PER_PAGE = 15;
+// Cambiar a true para activar el modo rápido (sin selección de periodo)
+const FAST_MODE = false;
 
 function fmt(v, d = 2) {
   const num = parseFloat(v);
@@ -51,14 +72,8 @@ function paginate(text, linesPerPage = LINES_PER_PAGE) {
 async function wantExit(ctx) {
   if (ctx.callbackQuery?.data === 'EXIT') {
     await ctx.answerCbQuery().catch(() => {});
-    const msgId = ctx.wizard.state.msgId;
-    await ctx.telegram.editMessageText(
-      ctx.chat.id,
-      msgId,
-      undefined,
-      '❌ Operación cancelada.',
-      { parse_mode: 'HTML' }
-    );
+    console.log('[EXTRACTO_ASSIST] exit');
+    await editIfChanged(ctx, '❌ Operación cancelada.', { parse_mode: 'HTML' });
     await ctx.scene.leave();
     return true;
   }
@@ -66,6 +81,7 @@ async function wantExit(ctx) {
 }
 
 async function showMain(ctx) {
+  console.log('[EXTRACTO_ASSIST] view MAIN');
   const text = '📄 <b>Extracto bancario</b>\nElige un método de búsqueda:';
   const kb = Markup.inlineKeyboard([
     [
@@ -79,6 +95,7 @@ async function showMain(ctx) {
 }
 
 async function showAgentes(ctx) {
+  console.log('[EXTRACTO_ASSIST] view AGENTS');
   const agentes = (
     await pool.query('SELECT id,nombre,emoji FROM agente ORDER BY nombre')
   ).rows;
@@ -108,6 +125,7 @@ async function showAgentes(ctx) {
 }
 
 async function showBancos(ctx) {
+  console.log('[EXTRACTO_ASSIST] view BANKS');
   const bancos = (
     await pool.query('SELECT id,codigo,emoji FROM banco ORDER BY codigo')
   ).rows;
@@ -137,6 +155,7 @@ async function showBancos(ctx) {
 }
 
 async function showTarjetasByAgente(ctx, agenteId) {
+  console.log('[EXTRACTO_ASSIST] view CARDS agente', agenteId);
   const tarjetas = (
     await pool.query(
       `SELECT t.id, t.numero, COALESCE(b.nombre,'') AS banco, COALESCE(b.emoji,'') AS banco_emoji,
@@ -178,6 +197,7 @@ async function showTarjetasByAgente(ctx, agenteId) {
 }
 
 async function showTarjetasByBanco(ctx, bancoId) {
+  console.log('[EXTRACTO_ASSIST] view CARDS banco', bancoId);
   const tarjetas = (
     await pool.query(
       `SELECT t.id, t.numero, COALESCE(a.nombre,'') AS agente, COALESCE(a.emoji,'') AS agente_emoji,
@@ -219,20 +239,23 @@ async function showTarjetasByBanco(ctx, bancoId) {
 }
 
 async function showPeriodMenu(ctx) {
-  const kb = Markup.inlineKeyboard([
-    [Markup.button.callback('📅 Día', 'PER_day')],
-    [Markup.button.callback('🗓️ Semana', 'PER_week')],
-    [Markup.button.callback('📆 Mes', 'PER_month')],
-    buildBackExitRow('BACK', 'EXIT'),
-  ]);
+  console.log('[EXTRACTO_ASSIST] view PERIOD');
+  const buttons = [
+    Markup.button.callback('📅 Día', 'PER_day'),
+    Markup.button.callback('🗓️ Semana', 'PER_week'),
+    Markup.button.callback('📆 Mes', 'PER_month'),
+  ];
+  const kb = arrangeInlineButtons(buttons);
+  kb.push(buildBackExitRow('BACK', 'EXIT'));
   await editIfChanged(ctx, '⏱️ <b>Selecciona el periodo</b>', {
     parse_mode: 'HTML',
-    ...kb,
+    reply_markup: { inline_keyboard: kb },
   });
   ctx.wizard.state.route = 'PERIOD';
 }
 
 async function showExtract(ctx, period) {
+  console.log('[EXTRACTO_ASSIST] view EXTRACT', period);
   const tarjeta = ctx.wizard.state.tarjeta;
   const ranges = {
     day: { label: 'Último día', days: 1 },
@@ -285,8 +308,10 @@ async function showExtract(ctx, period) {
 const extractoAssist = new Scenes.WizardScene(
   'EXTRACTO_ASSIST',
   async (ctx) => {
+    console.log('[EXTRACTO_ASSIST] init');
     const msg = await ctx.reply('Cargando…', { parse_mode: 'HTML' });
     ctx.wizard.state.msgId = msg.message_id;
+    ctx.wizard.state.fastMode = FAST_MODE;
     await showMain(ctx);
     return ctx.wizard.next();
   },
@@ -296,22 +321,31 @@ const extractoAssist = new Scenes.WizardScene(
     if (!data) return;
     await ctx.answerCbQuery().catch(() => {});
     const route = ctx.wizard.state.route;
+    console.log('[EXTRACTO_ASSIST] callback', route, data);
     if (route === 'MAIN') {
       if (data === 'MODE_AGENT') return showAgentes(ctx);
       if (data === 'MODE_BANK') return showBancos(ctx);
     } else if (route === 'AGENTS') {
-      if (data === 'BACK') return showMain(ctx);
+      if (data === 'BACK') {
+        console.log('[EXTRACTO_ASSIST] back to MAIN');
+        return showMain(ctx);
+      }
       if (data.startsWith('AG_')) {
         const id = +data.split('_')[1];
         ctx.wizard.state.mode = 'AGENT';
-        return showTarjetasByAgente(ctx, id);
+        await showTarjetasByAgente(ctx, id);
+        return ctx.wizard.next();
       }
     } else if (route === 'BANKS') {
-      if (data === 'BACK') return showMain(ctx);
+      if (data === 'BACK') {
+        console.log('[EXTRACTO_ASSIST] back to MAIN');
+        return showMain(ctx);
+      }
       if (data.startsWith('BK_')) {
         const id = +data.split('_')[1];
         ctx.wizard.state.mode = 'BANK';
-        return showTarjetasByBanco(ctx, id);
+        await showTarjetasByBanco(ctx, id);
+        return ctx.wizard.next();
       }
     }
   },
@@ -319,29 +353,53 @@ const extractoAssist = new Scenes.WizardScene(
     if (await wantExit(ctx)) return;
     const data = ctx.callbackQuery?.data;
     if (!data) return;
-    await ctx.answerCbQuery().catch(() => {});
+    const route = ctx.wizard.state.route;
+    console.log('[EXTRACTO_ASSIST] callback', route, data);
     if (data === 'BACK') {
-      if (ctx.wizard.state.mode === 'AGENT') return showAgentes(ctx);
-      if (ctx.wizard.state.mode === 'BANK') return showBancos(ctx);
+      await ctx.answerCbQuery().catch(() => {});
+      console.log('[EXTRACTO_ASSIST] back to', ctx.wizard.state.mode === 'AGENT' ? 'AGENTS' : 'BANKS');
+      if (ctx.wizard.state.mode === 'AGENT') await showAgentes(ctx);
+      else await showBancos(ctx);
+      return ctx.wizard.back();
     }
-    if (!data.startsWith('TA_')) return ctx.reply('Usa los botones para elegir la tarjeta.');
+    if (!data.startsWith('TA_')) {
+      return ctx.answerCbQuery('Usa los botones').catch(() => {});
+    }
     const id = +data.split('_')[1];
-    const tarjeta = ctx.wizard.state.tarjetas.find((t) => t.id === id);
+    const tarjeta = ctx.wizard.state.tarjetas?.find((t) => t.id === id);
+    if (!tarjeta) {
+      console.error('[EXTRACTO_ASSIST] tarjeta no encontrada', id);
+      await ctx.answerCbQuery('Tarjeta desconocida').catch(() => {});
+      if (ctx.wizard.state.mode === 'AGENT') await showTarjetasByAgente(ctx, ctx.wizard.state.agente_id);
+      else await showTarjetasByBanco(ctx, ctx.wizard.state.banco_id);
+      return;
+    }
     ctx.wizard.state.tarjeta = tarjeta;
-    return showPeriodMenu(ctx);
+    console.log('[EXTRACTO_ASSIST] tarjeta seleccionada', id);
+    if (ctx.wizard.state.fastMode) {
+      await ctx.answerCbQuery().catch(() => {});
+      await showExtract(ctx, 'day');
+      return ctx.wizard.selectStep(4);
+    }
+    await ctx.answerCbQuery().catch(() => {});
+    await showPeriodMenu(ctx);
+    return ctx.wizard.next();
   },
   async (ctx) => {
     if (await wantExit(ctx)) return;
     const data = ctx.callbackQuery?.data;
     if (!data) return;
     await ctx.answerCbQuery().catch(() => {});
+    console.log('[EXTRACTO_ASSIST] callback', ctx.wizard.state.route, data);
     if (data === 'BACK') {
-      if (ctx.wizard.state.mode === 'AGENT')
-        return showTarjetasByAgente(ctx, ctx.wizard.state.agente_id);
-      return showTarjetasByBanco(ctx, ctx.wizard.state.banco_id);
+      console.log('[EXTRACTO_ASSIST] back to CARDS');
+      if (ctx.wizard.state.mode === 'AGENT') await showTarjetasByAgente(ctx, ctx.wizard.state.agente_id);
+      else await showTarjetasByBanco(ctx, ctx.wizard.state.banco_id);
+      return ctx.wizard.back();
     }
     if (data.startsWith('PER_')) {
       const period = data.split('_')[1];
+      console.log('[EXTRACTO_ASSIST] periodo', period);
       await showExtract(ctx, period);
       return ctx.wizard.next();
     }
@@ -350,8 +408,14 @@ const extractoAssist = new Scenes.WizardScene(
     if (await wantExit(ctx)) return;
     const data = ctx.callbackQuery?.data;
     if (!data) return;
-    await ctx.answerCbQuery().catch(() => {});
-    if (data === 'BACK') return showPeriodMenu(ctx);
+    const route = ctx.wizard.state.route;
+    console.log('[EXTRACTO_ASSIST] callback', route, data);
+    if (data === 'BACK') {
+      console.log('[EXTRACTO_ASSIST] back to PERIOD');
+      await ctx.answerCbQuery().catch(() => {});
+      await showPeriodMenu(ctx);
+      return ctx.wizard.back();
+    }
     const pages = ctx.wizard.state.pages || [];
     let i = ctx.wizard.state.pageIndex || 0;
     const last = pages.length - 1;
@@ -360,7 +424,11 @@ const extractoAssist = new Scenes.WizardScene(
     else if (data === 'PREV') ni = Math.max(0, i - 1);
     else if (data === 'NEXT') ni = Math.min(last, i + 1);
     else if (data === 'LAST') ni = last;
-    if (ni === i) return;
+    if (ni === i) {
+      await ctx.answerCbQuery('Ya estás en esa página').catch(() => {});
+      return;
+    }
+    await ctx.answerCbQuery().catch(() => {});
     ctx.wizard.state.pageIndex = ni;
     const txt = pages[ni] + `\n\nPágina ${ni + 1}/${pages.length}`;
     const nav =
