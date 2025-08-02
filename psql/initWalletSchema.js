@@ -5,7 +5,7 @@
 // posteriores (codigo, emoji, tasa_usd, etc.).
 // No pobla datos: todo queda vacío hasta que el usuario interactúe vía wizard.
 // -----------------------------------------------------------------------------
-const pool = require('./db.js'); // debe exportar el Pool de pg (ej. wrapper sobre db.js.js)
+const { pool } = require('./db.js'); // debe exportar el Pool de pg (ej. wrapper sobre db.js.js)
 
 /**
  * Ejecuta un conjunto de sentencias DDL dentro de una transacción.

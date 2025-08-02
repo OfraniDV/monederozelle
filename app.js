@@ -41,7 +41,7 @@ const registerAgente  = require('./commands/agente');
 const tarjetaWizard   = require('./commands/tarjeta_wizard');
 const listarTarjetas  = require('./commands/tarjetas');
 const saldoWizard     = require('./commands/saldo');
-const monitor = require('./commands/monitor');
+const { registerMonitor } = require('./commands/monitor');
 
 /* ───────── 6. Inicializar BD (idempotente) ───────── */
 (async () => {
@@ -58,7 +58,7 @@ bot.use(stage.middleware());
 registerMoneda(bot, stage);
 registerBanco(bot, stage);
 registerAgente(bot, stage);
-monitor(bot);  
+registerMonitor(bot);  
 
 /* ───────── 8. Middleware de verificación de acceso ───────── */
 const verificarAcceso = async (ctx, next) => {
