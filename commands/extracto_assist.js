@@ -275,10 +275,13 @@ async function showExtract(ctx, period) {
     )
   ).rows;
   let body = '';
+  let totalIn = 0;
+  let totalOut = 0;
   for (const mv of movimientos) {
     const f = new Date(mv.creado_en);
     body += `${f.toLocaleString()} — ${escapeHtml(mv.descripcion || '')} `;
     const imp = parseFloat(mv.importe) || 0;
+    if (imp >= 0) totalIn += imp; else totalOut += -imp;
     const sign = imp >= 0 ? '+' : '-';
     body += `${sign}${fmt(Math.abs(imp))} → ${fmt(mv.saldo_nuevo)}\n`;
   }
@@ -291,7 +294,9 @@ async function showExtract(ctx, period) {
       : tarjeta.banco
       ? `🏦 Banco: <b>${escapeHtml(tarjeta.banco)}</b>\n`
       : '') +
-    `Periodo: <b>${r.label}</b>\n\n`;
+    `Periodo: <b>${r.label}</b>\n` +
+    `↗️ Entradas: <b>${fmt(totalIn)}</b>\n` +
+    `↘️ Salidas: <b>${fmt(totalOut)}</b>\n\n`;
   const pages = paginate(header + body);
   ctx.wizard.state.pages = pages;
   ctx.wizard.state.pageIndex = 0;
