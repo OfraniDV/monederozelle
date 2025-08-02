@@ -11,7 +11,7 @@
 - Formato HTML consistente con sanitización y edición inteligente para evitar errores.
 - Menú principal de tarjetas en formato de lista; los agentes siempre se muestran de dos en dos.
 - Teclados inline de dos botones por fila y navegación con paginación reutilizable.
-- `/tarjetas` permite hacer drill-down por agente o por combinación moneda+banco sin mezclar entidades.
+- `/tarjetas` permite hacer drill-down por agente o por combinación moneda+banco, o bien ver todas las tarjetas sin filtro.
 - `/monitor` combina filtros de periodo, moneda, agente y banco, con opción de "Ver en privado" y botones "Todos" para ver resúmenes globales.
 
 ## 🚀 Instalación
@@ -177,6 +177,7 @@ Inicia el asistente para crear o actualizar una tarjeta. Permite elegir agente, 
 
 ### 📇 <span style="color:#9b59b6;">/tarjetas</span>
 Lista todas las tarjetas con sus saldos actuales, agrupadas por moneda y banco.
+Incluye un botón <strong>Ver todas</strong> para mostrar toda la información sin aplicar filtros.
 
 **Ejemplo:**
 ```text
