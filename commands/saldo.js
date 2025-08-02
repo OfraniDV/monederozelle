@@ -147,7 +147,7 @@ async function showTarjetas(ctx) {
 async function askSaldo(ctx, tarjeta) {
   const txt =
     `✏️ <b>Introduce el saldo actual de tu tarjeta</b>\n\n` +
-    `Tarjeta ${escapeHtml(tarjeta.numero)} (saldo anterior: ${escapeHtml(tarjeta.saldo)}).\n` +
+    `Tarjeta ${escapeHtml(tarjeta.numero)} (saldo anterior: ${escapeHtml((parseFloat(tarjeta.saldo) || 0).toFixed(2))}).\n` +
     'Por favor coloca el saldo actual de tu tarjeta. No te preocupes, te diré si ha aumentado o disminuido y en cuánto.\n\n' +
     'Ejemplo: 1500.50';
   await ctx.telegram.editMessageText(
@@ -223,8 +223,8 @@ const saldoWizard = new Scenes.WizardScene(
     }
 
     const { tarjeta } = ctx.wizard.state.data;
-    const saldoAnterior = Number(tarjeta.saldo || 0);
-    const saldoNuevo = Number(num);
+    const saldoAnterior = parseFloat(tarjeta.saldo) || 0;
+    const saldoNuevo = parseFloat(num);
     const delta = saldoNuevo - saldoAnterior;
 
     try {

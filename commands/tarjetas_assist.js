@@ -35,13 +35,16 @@ const LINES_PER_PAGE = 12; // Líneas máximas por página para detalles largos
 const MAX_LEN = Telegram.MAX_MESSAGE_LENGTH;
 
 /* ───────── helpers ───────── */
-const fmt = (v, d = 2) =>
-  escapeHtml(
-    Number(v || 0).toLocaleString('en-US', {
+const fmt = (v, d = 2) => {
+  const num = parseFloat(v);
+  const val = Number.isNaN(num) ? 0 : num;
+  return escapeHtml(
+    val.toLocaleString('en-US', {
       minimumFractionDigits: d,
       maximumFractionDigits: d,
     })
   );
+};
 
 function paginate(text, linesPerPage = LINES_PER_PAGE) {
   const lines = text.split('\n');
@@ -124,7 +127,9 @@ async function loadData() {
   let globalUsd = 0;
 
   rows.forEach((r) => {
-    const usd = r.saldo * r.tasa_usd;
+    const saldo = parseFloat(r.saldo) || 0;
+    const tasa = parseFloat(r.tasa_usd) || 0;
+    const usd = saldo * tasa;
     globalUsd += usd;
     bankUsd[r.banco] = (bankUsd[r.banco] || 0) + usd;
 
@@ -140,22 +145,22 @@ async function loadData() {
     ag.perMon[r.moneda] ??= {
       code: r.moneda,
       emoji: r.moneda_emoji,
-      rate: r.tasa_usd,
+      rate: tasa,
       tarjetas: [],
       total: 0,
     };
     ag.perMon[r.moneda].tarjetas.push({
       numero: r.numero,
-      saldo: r.saldo,
+      saldo,
       banco: r.banco,
       banco_emoji: r.banco_emoji,
     });
-    ag.perMon[r.moneda].total += r.saldo;
+    ag.perMon[r.moneda].total += saldo;
 
     byMon[r.moneda] ??= {
       code: r.moneda,
       emoji: r.moneda_emoji,
-      rate: r.tasa_usd,
+      rate: tasa,
       banks: {},
     };
     const mon = byMon[r.moneda];
@@ -169,12 +174,12 @@ async function loadData() {
     const bk = mon.banks[r.banco];
     bk.tarjetas.push({
       numero: r.numero,
-      saldo: r.saldo,
+      saldo,
       agente: r.agente,
       agente_emoji: r.agente_emoji,
     });
-    if (r.saldo >= 0) bk.pos += r.saldo;
-    else bk.neg += r.saldo;
+    if (saldo >= 0) bk.pos += saldo;
+    else bk.neg += saldo;
   });
 
   return { byAgent, byMon, bankUsd, globalUsd };
@@ -182,16 +187,16 @@ async function loadData() {
 
 /* ───────── renderizadores ───────── */
 async function showMenu(ctx) {
-  // Menú principal con dos botones por fila
+  // Menú principal en formato de lista (una opción por fila)
   const buttons = [
     Markup.button.callback('📊 Por moneda y banco', 'VIEW_MON'),
     Markup.button.callback('👤 Por agente', 'VIEW_AGENT'),
     Markup.button.callback('🧮 Resumen USD global', 'VIEW_SUM'),
     Markup.button.callback('❌ Salir', 'EXIT'),
   ];
-  const kb = Markup.inlineKeyboard(arrangeInlineButtons(buttons));
+  const kb = Markup.inlineKeyboard(buttons.map((b) => [b]));
   const text = '💳 <b>Tarjetas</b>\nElige la vista deseada:';
-  await editIfChanged(ctx, text, { parse_mode: 'HTML', ...kb });
+  await editIfChanged(ctx, text, { parse_mode: 'HTML', reply_markup: kb.reply_markup });
   ctx.wizard.state.route = { view: 'MENU' };
 }
 
@@ -367,9 +372,9 @@ const tarjetasAssist = new Scenes.WizardScene(
       Markup.button.callback('🧮 Resumen USD global', 'VIEW_SUM'),
       Markup.button.callback('❌ Salir', 'EXIT'),
     ];
-    const kb = Markup.inlineKeyboard(arrangeInlineButtons(buttons));
+    const kb = Markup.inlineKeyboard(buttons.map((b) => [b]));
     const text = '💳 <b>Tarjetas</b>\nElige la vista deseada:';
-    const msg = await ctx.reply(text, { parse_mode: 'HTML', ...kb });
+    const msg = await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb.reply_markup });
     ctx.wizard.state.msgId = msg.message_id;
     ctx.wizard.state.lastRender = { text, reply_markup: kb.reply_markup };
     ctx.wizard.state.route = { view: 'MENU' };

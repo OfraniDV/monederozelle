@@ -9,10 +9,13 @@ const sleep  = (ms) => new Promise(r => setTimeout(r, ms));
 const { escapeHtml } = require('../helpers/format');
 
 /* ───────── helpers ───────── */
-const fmt = (v, d = 2) =>
-  escapeHtml(
-    Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
+const fmt = (v, d = 2) => {
+  const num = parseFloat(v);
+  const val = Number.isNaN(num) ? 0 : num;
+  return escapeHtml(
+    val.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
   );
+};
 
 /* ───────── comando /tarjetas ───────── */
 module.exports = (bot) => {
@@ -51,10 +54,13 @@ module.exports = (bot) => {
       let globalUsd = 0;
 
       rows.forEach(r => {
+        const saldo = parseFloat(r.saldo) || 0;
+        const tasa = parseFloat(r.tasa_usd) || 0;
+
         /* moneda */
         byMon[r.moneda] ??= {
           emoji: r.moneda_emoji,
-          rate:  +r.tasa_usd,
+          rate:  tasa,
           banks: {},
           totalPos: 0,
           totalNeg: 0
@@ -63,13 +69,14 @@ module.exports = (bot) => {
         /* banco */
         mon.banks[r.banco] ??= { emoji: r.banco_emoji, filas: [], pos: 0, neg: 0 };
         const bank = mon.banks[r.banco];
-        bank.filas.push(r);
+        const fila = { ...r, saldo };
+        bank.filas.push(fila);
 
-        if (r.saldo >= 0) { bank.pos += +r.saldo; mon.totalPos += +r.saldo; }
-        else              { bank.neg += +r.saldo; mon.totalNeg += +r.saldo; }
+        if (saldo >= 0) { bank.pos += saldo; mon.totalPos += saldo; }
+        else            { bank.neg += saldo; mon.totalNeg += saldo; }
 
         /* usd */
-        const usd = +r.saldo * mon.rate;
+        const usd = saldo * mon.rate;
         bankUsd[r.banco] = (bankUsd[r.banco] || 0) + usd;
         globalUsd += usd;
 
@@ -78,8 +85,8 @@ module.exports = (bot) => {
         const ag = agentMap[r.agente];
         ag.totalUsd += usd;
         ag.perMon[r.moneda] ??= { total: 0, filas: [], emoji: mon.emoji, rate: mon.rate };
-        ag.perMon[r.moneda].total += +r.saldo;
-        ag.perMon[r.moneda].filas.push(r);
+        ag.perMon[r.moneda].total += saldo;
+        ag.perMon[r.moneda].filas.push(fila);
       });
 
       /* 3. mensajes por moneda (omitiendo neto 0) */
