@@ -218,12 +218,30 @@ const registerMoneda = (bot, stage) => {
     ctx.scene.enter('MONEDA_EDIT_WIZ', { edit: res.rows[0] });
   });
 
-  bot.action(/^MONEDA_DEL_(\d+)$/, (ctx) => {
+  bot.action(/^MONEDA_DEL_(\d+)$/, async (ctx) => {
     console.log('[action] MONEDA_DEL', ctx.match);
     ctx.answerCbQuery().catch(() => {});
-    const id = ctx.match[1];
+    const id = +ctx.match[1];
+    let msg = `¿Eliminar moneda ID ${id}?`;
+    try {
+      const dep = await pool.query(
+        `SELECT
+           (SELECT COUNT(*) FROM tarjeta WHERE moneda_id=$1) AS tarjetas,
+           (SELECT COUNT(*) FROM movimiento m
+              JOIN tarjeta t ON m.tarjeta_id=t.id
+            WHERE t.moneda_id=$1) AS movimientos`,
+        [id]
+      );
+      const { tarjetas, movimientos } = dep.rows[0];
+      if (tarjetas > 0 || movimientos > 0) {
+        msg = `⚠️ Esta moneda está asociada a ${tarjetas} tarjeta(s) y ${movimientos} movimiento(s). ` +
+              'Si la eliminas, se borrarán estas informaciones. ¿Continuar?';
+      }
+    } catch (e) {
+      console.error('[action] MONEDA_DEL dependency check error:', e);
+    }
     ctx.reply(
-      `¿Eliminar moneda ID ${id}?`,
+      msg,
       Markup.inlineKeyboard([
         Markup.button.callback('Sí', `MONEDA_DEL_OK_${id}`),
         Markup.button.callback('Salir', 'GLOBAL_CANCEL')
@@ -236,9 +254,13 @@ const registerMoneda = (bot, stage) => {
     ctx.answerCbQuery().catch(() => {});
     const id = +ctx.match[1];
     try {
+      await pool.query('BEGIN');
+      await pool.query('DELETE FROM tarjeta WHERE moneda_id=$1', [id]);
       await pool.query('DELETE FROM moneda WHERE id=$1', [id]);
+      await pool.query('COMMIT');
       await ctx.reply('✅ Moneda eliminada.');
     } catch (e) {
+      await pool.query('ROLLBACK');
       console.error('Error eliminando moneda:', e);
       await ctx.reply('❌ No se pudo eliminar.');
     }

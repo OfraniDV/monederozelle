@@ -62,6 +62,7 @@ const saldoWizard = new Scenes.WizardScene(
       }
       kb.push(row);
     }
+    kb.push([Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')]);
     await ctx.reply('👤 Selecciona un agente:', Markup.inlineKeyboard(kb));
     return ctx.wizard.next();
   },
@@ -110,6 +111,7 @@ const saldoWizard = new Scenes.WizardScene(
         `TA_${t.id}`
       )
     ]);
+    kb.push([Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')]);
     ctx.wizard.state.data.tarjetas = tarjetas; // caché
     await ctx.reply('💳 Selecciona la tarjeta a actualizar:', Markup.inlineKeyboard(kb));
     return ctx.wizard.next();

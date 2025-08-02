@@ -161,8 +161,26 @@ const registerAgente = (bot, stage) => {
     console.log('[action] AGENTE_DEL', ctx.match);
     await ctx.answerCbQuery().catch(() => {});
     const id = +ctx.match[1];
+    let msg = `¿Eliminar el agente con ID ${id}?`;
+    try {
+      const dep = await pool.query(
+        `SELECT
+           (SELECT COUNT(*) FROM tarjeta WHERE agente_id=$1) AS tarjetas,
+           (SELECT COUNT(*) FROM movimiento m
+              JOIN tarjeta t ON m.tarjeta_id=t.id
+            WHERE t.agente_id=$1) AS movimientos`,
+        [id]
+      );
+      const { tarjetas, movimientos } = dep.rows[0];
+      if (tarjetas > 0 || movimientos > 0) {
+        msg = `⚠️ Este agente tiene ${tarjetas} tarjeta(s) y ${movimientos} movimiento(s) asociados. ` +
+              'Si lo eliminas, se borrarán esas informaciones. ¿Continuar?';
+      }
+    } catch (e) {
+      console.error('[action] AGENTE_DEL dependency check error:', e);
+    }
     await ctx.reply(
-      `¿Eliminar el agente con ID ${id}?`,
+      msg,
       Markup.inlineKeyboard([
         Markup.button.callback('Sí, eliminar', `AGENTE_DEL_CONF_${id}`),
         Markup.button.callback('Cancelar', 'AGENTE_CANCEL')
@@ -175,9 +193,13 @@ const registerAgente = (bot, stage) => {
     await ctx.answerCbQuery().catch(() => {});
     const id = +ctx.match[1];
     try {
+      await pool.query('BEGIN');
+      await pool.query('DELETE FROM tarjeta WHERE agente_id=$1', [id]);
       await pool.query('DELETE FROM agente WHERE id=$1', [id]);
+      await pool.query('COMMIT');
       await ctx.reply('✅ Agente eliminado.');
     } catch (e) {
+      await pool.query('ROLLBACK');
       console.error('[action] AGENTE_DEL_CONF error:', e);
       await ctx.reply('❌ No se pudo eliminar el agente.');
     }
