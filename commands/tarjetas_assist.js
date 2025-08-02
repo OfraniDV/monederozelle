@@ -7,6 +7,7 @@
  * - Se añadió editIfChanged para evitar "400: message is not modified".
  * - Separación de bloques por agente y por combinación moneda+banco.
  * - Navegación jerárquica con botones Volver/Salir y paginación por entidad.
+ * - Menús principales en filas de dos y paginación mostrada solo cuando hay más de una página.
  *
  * Todo usa parse mode HTML y escapeHtml para sanear entradas dinámicas.
  * Las vistas se pueden extender añadiendo nuevas rutas en showMenu/builders.
@@ -21,7 +22,12 @@
 
 const { Scenes, Markup, Telegram } = require('telegraf');
 const { escapeHtml } = require('../helpers/format');
-const { editIfChanged, buildNavKeyboard, buildBackExitRow } = require('../helpers/ui');
+const {
+  editIfChanged,
+  buildNavKeyboard,
+  buildBackExitRow,
+  arrangeInlineButtons,
+} = require('../helpers/ui');
 const pool = require('../psql/db.js');
 
 /* Configuración */
@@ -176,17 +182,16 @@ async function loadData() {
 
 /* ───────── renderizadores ───────── */
 async function showMenu(ctx) {
-  const kb = Markup.inlineKeyboard([
-    [Markup.button.callback('📊 Por moneda y banco', 'VIEW_MON')],
-    [Markup.button.callback('👤 Por agente', 'VIEW_AGENT')],
-    [Markup.button.callback('🧮 Resumen USD global', 'VIEW_SUM')],
-    [Markup.button.callback('❌ Salir', 'EXIT')],
-  ]);
+  // Menú principal con dos botones por fila
+  const buttons = [
+    Markup.button.callback('📊 Por moneda y banco', 'VIEW_MON'),
+    Markup.button.callback('👤 Por agente', 'VIEW_AGENT'),
+    Markup.button.callback('🧮 Resumen USD global', 'VIEW_SUM'),
+    Markup.button.callback('❌ Salir', 'EXIT'),
+  ];
+  const kb = Markup.inlineKeyboard(arrangeInlineButtons(buttons));
   const text = '💳 <b>Tarjetas</b>\nElige la vista deseada:';
-  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, text, {
-    parse_mode: 'HTML',
-    ...kb,
-  });
+  await editIfChanged(ctx, text, { parse_mode: 'HTML', ...kb });
   ctx.wizard.state.route = { view: 'MENU' };
 }
 
@@ -194,15 +199,16 @@ async function showAgentList(ctx) {
   const agents = Object.values(ctx.wizard.state.data.byAgent)
     .filter((a) => a.totalUsd !== 0)
     .sort((a, b) => a.nombre.localeCompare(b.nombre));
-  const kb = agents.map((a) => [
+  const buttons = agents.map((a) =>
     Markup.button.callback(
       `${a.emoji ? a.emoji + ' ' : ''}${escapeHtml(a.nombre)}`,
       `AG_${a.id}`
-    ),
-  ]);
+    )
+  );
+  const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
   const text = '👤 <b>Agentes</b>\nSelecciona un agente:';
-  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, text, {
+  await editIfChanged(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: kb },
   });
@@ -239,27 +245,28 @@ async function showAgentDetail(ctx, agentId, page = 0) {
   ctx.wizard.state.pages = pages;
   ctx.wizard.state.pageIndex = idx;
   ctx.wizard.state.route = { view: 'AGENT_DETAIL', agentId };
-  const text =
-    pages[idx] + `\n\nPágina ${idx + 1}/${pages.length}`;
-  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, text, {
-    parse_mode: 'HTML',
-    ...buildNavKeyboard(pages.length),
-  });
+  const text = pages[idx] + `\n\nPágina ${idx + 1}/${pages.length}`;
+  const nav =
+    pages.length > 1
+      ? buildNavKeyboard()
+      : Markup.inlineKeyboard([buildBackExitRow()]);
+  await editIfChanged(ctx, text, { parse_mode: 'HTML', ...nav });
 }
 
 async function showMonList(ctx) {
   const mons = Object.values(ctx.wizard.state.data.byMon)
     .filter((m) => Object.values(m.banks).some((b) => b.pos + b.neg !== 0))
     .sort((a, b) => a.code.localeCompare(b.code));
-  const kb = mons.map((m) => [
+  const buttons = mons.map((m) =>
     Markup.button.callback(
       `${m.emoji ? m.emoji + ' ' : ''}${escapeHtml(m.code)}`,
       `MON_${m.code}`
-    ),
-  ]);
+    )
+  );
+  const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
   const text = '💱 <b>Monedas</b>\nSelecciona una moneda:';
-  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, text, {
+  await editIfChanged(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: kb },
   });
@@ -271,17 +278,18 @@ async function showBankList(ctx, monCode) {
   const banks = Object.values(mon.banks)
     .filter((b) => b.pos + b.neg !== 0)
     .sort((a, b) => a.code.localeCompare(b.code));
-  const kb = banks.map((b) => [
+  const buttons = banks.map((b) =>
     Markup.button.callback(
       `${b.emoji ? b.emoji + ' ' : ''}${escapeHtml(b.code)}`,
       `BK_${mon.code}_${b.code}`
-    ),
-  ]);
+    )
+  );
+  const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
   const text = `${mon.emoji} <b>${escapeHtml(
     mon.code
   )}</b>\nSelecciona banco:`;
-  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, text, {
+  await editIfChanged(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: kb },
   });
@@ -318,10 +326,11 @@ async function showMonBankDetail(ctx, monCode, bankCode, page = 0) {
   ctx.wizard.state.pageIndex = idx;
   ctx.wizard.state.route = { view: 'MON_DETAIL', monCode, bankCode };
   const text = pages[idx] + `\n\nPágina ${idx + 1}/${pages.length}`;
-  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, text, {
-    parse_mode: 'HTML',
-    ...buildNavKeyboard(pages.length),
-  });
+  const nav =
+    pages.length > 1
+      ? buildNavKeyboard()
+      : Markup.inlineKeyboard([buildBackExitRow()]);
+  await editIfChanged(ctx, text, { parse_mode: 'HTML', ...nav });
 }
 
 async function showSummary(ctx) {
@@ -334,14 +343,15 @@ async function showSummary(ctx) {
       resumen += `• <b>${escapeHtml(bank)}</b>: ${fmt(usd)} USD\n`;
     });
   resumen += `\n<b>Total general:</b> ${fmt(globalUsd)} USD`;
-  const kb = Markup.inlineKeyboard([
-    [Markup.button.callback('👤 Por agente', 'VIEW_AGENT')],
-    [Markup.button.callback('📊 Por moneda y banco', 'VIEW_MON')],
-    buildBackExitRow(),
-  ]);
-  await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, resumen, {
+  const buttons = [
+    Markup.button.callback('👤 Por agente', 'VIEW_AGENT'),
+    Markup.button.callback('📊 Por moneda y banco', 'VIEW_MON'),
+  ];
+  const kb = arrangeInlineButtons(buttons);
+  kb.push(buildBackExitRow());
+  await editIfChanged(ctx, resumen, {
     parse_mode: 'HTML',
-    ...kb,
+    reply_markup: { inline_keyboard: kb },
   });
   ctx.wizard.state.route = { view: 'SUMMARY' };
 }
@@ -351,12 +361,13 @@ const tarjetasAssist = new Scenes.WizardScene(
   'TARJETAS_ASSIST',
   async (ctx) => {
     console.log('[TARJETAS_ASSIST] inicio menú');
-    const kb = Markup.inlineKeyboard([
-      [Markup.button.callback('📊 Por moneda y banco', 'VIEW_MON')],
-      [Markup.button.callback('👤 Por agente', 'VIEW_AGENT')],
-      [Markup.button.callback('🧮 Resumen USD global', 'VIEW_SUM')],
-      [Markup.button.callback('❌ Salir', 'EXIT')],
-    ]);
+    const buttons = [
+      Markup.button.callback('📊 Por moneda y banco', 'VIEW_MON'),
+      Markup.button.callback('👤 Por agente', 'VIEW_AGENT'),
+      Markup.button.callback('🧮 Resumen USD global', 'VIEW_SUM'),
+      Markup.button.callback('❌ Salir', 'EXIT'),
+    ];
+    const kb = Markup.inlineKeyboard(arrangeInlineButtons(buttons));
     const text = '💳 <b>Tarjetas</b>\nElige la vista deseada:';
     const msg = await ctx.reply(text, { parse_mode: 'HTML', ...kb });
     ctx.wizard.state.msgId = msg.message_id;
@@ -404,10 +415,11 @@ const tarjetasAssist = new Scenes.WizardScene(
           ctx.wizard.state.pageIndex = ni;
           const txt =
             pages[ni] + `\n\nPágina ${ni + 1}/${pages.length}`;
-          await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, txt, {
-            parse_mode: 'HTML',
-            ...buildNavKeyboard(pages.length),
-          });
+          const nav =
+            pages.length > 1
+              ? buildNavKeyboard()
+              : Markup.inlineKeyboard([buildBackExitRow()]);
+          await editIfChanged(ctx, txt, { parse_mode: 'HTML', ...nav });
         }
         break;
       case 'MON_LIST':
@@ -448,10 +460,11 @@ const tarjetasAssist = new Scenes.WizardScene(
           ctx.wizard.state.pageIndex = ni;
           const txt =
             pages[ni] + `\n\nPágina ${ni + 1}/${pages.length}`;
-          await editIfChanged(ctx, ctx.chat.id, ctx.wizard.state.msgId, txt, {
-            parse_mode: 'HTML',
-            ...buildNavKeyboard(pages.length),
-          });
+          const nav =
+            pages.length > 1
+              ? buildNavKeyboard()
+              : Markup.inlineKeyboard([buildBackExitRow()]);
+          await editIfChanged(ctx, txt, { parse_mode: 'HTML', ...nav });
         }
         break;
       case 'SUMMARY':

@@ -98,16 +98,10 @@ const comandos = [
     uso: '/monitor [dia|mes|año] [banco|agente|moneda|tarjeta]'
   },
   {
-    nombre: 'daracceso',
-    descripcion: 'Dar acceso a un usuario para que use el bot.',
+    nombre: 'acceso',
+    descripcion: 'Asistente para gestionar usuarios con acceso (agregar o eliminar).',
     permiso: 'Solo propietario',
-    uso: '/daracceso <user_id>'
-  },
-  {
-    nombre: 'denegaracceso',
-    descripcion: 'Revocar acceso de un usuario.',
-    permiso: 'Solo propietario',
-    uso: '/denegaracceso <user_id>'
+    uso: '/acceso'
   }
 ];
 

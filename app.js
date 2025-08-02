@@ -31,11 +31,7 @@ const resumenTotal   = require('./commands/resumentotal');
 const comandosMeta   = require('./commands/comandos');
 
 /* ───────── 4. Control de accesos ───────── */
-const {
-  agregarUsuario,
-  eliminarUsuario,
-  usuarioExiste,
-} = require('./commands/usuariosconacceso');
+const { usuarioExiste } = require('./commands/usuariosconacceso');
 
 /* ───────── 5. Nuevo sistema (wizards) ───────── */
 const registerMoneda  = require('./commands/moneda');
@@ -45,6 +41,7 @@ const tarjetaWizard   = require('./commands/tarjeta_wizard');
 const saldoWizard     = require('./commands/saldo');
 const tarjetasAssist  = require('./commands/tarjetas_assist');
 const monitorAssist   = require('./commands/monitor_assist');
+const accesoAssist    = require('./commands/acceso_assist');
 
 /* ───────── 6. Inicializar BD (idempotente) ───────── */
 (async () => {
@@ -53,7 +50,7 @@ const monitorAssist   = require('./commands/monitor_assist');
 })();
 
 /* ───────── 7. Scenes / Stage ───────── */
-const stage = new Scenes.Stage([tarjetaWizard, saldoWizard, tarjetasAssist, monitorAssist], { ttl: 300 });
+const stage = new Scenes.Stage([tarjetaWizard, saldoWizard, tarjetasAssist, monitorAssist, accesoAssist], { ttl: 300 });
 bot.use(session());
 bot.use(stage.middleware());
 
@@ -120,25 +117,9 @@ bot.command('tarjeta',  (ctx) => ctx.scene.enter('TARJETA_WIZ'));
 bot.command('saldo',    (ctx) => ctx.scene.enter('SALDO_WIZ'));
 bot.command('tarjetas', (ctx) => ctx.scene.enter('TARJETAS_ASSIST'));
 bot.command('monitor',  (ctx) => ctx.scene.enter('MONITOR_ASSIST'));
+bot.command('acceso',   (ctx) => ctx.scene.enter('ACCESO_ASSIST'));
 
 /* ───────── 13. Gestión de accesos (solo OWNER) ───────── */
-bot.command('daracceso', safe(async (ctx) => {
-  if (ctx.from.id.toString() !== process.env.OWNER_ID) return ctx.reply('Solo propietario.');
-  const id = ctx.message.text.split(' ')[1];
-  if (!id) return ctx.reply('Indica el ID.');
-  if (await usuarioExiste(id)) return ctx.reply('Ya tenía acceso.');
-  await agregarUsuario(id);
-  ctx.reply(`✅ Acceso otorgado a ${id}.`);
-}));
-
-bot.command('denegaracceso', safe(async (ctx) => {
-  if (ctx.from.id.toString() !== process.env.OWNER_ID) return ctx.reply('Solo propietario.');
-  const id = ctx.message.text.split(' ')[1];
-  if (!id) return ctx.reply('Indica el ID.');
-  if (!(await usuarioExiste(id))) return ctx.reply('No estaba registrado.');
-  await eliminarUsuario(id);
-  ctx.reply(`⛔ Acceso revocado a ${id}.`);
-}));
 
 /* ───────── arranque robusto y cierre limpio ───────── */
 
