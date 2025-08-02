@@ -51,6 +51,7 @@ async function showAgentes(ctx) {
     await ctx.reply('⚠️ No hay agentes registrados.');
     return false;
   }
+
   const kb = [];
   for (let i = 0; i < agentes.length; i += 2) {
     const row = [Markup.button.callback(agentes[i].nombre, `AG_${agentes[i].id}`)];
@@ -62,34 +63,35 @@ async function showAgentes(ctx) {
     kb.push(row);
   }
   kb.push([Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')]);
+
   const txt = '👥 *Seleccione uno de los Agentes disponibles*';
   const extra = { parse_mode: 'Markdown', ...Markup.inlineKeyboard(kb) };
-  if (ctx.wizard.state.data?.msgId) {
-    await ctx.telegram.editMessageText(
-      ctx.chat.id,
-      ctx.wizard.state.data.msgId,
-      undefined,
-      txt,
-      extra
-    );
+
+  const msgId = ctx.wizard.state.data?.msgId;
+  if (msgId) {
+    await ctx.telegram.editMessageText(ctx.chat.id, msgId, undefined, txt, extra);
+    ctx.wizard.state.data = { msgId, agentes };
   } else {
     const msg = await ctx.reply(txt, extra);
-    ctx.wizard.state.data = { msgId: msg.message_id };
+    ctx.wizard.state.data = { msgId: msg.message_id, agentes };
   }
   return true;
 }
 
 async function showTarjetas(ctx) {
-  const { agente_id } = ctx.wizard.state.data;
+  const { agente_id, agente_nombre } = ctx.wizard.state.data;
   const tarjetas = (
     await pool.query(
       `
       SELECT t.id, t.numero,
              COALESCE(mv.saldo_nuevo,0) AS saldo,
              COALESCE(m.codigo,'')       AS moneda,
-             COALESCE(m.emoji,'')        AS moneda_emoji
+             COALESCE(m.emoji,'')        AS moneda_emoji,
+             COALESCE(b.nombre,'')       AS banco,
+             COALESCE(b.emoji,'')        AS banco_emoji
       FROM tarjeta t
       LEFT JOIN moneda m  ON m.id = t.moneda_id
+      LEFT JOIN banco  b  ON b.id = t.banco_id
       LEFT JOIN LATERAL (
         SELECT saldo_nuevo
           FROM movimiento
@@ -117,12 +119,15 @@ async function showTarjetas(ctx) {
 
   const kb = tarjetas.map(t => [
     Markup.button.callback(
-      `${t.numero}  (${t.moneda_emoji} ${t.moneda} – ${t.saldo})`,
+      `${t.numero}  (${t.banco_emoji} ${t.banco} – ${t.moneda_emoji} ${t.moneda} – ${t.saldo})`,
       `TA_${t.id}`
     )
   ]);
-  kb.push([Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')]);
-  const txt = '💳 *Elija la tarjeta a actualizar de este agente*';
+  kb.push([
+    Markup.button.callback('👥 Agentes', 'OTROS_AG'),
+    Markup.button.callback('🚪 Salir', 'GLOBAL_CANCEL')
+  ]);
+  const txt = `💳 *Tarjetas de ${agente_nombre}*`;
   await ctx.telegram.editMessageText(
     ctx.chat.id,
     ctx.wizard.state.data.msgId,
@@ -168,7 +173,9 @@ const saldoWizard = new Scenes.WizardScene(
     }
     await ctx.answerCbQuery().catch(() => {});
     const agente_id = +ctx.callbackQuery.data.split('_')[1];
+    const agente = ctx.wizard.state.data.agentes.find(a => a.id === agente_id);
     ctx.wizard.state.data.agente_id = agente_id;
+    ctx.wizard.state.data.agente_nombre = agente?.nombre || '';
 
     const ok = await showTarjetas(ctx);
     if (!ok) return; // escena ya cerrada si no hay tarjetas
@@ -178,11 +185,19 @@ const saldoWizard = new Scenes.WizardScene(
   /* 2 – pedir saldo actual */
   async ctx => {
     if (await wantExit(ctx)) return;
-    if (!ctx.callbackQuery?.data.startsWith('TA_')) {
+    if (!ctx.callbackQuery) return;
+    const { data } = ctx.callbackQuery;
+    if (data === 'OTROS_AG') {
+      await ctx.answerCbQuery().catch(() => {});
+      const ok = await showAgentes(ctx);
+      if (ok) return ctx.wizard.selectStep(1);
+      return;
+    }
+    if (!data.startsWith('TA_')) {
       return ctx.reply('Usa los botones para elegir la tarjeta.');
     }
     await ctx.answerCbQuery().catch(() => {});
-    const tarjeta_id = +ctx.callbackQuery.data.split('_')[1];
+    const tarjeta_id = +data.split('_')[1];
     const tarjeta = ctx.wizard.state.data.tarjetas.find(t => t.id === tarjeta_id);
 
     ctx.wizard.state.data.tarjeta = tarjeta;
