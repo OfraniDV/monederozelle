@@ -264,7 +264,38 @@ const saldoWizard = new Scenes.WizardScene(
         `${signo} <code>${fmtMoney(Math.abs(delta))}</code> ${escapeHtml(tarjeta.moneda)}.\n` +
         `Saldo nuevo de <b>${escapeHtml(tarjeta.numero)}</b>: <code>${fmtMoney(saldoNuevo)}</code> ${escapeHtml(tarjeta.moneda)}.\n\n` +
         '¿Deseas actualizar otra tarjeta?';
-      await sendAndLog(ctx, txt, { reply_markup: kbContinue });
+      // ⚙️  DEPURACIÓN: muestra exactamente qué opciones se envían
+      console.log('[SALDO_WIZ] sendAndLog extra →', kbContinue);
+      
+      // Markup.inlineKeyboard() **ya** devuelve { reply_markup: { … } }.
+      // No hay que volver a envolverlo en otra clave reply_markup
+      // o Telegram descarta el teclado.
+      // ⒈ mensaje interactivo SOLO en el chat actual
+      const sent = await sendAndLog(ctx, txt, { ...kbContinue, noForward:true });
+
+   // ⒉ mensaje de registro para los grupos (sin teclado)
+   const now = new Date();
+   const fecha = now.toLocaleString('es-ES', {
+     day: '2-digit',
+     month: '2-digit',
+     year: 'numeric',
+     hour: '2-digit',
+     minute: '2-digit',
+   });
+   const logTxt =
+     `💳 <b>Movimiento – ${fecha}</b>\n` +
+     `👤 Usuario: @${escapeHtml(ctx.from.username || ctx.from.id)} (ID: ${ctx.from.id})\n` +
+     `• Tarjeta: <b>${escapeHtml(tarjeta.numero)}</b>\n` +
+     `• Saldo anterior: <code>${fmtMoney(saldoAnterior)}</code>\n` +
+     `• Saldo informado : <code>${fmtMoney(saldoNuevo)}</code>\n` +
+     `• Variación      : <code>${(delta>=0?'+':'') + fmtMoney(delta)}</code> ${delta>0?'📈':delta<0?'📉':'➖'}`;
+
+   await sendAndLog(ctx, logTxt);   // se reenvía a stats / comerciales
+
+      // Actualizamos el mensaje que se editará en los siguientes pasos
+      if (sent?.message_id) {
+        ctx.wizard.state.data.msgId = sent.message_id;
+      }
     } catch (e) {
       console.error('[SALDO_WIZ] error insert movimiento:', e);
       await ctx.reply('❌ No se pudo registrar el movimiento.');

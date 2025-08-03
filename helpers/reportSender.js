@@ -1,40 +1,96 @@
-const { statsChatId, ownerIds } = require('../config');
+// helpers/reportSender.js
+// -----------------------------------------------------------------------------
+// Envío centralizado de reportes:
+//   • ctx.reply() al chat actual (devolvemos el objeto mensaje para poder
+//     actualizar estados en los wizards).
+//   • Reenvío opcional al grupo de estadísticas (STATS_CHAT_ID).
+//   • Reenvío opcional al grupo de comerciales (ID_GROUP_COMERCIALES).
+//   • Notificación a los owners cuando ocurre un error.
+// -----------------------------------------------------------------------------
+
+const { statsChatId, comercialesGroupId, ownerIds } = require('../config');
 const { escapeHtml } = require('./format');
 
+/* -------------------------------------------------------------------------- */
+/* Owners                                                                     */
+/* -------------------------------------------------------------------------- */
 async function notifyOwners(ctx, html, extra = {}) {
   for (const id of ownerIds) {
     try {
-      await ctx.telegram.sendMessage(id, html, { parse_mode: 'HTML', ...extra });
+      await ctx.telegram.sendMessage(id, html, {
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+        ...extra,
+      });
     } catch (err) {
       console.error('[reportSender] error notificando a owner', id, err);
     }
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* Enviar mensaje principal + reenvíos                                         */
+/* -------------------------------------------------------------------------- */
 async function sendAndLog(ctx, html, extra = {}) {
   if (!html || !html.trim()) return null;
+
   const safe = html.trim();
-  let msg = null;
+  let message = null;
+
+  /* 1⃣  Enviar al chat actual */
   try {
-    msg = await ctx.reply(safe, { parse_mode: 'HTML', ...extra });
+    // Mezcla de opciones: garantizamos parse_mode y no rompemos reply_markup.
+    const opts = {
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+      ...extra, // reply_markup o lo que venga del caller
+    };
+    message = await ctx.reply(safe, opts);
   } catch (err) {
     console.error('[reportSender] error ctx.reply', err);
-    await notifyOwners(ctx, `❗️ Error enviando reporte: ${escapeHtml(err.message)}`);
+    await notifyOwners(
+      ctx,
+      `❗️ Error enviando reporte en chat ${ctx.chat?.id}: ${escapeHtml(
+        err.message,
+      )}`,
+    );
     return null;
   }
-  const chatId = String(statsChatId || '').trim();
-  if (chatId) {
+
+  /* 2⃣  Reenvío al grupo de estadísticas */
+  if (statsChatId) {
     try {
-      await ctx.telegram.sendMessage(chatId, safe, { parse_mode: 'HTML' });
+      await ctx.telegram.sendMessage(statsChatId, safe, {
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+      });
     } catch (err) {
       console.error('[reportSender] error enviando a STATS_CHAT_ID', err);
       await notifyOwners(
         ctx,
-        `⚠️ No se pudo enviar a STATS_CHAT_ID (${escapeHtml(err.message)})`,
+        `⚠️ No se pudo reenviar a STATS_CHAT_ID (${escapeHtml(err.message)})`,
       );
     }
   }
-  return msg;
+
+  /* 3⃣  Reenvío al grupo de comerciales (si existe) */
+  if (comercialesGroupId) {
+    try {
+      await ctx.telegram.sendMessage(comercialesGroupId, safe, {
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+      });
+    } catch (err) {
+      console.error('[reportSender] error enviando a ID_GROUP_COMERCIALES', err);
+      await notifyOwners(
+        ctx,
+        `⚠️ No se pudo reenviar a ID_GROUP_COMERCIALES (${escapeHtml(err.message)})`,
+      );
+    }
+  }
+
+  /* 4⃣  Devolver el mensaje para que el caller pueda usar message_id */
+  return message;
 }
 
 module.exports = { sendAndLog, notifyOwners };
