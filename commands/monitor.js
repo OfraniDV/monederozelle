@@ -8,6 +8,7 @@ const moment = require('moment-timezone');
 const path = require('path');
 // Migrado a HTML parse mode con sanitización centralizada en escapeHtml.
 const { escapeHtml } = require('../helpers/format');
+const { buildEntityFilter } = require('../helpers/filters');
 
 let db;
 try {
@@ -343,21 +344,17 @@ async function runMonitor(ctx, rawText) {
 
     const params = [rango.start.toDate(), rango.end.toDate()];
     const condiciones = [];
-    let idx = params.length;
     if (opts.moneda) {
-      params.push(opts.moneda);
-      idx++;
-      condiciones.push(`unaccent(lower(m.codigo)) = unaccent(lower($${idx}))`);
+      const c = await buildEntityFilter('m', opts.moneda, params, 'id', ['codigo', 'nombre']);
+      if (c) condiciones.push(c);
     }
     if (opts.agente) {
-      params.push(`%${opts.agente}%`);
-      idx++;
-      condiciones.push(`unaccent(lower(ag.nombre)) LIKE unaccent(lower($${idx}))`);
+      const c = await buildEntityFilter('ag', opts.agente, params, 'id', ['nombre']);
+      if (c) condiciones.push(c);
     }
     if (opts.banco) {
-      params.push(`%${opts.banco}%`);
-      idx++;
-      condiciones.push(`unaccent(lower(b.codigo || ' ' || b.nombre)) LIKE unaccent(lower($${idx}))`);
+      const c = await buildEntityFilter('b', opts.banco, params, 'id', ['codigo', 'nombre']);
+      if (c) condiciones.push(c);
     }
 
     let sql = SQL_BASE;
@@ -393,6 +390,25 @@ async function runMonitor(ctx, rawText) {
     }
 
     if (!datos.length) {
+      console.warn('[monitor] consulta sin resultados; verificando filtros individuales');
+      if (opts.agente) {
+        const ap = [];
+        const clause = await buildEntityFilter('ag', opts.agente, ap, 'id', ['nombre']);
+        const r = await query(`SELECT COUNT(*) AS c FROM agente ag WHERE ${clause}`, ap);
+        console.warn(`[monitor] agentes coincidentes para "${opts.agente}":`, r.rows[0]?.c || 0);
+      }
+      if (opts.banco) {
+        const bp = [];
+        const clause = await buildEntityFilter('b', opts.banco, bp, 'id', ['codigo', 'nombre']);
+        const r = await query(`SELECT COUNT(*) AS c FROM banco b WHERE ${clause}`, bp);
+        console.warn(`[monitor] bancos coincidentes para "${opts.banco}":`, r.rows[0]?.c || 0);
+      }
+      if (opts.moneda) {
+        const mp = [];
+        const clause = await buildEntityFilter('m', opts.moneda, mp, 'id', ['codigo', 'nombre']);
+        const r = await query(`SELECT COUNT(*) AS c FROM moneda m WHERE ${clause}`, mp);
+        console.warn(`[monitor] monedas coincidentes para "${opts.moneda}":`, r.rows[0]?.c || 0);
+      }
       await ctx.reply('No se encontraron datos para ese periodo con los filtros indicados.');
       return;
     }

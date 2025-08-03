@@ -12,16 +12,13 @@
 
 const { Scenes, Markup } = require('telegraf');
 const { escapeHtml } = require('../helpers/format');
+const { buildEntityFilter } = require('../helpers/filters');
 const {
   editIfChanged,
   buildBackExitRow,
   arrangeInlineButtons,
-  buildNavKeyboard,
 } = require('../helpers/ui');
 const pool = require('../psql/db.js');
-
-/* Config ------------------------------------------------------------------ */
-const LINES_PER_PAGE = 15;
 
 /* Helpers ----------------------------------------------------------------- */
 const fmt = (v, d = 2) =>
@@ -32,20 +29,28 @@ const fmt = (v, d = 2) =>
     }),
   );
 
-function paginate(text, linesPerPage = LINES_PER_PAGE) {
+function smartPaginate(text) {
+  if (text.length <= 4000) return [text];
   const lines = text.split('\n');
   const pages = [];
   let buf = '';
-  let count = 0;
   for (const line of lines) {
     const nl = line + '\n';
-    if (count >= linesPerPage || buf.length + nl.length > 4000) {
+    if (buf.length + nl.length > 4000) {
       pages.push(buf.trimEnd());
       buf = '';
-      count = 0;
+    }
+    if (nl.length > 4000) {
+      // línea extremadamente larga: forzar corte
+      let start = 0;
+      while (start < nl.length) {
+        pages.push(nl.slice(start, start + 4000).trimEnd());
+        start += 4000;
+      }
+      buf = '';
+      continue;
     }
     buf += nl;
-    count++;
   }
   if (buf.trim()) pages.push(buf.trimEnd());
   return pages.length ? pages : ['No hay datos.'];
@@ -92,19 +97,32 @@ async function loadAgentes() {
 
 async function loadTarjetas(filters) {
   const params = [];
-  let where = '1=1';
-  if (filters.agenteId) {
-    params.push(filters.agenteId);
-    where += ` AND t.agente_id=$${params.length}`;
-  }
-  if (filters.bancoId) {
-    params.push(filters.bancoId);
-    where += ` AND t.banco_id=$${params.length}`;
-  }
-  if (filters.monedaId) {
-    params.push(filters.monedaId);
-    where += ` AND t.moneda_id=$${params.length}`;
-  }
+  const conds = [];
+  const agVal =
+    filters.agenteId ||
+    (filters.agenteNombre && filters.agenteNombre !== 'Todos'
+      ? filters.agenteNombre
+      : null) ||
+    filters.agente;
+  const bVal =
+    filters.bancoId ||
+    (filters.bancoNombre && filters.bancoNombre !== 'Todos'
+      ? filters.bancoNombre
+      : null) ||
+    filters.banco;
+  const mVal =
+    filters.monedaId ||
+    (filters.monedaNombre && filters.monedaNombre !== 'Todas'
+      ? filters.monedaNombre
+      : null) ||
+    filters.moneda;
+  const cAg = await buildEntityFilter('ag', agVal, params);
+  if (cAg) conds.push(cAg);
+  const cBk = await buildEntityFilter('b', bVal, params, 'id', ['codigo', 'nombre']);
+  if (cBk) conds.push(cBk);
+  const cMon = await buildEntityFilter('m', mVal, params, 'id', ['codigo', 'nombre']);
+  if (cMon) conds.push(cMon);
+  const where = conds.length ? conds.join(' AND ') : '1=1';
   const sql = `
     SELECT t.id, t.numero,
            COALESCE(ag.nombre,'') AS agente,
@@ -290,8 +308,20 @@ async function showExtract(ctx) {
 
   const ids = filterCards(st).map((c) => c.id);
   if (!ids.length) {
+    console.warn('[extracto] filtros sin tarjetas', st.filters);
     await ctx.reply('⚠️ No hay tarjetas con esos filtros.');
     return;
+  }
+
+  // coherencia: agenteId vs agenteNombre
+  if (st.filters.agenteId && st.filters.agenteNombre && st.filters.agenteNombre !== 'Todos') {
+    const byId = await loadTarjetas({ agenteId: st.filters.agenteId });
+    const byName = await loadTarjetas({ agente: st.filters.agenteNombre });
+    const idsId = byId.map((c) => c.id).sort().join(',');
+    const idsName = byName.map((c) => c.id).sort().join(',');
+    if (idsId !== idsName) {
+      console.warn('[extracto] discrepancia agenteId vs nombre', idsId, idsName);
+    }
   }
 
   const movs = await q(
@@ -306,6 +336,41 @@ async function showExtract(ctx) {
       ORDER BY mv.creado_en DESC`,
     [ids, since],
   );
+
+  if (!movs.length) {
+    const diag = {};
+    if (st.filters.agenteId || st.filters.agenteNombre) {
+      diag.tarjetasAgente = (
+        await loadTarjetas({
+          agenteId: st.filters.agenteId,
+          agente: st.filters.agenteNombre,
+        })
+      ).length;
+    }
+    if (st.filters.bancoId || st.filters.bancoNombre) {
+      diag.tarjetasAgenteBanco = (
+        await loadTarjetas({
+          agenteId: st.filters.agenteId,
+          agente: st.filters.agenteNombre,
+          bancoId: st.filters.bancoId,
+          banco: st.filters.bancoNombre,
+        })
+      ).length;
+    }
+    if (st.filters.monedaId || st.filters.monedaNombre) {
+      diag.tarjetasAgenteBancoMoneda = (
+        await loadTarjetas({
+          agenteId: st.filters.agenteId,
+          agente: st.filters.agenteNombre,
+          bancoId: st.filters.bancoId,
+          banco: st.filters.bancoNombre,
+          monedaId: st.filters.monedaId,
+          moneda: st.filters.monedaNombre,
+        })
+      ).length;
+    }
+    console.warn('[extracto] sin movimientos', { filtros: st.filters, diag });
+  }
 
   const groups = {};
   movs.forEach((mv) => {
@@ -341,20 +406,19 @@ async function showExtract(ctx) {
     body += g.lines.join('\n') + '\n\n';
   });
 
-  const pages = paginate(header(st.filters) + body);
-  st.pages = pages;
-  st.pageIndex = 0;
+  const text = header(st.filters) + body;
+  const pages = smartPaginate(text);
   st.route = 'EXTRACT';
 
-  const nav =
-    pages.length > 1
-      ? buildNavKeyboard({ back: 'BACK', exit: 'EXIT' })
-      : Markup.inlineKeyboard([buildBackExitRow('BACK', 'EXIT')]);
-
-  await editIfChanged(ctx, pages[0] + (pages.length > 1 ? '\n\nPágina 1/' + pages.length : ''), {
-    parse_mode: 'HTML',
-    ...nav,
-  });
+  for (let i = 0; i < pages.length; i++) {
+    const prefix = pages.length > 1 ? `<b>(${i + 1}/${pages.length})</b>\n` : '';
+    const extra =
+      i === pages.length - 1
+        ? { reply_markup: { inline_keyboard: [buildBackExitRow('BACK', 'EXIT')] } }
+        : {};
+    const msg = await ctx.reply(prefix + pages[i], { parse_mode: 'HTML', ...extra });
+    if (i === pages.length - 1) st.msgId = msg.message_id;
+  }
 }
 
 /* ───────── Wizard ───────── */
@@ -448,25 +512,6 @@ const extractoAssist = new Scenes.WizardScene(
           return showExtract(ctx);
         }
         break;
-      case 'EXTRACT': {
-        const pages = st.pages || [];
-        let idx = st.pageIndex || 0;
-        const last = pages.length - 1;
-        if (data === 'FIRST') idx = 0;
-        else if (data === 'PREV') idx = Math.max(0, idx - 1);
-        else if (data === 'NEXT') idx = Math.min(last, idx + 1);
-        else if (data === 'LAST') idx = last;
-        st.pageIndex = idx;
-        const nav =
-          pages.length > 1
-            ? buildNavKeyboard({ back: 'BACK', exit: 'EXIT' })
-            : Markup.inlineKeyboard([buildBackExitRow('BACK', 'EXIT')]);
-        await editIfChanged(ctx, pages[idx] + `\n\nPágina ${idx + 1}/${pages.length}`, {
-          parse_mode: 'HTML',
-          ...nav,
-        });
-        return;
-      }
     }
   },
 );
