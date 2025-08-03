@@ -1,6 +1,8 @@
 // commands/monitor.js
 // Implementación avanzada del comando /monitor para Telegraf.
 // Genera un monitoreo financiero por tarjeta agrupando por moneda y agente.
+// Asegúrate de tener la extensión unaccent instalada:
+//   CREATE EXTENSION IF NOT EXISTS unaccent;
 
 const moment = require('moment-timezone');
 const path = require('path');
@@ -89,8 +91,8 @@ function calcRanges(period, tz) {
   const now = moment.tz(tz);
   let start;
   switch (period) {
-    case 'semana':
-      start = now.clone().startOf('isoWeek');
+    case 'semana':                         // últimos 7 días rodantes
+      start = now.clone().startOf('day').subtract(6, 'days');
       break;
     case 'mes':
       start = now.clone().startOf('month');
@@ -101,9 +103,12 @@ function calcRanges(period, tz) {
     default:
       start = now.clone().startOf('day');
   }
-  const unit = period === 'semana' ? 'week' : period === 'mes' ? 'month' : period === 'ano' ? 'year' : 'day';
-  const end = start.clone().add(1, unit);
-  const prevStart = start.clone().subtract(1, unit);
+  const end  = now.clone().endOf('day'); // hasta el momento actual
+  let prevStart;
+  if (period === 'semana') prevStart = start.clone().subtract(7, 'days');
+  else if (period === 'mes') prevStart = start.clone().subtract(1, 'month');
+  else if (period === 'ano') prevStart = start.clone().subtract(1, 'year');
+  else prevStart = start.clone().subtract(1, 'day');
   const prevEnd = start.clone();
   return { start, end, prevStart, prevEnd };
 }
@@ -284,6 +289,17 @@ function buildMessage(moneda, rows, opts, range, historiales) {
   });
   msg += `<pre>${lines.join('\n')}</pre>`;
 
+  /* ─── Entradas / Salidas netas ───────────────────── */
+  let totalIn = 0,
+    totalOut = 0;
+  rows.forEach((r) => {
+    if (r.delta > 0) totalIn += r.delta;
+    else if (r.delta < 0) totalOut += Math.abs(r.delta);
+  });
+  msg += `\n<b>Entradas netas:</b> <code>${fmtMoney(totalIn)}</code>`;
+  msg += `\n<b>Salidas netas:</b>  <code>${fmtMoney(totalOut)}</code>\n`;
+
+
   // Resumenes por agente y banco
   const resAg = resumenPor(rows, 'agente');
   const resBa = resumenPor(rows, 'banco');
@@ -331,17 +347,17 @@ async function runMonitor(ctx, rawText) {
     if (opts.moneda) {
       params.push(opts.moneda);
       idx++;
-      condiciones.push(`lower(m.codigo) = lower($${idx})`);
+      condiciones.push(`unaccent(lower(m.codigo)) = unaccent(lower($${idx}))`);
     }
     if (opts.agente) {
       params.push(`%${opts.agente}%`);
       idx++;
-      condiciones.push(`lower(ag.nombre) LIKE lower($${idx})`);
+      condiciones.push(`unaccent(lower(ag.nombre)) LIKE unaccent(lower($${idx}))`);
     }
     if (opts.banco) {
       params.push(`%${opts.banco}%`);
       idx++;
-      condiciones.push(`lower(b.codigo || ' ' || b.nombre) LIKE lower($${idx})`);
+      condiciones.push(`unaccent(lower(b.codigo || ' ' || b.nombre)) LIKE unaccent(lower($${idx}))`);
     }
 
     let sql = SQL_BASE;
