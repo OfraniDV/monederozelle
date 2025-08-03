@@ -11,6 +11,7 @@
  */
 
 const { Scenes, Markup } = require('telegraf');
+const moment = require('moment-timezone');
 const { escapeHtml, fmtMoney } = require('../helpers/format');
 const { getDefaultPeriod } = require('../helpers/period');
 const { sendAndLog } = require('../helpers/reportSender');
@@ -289,8 +290,9 @@ async function showPeriod(ctx) {
 /* ───────── Reporte final ───────── */
 
 async function showExtract(ctx) {
-  const st = ctx.wizard.state;
-  const period = st.filters.period || getDefaultPeriod();
+  try {
+    const st = ctx.wizard.state;
+    const period = st.filters.period || getDefaultPeriod();
 
   /* rango */
   const now = new Date();
@@ -321,10 +323,12 @@ async function showExtract(ctx) {
   const movs = await q(
     `SELECT mv.tarjeta_id, mv.descripcion, mv.importe, mv.saldo_nuevo, mv.creado_en,
             t.numero,
+            COALESCE(b.codigo,'Sin banco') AS banco, COALESCE(b.emoji,'') AS banco_emoji,
             COALESCE(m.codigo,'---') AS moneda, COALESCE(m.emoji,'') AS mon_emoji,
             COALESCE(m.tasa_usd,1)  AS tasa
        FROM movimiento mv
        JOIN tarjeta t ON t.id = mv.tarjeta_id
+       LEFT JOIN banco  b ON b.id = t.banco_id
        JOIN moneda  m ON m.id = t.moneda_id
       WHERE mv.tarjeta_id = ANY($1) AND mv.creado_en >= $2
       ORDER BY mv.creado_en DESC`,
@@ -370,53 +374,84 @@ async function showExtract(ctx) {
   movs.forEach((mv) => {
     const g = (groups[mv.moneda] ??= {
       emoji: mv.mon_emoji,
+      rate: parseFloat(mv.tasa) || 1,
       in: 0,
       out: 0,
-      rate: parseFloat(mv.tasa) || 1,
-      lines: [],
-      last: {},
+      cards: new Map(),
     });
+    const card = g.cards.get(mv.tarjeta_id) || {
+      numero: mv.numero,
+      banco: mv.banco,
+      bancoEmoji: mv.banco_emoji,
+      lines: [],
+      in: 0,
+      out: 0,
+      saldo: null,
+    };
     const imp = parseFloat(mv.importe) || 0;
-    if (imp >= 0) g.in += imp;
-    else g.out += -imp;
-    const sign = imp >= 0 ? '+' : '-';
-    g.lines.push(
-      `${new Date(mv.creado_en).toLocaleString()} — ${escapeHtml(
-        mv.descripcion || '',
-      )} ${sign}<code>${fmtMoney(Math.abs(imp))}</code> → <code>${fmtMoney(
-        mv.saldo_nuevo,
-      )}</code> (${mv.numero})`,
+    if (imp >= 0) {
+      g.in += imp;
+      card.in += imp;
+    } else {
+      g.out += -imp;
+      card.out += -imp;
+    }
+    const dateStr = moment(mv.creado_en)
+      .tz('America/Havana')
+      .format('D/M/YYYY, h:mm A');
+    const emoji = imp >= 0 ? '🔼' : '🔽';
+    card.lines.push(
+      `• ${dateStr} — ${escapeHtml(mv.descripcion || '')} ${emoji}<code>${fmtMoney(
+        Math.abs(imp),
+      )}</code> → <code>${fmtMoney(mv.saldo_nuevo)}</code>`,
     );
-    if (!(mv.tarjeta_id in g.last)) g.last[mv.tarjeta_id] = mv.saldo_nuevo;
+    if (card.saldo === null) card.saldo = parseFloat(mv.saldo_nuevo) || 0;
+    g.cards.set(mv.tarjeta_id, card);
   });
 
   let body = '';
-  Object.entries(groups).forEach(([code, g]) => {
-    const saldo = Object.values(g.last).reduce((a, b) => a + parseFloat(b || 0), 0);
+  for (const [code, g] of Object.entries(groups)) {
+    if (body) body += '\n\n';
+    body += `💱 <b>${g.emoji ? g.emoji + ' ' : ''}${escapeHtml(code)}</b>\n\n`;
+    for (const card of g.cards.values()) {
+      body += `🏦 Banco: ${card.bancoEmoji ? card.bancoEmoji + ' ' : ''}${escapeHtml(
+        card.banco,
+      )} 💳 Tarjeta: ${escapeHtml(card.numero)}\n`;
+      body += `Subtotal: 💰 <code>${fmtMoney(card.saldo)}</code> 🔼 Entrada: <code>${fmtMoney(
+        card.in,
+      )}</code> 🔽 Salida: <code>${fmtMoney(card.out)}</code>\n`;
+      body += `Historial:\n${card.lines.join('\n')}\n\n`;
+    }
+    const totalSaldo = Array.from(g.cards.values()).reduce((a, c) => a + c.saldo, 0);
     const net = g.in - g.out;
-    body += `💱 <b>${g.emoji ? g.emoji + ' ' : ''}${escapeHtml(code)}</b>\n`;
     body += `↗️ Entradas: <code>${fmtMoney(g.in)}</code>\n`;
     body += `↘️ Salidas: <code>${fmtMoney(g.out)}</code>\n`;
     body += `${net >= 0 ? '📈' : '📉'} Variación neta: <code>${fmtMoney(net)}</code>\n`;
-    body += `Saldo actual: <code>${fmtMoney(saldo)}</code> (<code>${fmtMoney(
-      saldo * g.rate,
-    )}</code> USD)\n\n`;
-    body += g.lines.join('\n') + '\n\n';
-  });
-
-  const text = header(st.filters) + body;
-  const pages = smartPaginate(text);
-  st.lastReport = pages;
-  for (let i = 0; i < pages.length; i++) {
-    const prefix = pages.length > 1 ? `<b>(${i + 1}/${pages.length})</b>\n` : '';
-    await ctx.reply(prefix + pages[i], { parse_mode: 'HTML' });
+    body += `Saldo actual: <code>${fmtMoney(totalSaldo)}</code> (<code>${fmtMoney(
+      totalSaldo * g.rate,
+    )}</code> USD)\n`;
   }
-  const kb = [[Markup.button.callback('💾 Salvar', 'SAVE')], [Markup.button.callback('❌ Salir', 'EXIT')]];
-  await ctx.reply('Reporte generado.', {
-    parse_mode: 'HTML',
-    reply_markup: { inline_keyboard: kb },
-  });
-  st.route = 'AFTER_RUN';
+
+    const text = header(st.filters) + body + '\n\n';
+    const pages = smartPaginate(text);
+    st.lastReport = pages;
+    for (let i = 0; i < pages.length; i++) {
+      const prefix = pages.length > 1 ? `<b>(${i + 1}/${pages.length})</b>\n` : '';
+      await ctx.reply(prefix + pages[i], { parse_mode: 'HTML' });
+    }
+    const kb = [
+      [Markup.button.callback('💾 Salvar', 'SAVE')],
+      [Markup.button.callback('❌ Salir', 'EXIT')],
+    ];
+    await ctx.reply('Reporte generado.', {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: kb },
+    });
+    st.route = 'AFTER_RUN';
+  } catch (err) {
+    console.error('[extracto] showExtract error', err);
+    await ctx.reply('⚠️ Error generando extracto.', { parse_mode: 'HTML' });
+  }
 }
 
 /* ───────── Wizard ───────── */
@@ -516,17 +551,30 @@ const extractoAssist = new Scenes.WizardScene(
           for (const m of reps) {
             await sendAndLog(ctx, m);
           }
-          const kb = [[Markup.button.callback('Sí', 'AGAIN')], [Markup.button.callback('No', 'EXIT')]];
-          await ctx.reply('¿Otro extracto?', {
+          const kb = [
+            [Markup.button.callback('Sí', 'AGAIN')],
+            [Markup.button.callback('No', 'EXIT')],
+          ];
+          await ctx.editMessageText('¿Otro extracto?', {
             parse_mode: 'HTML',
             reply_markup: { inline_keyboard: kb },
           });
+          console.log('[extracto] preguntar otro', ctx.from.id, ctx.callbackQuery?.data);
           st.route = 'ASK_AGAIN';
           return;
         }
         break;
       case 'ASK_AGAIN':
+        console.log(
+          '[extracto] respuesta otro',
+          ctx.from.id,
+          ctx.callbackQuery?.data,
+        );
         if (data === 'AGAIN') {
+          await ctx.editMessageText('🔁 Nuevo extracto', { parse_mode: 'HTML' });
+          st.filters = { period: getDefaultPeriod() };
+          st.tarjetasAll = [];
+          st.lastReport = [];
           return showAgents(ctx);
         }
         break;

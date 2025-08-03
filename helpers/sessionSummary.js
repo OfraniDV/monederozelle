@@ -37,15 +37,22 @@ async function flushOnExit(ctx) {
           ORDER BY t.numero`,
         [agId]
       );
-      const lines = cardRes.rows.map((c) => {
+      const changedLines = [];
+      const untouchedLines = [];
+      let totalAntes = 0;
+      let totalDespues = 0;
+      for (const c of cardRes.rows) {
         const change = cards.get(c.id);
         const antes = change ? change.antes : parseFloat(c.saldo) || 0;
         const despues = change ? change.despues : parseFloat(c.saldo) || 0;
         const delta = despues - antes;
         const emoji = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
         const deltaStr = `${delta >= 0 ? '+' : ''}${fmtMoney(delta)}`;
-        return `${pad(c.numero, 8)} <code>${fmtMoney(antes)}</code> → <code>${fmtMoney(despues)}</code>   <code>${deltaStr}</code> ${emoji}`;
-      });
+        const line = `${pad(c.numero, 8)} <code>${fmtMoney(antes)}</code> → <code>${fmtMoney(despues)}</code>   <code>${deltaStr}</code> ${emoji}`;
+        if (change) changedLines.push(line); else untouchedLines.push(line);
+        totalAntes += antes;
+        totalDespues += despues;
+      }
       const head = `📝 Resumen de ajustes – ${new Date()
         .toLocaleString('es-ES', {
           day: '2-digit',
@@ -54,7 +61,11 @@ async function flushOnExit(ctx) {
           hour: '2-digit',
           minute: '2-digit',
         })}\n👤 Agente: ${agName}\n\nTarjeta   Saldo anterior → Saldo actual   Δ\n`;
-      const body = head + lines.join('\n');
+      let body = head + changedLines.join('\n');
+      if (untouchedLines.length) {
+        body += `\n\nSin cambios:\n` + untouchedLines.join('\n');
+      }
+      body += `\n\nSubtotal: <code>${fmtMoney(totalAntes)}</code> → <code>${fmtMoney(totalDespues)}</code>`;
       await sendAndLog(ctx, body.trim());
       agentSummaries.push({ agId, agName, changed: cards.size, total: cardRes.rows.length });
     }
