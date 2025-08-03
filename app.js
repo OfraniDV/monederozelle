@@ -12,6 +12,7 @@ const { Scenes, session } = require('telegraf');
 // Migrated responses to HTML parse mode; escapeHtml centralizes sanitization
 // to prevent markup breakage when interpolating dynamic content.
 const { escapeHtml } = require('./helpers/format');
+const { ownerIds } = require('./config');
 
 /* ───────── 1. Bot base ───────── */
 const bot = require('./bot');
@@ -68,7 +69,7 @@ const verificarAcceso = async (ctx, next) => {
   }
 
   const uid = ctx.from?.id?.toString() || '0';
-  const esOwner  = uid === process.env.OWNER_ID;
+  const esOwner  = ownerIds.includes(Number(uid));
   const permitido = esOwner || (await usuarioExiste(uid));
 
   console.log(`🛂 acceso uid:${uid} permitido:${permitido}`);

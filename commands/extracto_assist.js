@@ -11,7 +11,10 @@
  */
 
 const { Scenes, Markup } = require('telegraf');
-const { escapeHtml } = require('../helpers/format');
+const { escapeHtml, fmtMoney } = require('../helpers/format');
+const { getDefaultPeriod } = require('../helpers/period');
+const { sendAndLog } = require('../helpers/reportSender');
+const { flushOnExit } = require('../helpers/sessionSummary');
 const { buildEntityFilter } = require('../helpers/filters');
 const {
   editIfChanged,
@@ -21,13 +24,6 @@ const {
 const pool = require('../psql/db.js');
 
 /* Helpers ----------------------------------------------------------------- */
-const fmt = (v, d = 2) =>
-  escapeHtml(
-    (parseFloat(v) || 0).toLocaleString('en-US', {
-      minimumFractionDigits: d,
-      maximumFractionDigits: d,
-    }),
-  );
 
 function smartPaginate(text) {
   if (text.length <= 4000) return [text];
@@ -59,16 +55,10 @@ function smartPaginate(text) {
 async function wantExit(ctx) {
   if (ctx.callbackQuery?.data === 'EXIT') {
     await ctx.answerCbQuery().catch(() => {});
-    const id = ctx.wizard.state.msgId;
-    await ctx.telegram.editMessageText(
-      ctx.chat.id,
-      id,
-      undefined,
-      '❌ Operación cancelada.',
-      { parse_mode: 'HTML' },
-    );
+    await ctx.reply('❌ Operación cancelada.', { parse_mode: 'HTML' });
     console.log('[extracto] cancelado por el usuario');
-    await ctx.scene.leave();
+    await flushOnExit(ctx);
+    if (ctx.scene?.current) await ctx.scene.leave();
     return true;
   }
   return false;
@@ -282,9 +272,10 @@ async function showTarjetas(ctx) {
 
 async function showPeriod(ctx) {
   const buttons = [
-    Markup.button.callback('📅 Día', 'PER_day'),
-    Markup.button.callback('🗓 Semana', 'PER_week'),
-    Markup.button.callback('📆 Mes', 'PER_month'),
+    Markup.button.callback('📊 Día', 'PER_dia'),
+    Markup.button.callback('🗓 Semana', 'PER_semana'),
+    Markup.button.callback('📆 Mes', 'PER_mes'),
+    Markup.button.callback('📅 Año', 'PER_ano'),
   ];
   const kb = arrangeInlineButtons(buttons);
   addRunAndExit(kb);
@@ -299,12 +290,15 @@ async function showPeriod(ctx) {
 
 async function showExtract(ctx) {
   const st = ctx.wizard.state;
-  const period = st.filters.period || 'day';
+  const period = st.filters.period || getDefaultPeriod();
 
   /* rango */
-  const ranges = { day: 1, week: 7, month: 30 };
-  const days = ranges[period] || 1;
-  const since = new Date(Date.now() - days * 864e5);
+  const now = new Date();
+  let since;
+  if (period === 'semana') since = new Date(now.getTime() - 7 * 864e5);
+  else if (period === 'mes') since = new Date(now.getFullYear(), now.getMonth(), 1);
+  else if (period === 'ano') since = new Date(now.getFullYear(), 0, 1);
+  else since = new Date(now.getTime() - 864e5);
 
   const ids = filterCards(st).map((c) => c.id);
   if (!ids.length) {
@@ -389,7 +383,9 @@ async function showExtract(ctx) {
     g.lines.push(
       `${new Date(mv.creado_en).toLocaleString()} — ${escapeHtml(
         mv.descripcion || '',
-      )} ${sign}${fmt(Math.abs(imp))} → ${fmt(mv.saldo_nuevo)} (${mv.numero})`,
+      )} ${sign}<code>${fmtMoney(Math.abs(imp))}</code> → <code>${fmtMoney(
+        mv.saldo_nuevo,
+      )}</code> (${mv.numero})`,
     );
     if (!(mv.tarjeta_id in g.last)) g.last[mv.tarjeta_id] = mv.saldo_nuevo;
   });
@@ -399,26 +395,28 @@ async function showExtract(ctx) {
     const saldo = Object.values(g.last).reduce((a, b) => a + parseFloat(b || 0), 0);
     const net = g.in - g.out;
     body += `💱 <b>${g.emoji ? g.emoji + ' ' : ''}${escapeHtml(code)}</b>\n`;
-    body += `↗️ Entradas: <b>${fmt(g.in)}</b>\n`;
-    body += `↘️ Salidas: <b>${fmt(g.out)}</b>\n`;
-    body += `${net >= 0 ? '📈' : '📉'} Variación neta: <b>${fmt(net)}</b>\n`;
-    body += `Saldo actual: <b>${fmt(saldo)}</b> (${fmt(saldo * g.rate)} USD)\n\n`;
+    body += `↗️ Entradas: <code>${fmtMoney(g.in)}</code>\n`;
+    body += `↘️ Salidas: <code>${fmtMoney(g.out)}</code>\n`;
+    body += `${net >= 0 ? '📈' : '📉'} Variación neta: <code>${fmtMoney(net)}</code>\n`;
+    body += `Saldo actual: <code>${fmtMoney(saldo)}</code> (<code>${fmtMoney(
+      saldo * g.rate,
+    )}</code> USD)\n\n`;
     body += g.lines.join('\n') + '\n\n';
   });
 
   const text = header(st.filters) + body;
   const pages = smartPaginate(text);
-  st.route = 'EXTRACT';
-
+  st.lastReport = pages;
   for (let i = 0; i < pages.length; i++) {
     const prefix = pages.length > 1 ? `<b>(${i + 1}/${pages.length})</b>\n` : '';
-    const extra =
-      i === pages.length - 1
-        ? { reply_markup: { inline_keyboard: [buildBackExitRow('BACK', 'EXIT')] } }
-        : {};
-    const msg = await ctx.reply(prefix + pages[i], { parse_mode: 'HTML', ...extra });
-    if (i === pages.length - 1) st.msgId = msg.message_id;
+    await ctx.reply(prefix + pages[i], { parse_mode: 'HTML' });
   }
+  const kb = [[Markup.button.callback('💾 Salvar', 'SAVE')], [Markup.button.callback('❌ Salir', 'EXIT')]];
+  await ctx.reply('Reporte generado.', {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: kb },
+  });
+  st.route = 'AFTER_RUN';
 }
 
 /* ───────── Wizard ───────── */
@@ -428,7 +426,7 @@ const extractoAssist = new Scenes.WizardScene(
   async (ctx) => {
     const msg = await ctx.reply('Cargando…', { parse_mode: 'HTML' });
     ctx.wizard.state.msgId = msg.message_id;
-    ctx.wizard.state.filters = { period: 'day' };
+    ctx.wizard.state.filters = { period: getDefaultPeriod() };
     await showAgents(ctx);
     return ctx.wizard.next();
   },
@@ -510,6 +508,26 @@ const extractoAssist = new Scenes.WizardScene(
         if (data.startsWith('PER_')) {
           st.filters.period = data.split('_')[1];
           return showExtract(ctx);
+        }
+        break;
+      case 'AFTER_RUN':
+        if (data === 'SAVE') {
+          const reps = st.lastReport || [];
+          for (const m of reps) {
+            await sendAndLog(ctx, m);
+          }
+          const kb = [[Markup.button.callback('Sí', 'AGAIN')], [Markup.button.callback('No', 'EXIT')]];
+          await ctx.reply('¿Otro extracto?', {
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: kb },
+          });
+          st.route = 'ASK_AGAIN';
+          return;
+        }
+        break;
+      case 'ASK_AGAIN':
+        if (data === 'AGAIN') {
+          return showAgents(ctx);
         }
         break;
     }
