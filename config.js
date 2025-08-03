@@ -9,4 +9,13 @@ if (!statsChatId) {
   console.warn('[config] STATS_CHAT_ID no definido; se omitirá el reenvío de estadísticas.');
 }
 
-module.exports = { ownerIds, statsChatId };
+const comercialesGroupId = process.env.ID_GROUP_COMERCIALES
+  ? parseInt(process.env.ID_GROUP_COMERCIALES, 10)
+  : null;
+if (!comercialesGroupId) {
+  console.warn(
+    '[config] ID_GROUP_COMERCIALES no definido; se omitirá el reenvío al grupo de comerciales.',
+  );
+}
+
+module.exports = { ownerIds, statsChatId, comercialesGroupId };

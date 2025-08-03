@@ -56,10 +56,10 @@ function smartPaginate(text) {
 async function wantExit(ctx) {
   if (ctx.callbackQuery?.data === 'EXIT') {
     await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('❌ Operación cancelada.', { parse_mode: 'HTML' });
     console.log('[extracto] cancelado por el usuario');
     await flushOnExit(ctx);
     if (ctx.scene?.current) await ctx.scene.leave();
+    await ctx.reply('❌ Operación cancelada.', { parse_mode: 'HTML' });
     return true;
   }
   return false;
