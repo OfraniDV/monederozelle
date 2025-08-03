@@ -34,9 +34,9 @@ const { runMonitor } = require('./monitor');
 async function wantExit(ctx) {
   if (ctx.callbackQuery?.data === 'EXIT') {
     await ctx.answerCbQuery().catch(() => {});
-    await ctx.reply('❌ Operación cancelada.');
     await flushOnExit(ctx);
     if (ctx.scene?.current) await ctx.scene.leave();
+    await ctx.reply('❌ Operación cancelada.');
     return true;
   }
   return false;
