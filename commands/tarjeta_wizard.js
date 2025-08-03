@@ -3,7 +3,8 @@
 // Ajustar textos y parse_mode si se requiere volver a Markdown.
 // Los teclados dinámicos usan arrangeInlineButtons para máximo dos botones por fila.
 const { Scenes, Markup } = require('telegraf');
-const { escapeHtml } = require('../helpers/format');
+const { escapeHtml, fmtMoney } = require('../helpers/format');
+const { recordChange, flushOnExit } = require('../helpers/sessionSummary');
 const {
   arrangeInlineButtons,
   editIfChanged,
@@ -139,6 +140,7 @@ async function wantExit(ctx) {
   if (ctx.callbackQuery?.data === 'GLOBAL_CANCEL') {
     await ctx.answerCbQuery().catch(() => {});
     if (ctx.scene?.current) {
+      await flushOnExit(ctx);
       await ctx.scene.leave();
       await ctx.reply('❌ Operación cancelada.');
       return true;
@@ -147,6 +149,7 @@ async function wantExit(ctx) {
   if (ctx.message?.text) {
     const t = ctx.message.text.trim().toLowerCase();
     if (['/cancel', '/salir', 'salir'].includes(t) && ctx.scene?.current) {
+      await flushOnExit(ctx);
       await ctx.scene.leave();
       await ctx.reply('❌ Operación cancelada.');
       return true;
@@ -419,12 +422,16 @@ const tarjetaWizard = new Scenes.WizardScene(
       `,
         [tarjeta_id, saldo]
       );
-
-      await ctx.reply('✅ Tarjeta creada y saldo inicial registrado.');
+      recordChange(agente_id, tarjeta_id, 0, saldo);
+      await ctx.reply(
+        `✅ Tarjeta creada y saldo inicial registrado. Saldo: <code>${fmtMoney(saldo)}</code>`,
+        { parse_mode: 'HTML' }
+      );
     } catch (e) {
       console.error('[TARJETA_WIZ] Error final:', e);
       await ctx.reply('❌ Error al crear la tarjeta.');
     }
+    await flushOnExit(ctx);
     return ctx.scene.leave();
   },
 

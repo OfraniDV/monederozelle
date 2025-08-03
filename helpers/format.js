@@ -15,4 +15,9 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
-module.exports = { escapeHtml };
+
+function fmtMoney(n) {
+  return Number.parseFloat(n || 0).toFixed(2);
+}
+
+module.exports = { escapeHtml, fmtMoney };

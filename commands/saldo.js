@@ -14,7 +14,9 @@
 // Requiere que las tablas ya existan con las columnas definidas en initWalletSchema.
 
 const { Scenes, Markup } = require('telegraf');
-const { escapeHtml } = require('../helpers/format');
+const { escapeHtml, fmtMoney } = require('../helpers/format');
+const { sendAndLog } = require('../helpers/reportSender');
+const { recordChange, flushOnExit } = require('../helpers/sessionSummary');
 const pool = require('../psql/db.js');
 
 /* ───────── helpers ───────── */
@@ -33,6 +35,7 @@ async function wantExit(ctx) {
   if (ctx.callbackQuery?.data === 'GLOBAL_CANCEL') {
     await ctx.answerCbQuery().catch(() => {});
     if (ctx.scene?.current) {
+      await flushOnExit(ctx);
       await ctx.scene.leave();
       await ctx.reply('❌ Operación cancelada.');
       return true;
@@ -41,6 +44,7 @@ async function wantExit(ctx) {
   if (ctx.message?.text) {
     const t = ctx.message.text.trim().toLowerCase();
     if (['/cancel', '/salir', 'salir'].includes(t) && ctx.scene?.current) {
+      await flushOnExit(ctx);
       await ctx.scene.leave();
       await ctx.reply('❌ Operación cancelada.');
       return true;
@@ -148,7 +152,7 @@ async function showTarjetas(ctx) {
 async function askSaldo(ctx, tarjeta) {
   const txt =
     `✏️ <b>Introduce el saldo actual de tu tarjeta</b>\n\n` +
-    `Tarjeta ${escapeHtml(tarjeta.numero)} (saldo actual: ${escapeHtml((parseFloat(tarjeta.saldo) || 0).toFixed(2))}).\n` +
+    `Tarjeta ${escapeHtml(tarjeta.numero)} (saldo actual: <code>${fmtMoney(tarjeta.saldo)}</code>).\n` +
     'Por favor coloca el saldo actual de tu tarjeta. No te preocupes, te diré si ha aumentado o disminuido y en cuánto.\n\n' +
     'Ejemplo: 1500.50';
   await ctx.telegram.editMessageText(
@@ -253,19 +257,14 @@ const saldoWizard = new Scenes.WizardScene(
         [tarjeta.id, saldoAnterior, delta, saldoNuevo]
       );
 
+      recordChange(ctx.wizard.state.data.agente_id, tarjeta.id, saldoAnterior, saldoNuevo);
       const signo =
         delta > 0 ? '📈 Aumentó' : delta < 0 ? '📉 Disminuyó' : '➖ Sin cambio';
       const txt =
-        `${signo} ${escapeHtml(Math.abs(delta).toFixed(2))} ${escapeHtml(tarjeta.moneda)}.\n` +
-        `Saldo nuevo de <b>${escapeHtml(tarjeta.numero)}</b>: ${escapeHtml(saldoNuevo.toFixed(2))} ${escapeHtml(tarjeta.moneda)}.\n\n` +
+        `${signo} <code>${fmtMoney(Math.abs(delta))}</code> ${escapeHtml(tarjeta.moneda)}.\n` +
+        `Saldo nuevo de <b>${escapeHtml(tarjeta.numero)}</b>: <code>${fmtMoney(saldoNuevo)}</code> ${escapeHtml(tarjeta.moneda)}.\n\n` +
         '¿Deseas actualizar otra tarjeta?';
-      await ctx.telegram.editMessageText(
-        ctx.chat.id,
-        ctx.wizard.state.data.msgId,
-        undefined,
-        txt,
-        { parse_mode: 'HTML', ...kbContinue }
-      );
+      await sendAndLog(ctx, txt, { reply_markup: kbContinue });
     } catch (e) {
       console.error('[SALDO_WIZ] error insert movimiento:', e);
       await ctx.reply('❌ No se pudo registrar el movimiento.');

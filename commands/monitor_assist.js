@@ -20,6 +20,9 @@
 
 const { Scenes, Markup } = require('telegraf');
 const { escapeHtml } = require('../helpers/format');
+const { getDefaultPeriod } = require('../helpers/period');
+const { sendAndLog } = require('../helpers/reportSender');
+const { flushOnExit } = require('../helpers/sessionSummary');
 const {
   editIfChanged,
   buildBackExitRow,
@@ -31,15 +34,9 @@ const { runMonitor } = require('./monitor');
 async function wantExit(ctx) {
   if (ctx.callbackQuery?.data === 'EXIT') {
     await ctx.answerCbQuery().catch(() => {});
-    const msgId = ctx.wizard.state.msgId;
-    await ctx.telegram.editMessageText(
-      ctx.chat.id,
-      msgId,
-      undefined,
-      '❌ Operación cancelada.',
-      { parse_mode: 'HTML' }
-    );
-    await ctx.scene.leave();
+    await ctx.reply('❌ Operación cancelada.');
+    await flushOnExit(ctx);
+    if (ctx.scene?.current) await ctx.scene.leave();
     return true;
   }
   return false;
@@ -169,7 +166,7 @@ const monitorAssist = new Scenes.WizardScene(
     console.log('[MONITOR_ASSIST] paso 0: menú principal');
     const msg = await ctx.reply('Cargando…', { parse_mode: 'HTML' });
     ctx.wizard.state.msgId = msg.message_id;
-    ctx.wizard.state.filters = { period: 'dia', monedaNombre: 'Todas' };
+    ctx.wizard.state.filters = { period: getDefaultPeriod(), monedaNombre: 'Todas' };
     await showMain(ctx);
     return ctx.wizard.next();
   },
@@ -192,8 +189,18 @@ const monitorAssist = new Scenes.WizardScene(
           if (f.bancoId) cmd += ` --banco=${f.bancoId}`;
           if (f.monedaId) cmd += ` --moneda=${f.monedaNombre}`;
           await editIfChanged(ctx, 'Generando reporte...', { parse_mode: 'HTML' });
-          await runMonitor(ctx, cmd);
-          return ctx.scene.leave();
+          const msgs = await runMonitor(ctx, cmd);
+          ctx.wizard.state.lastReport = msgs;
+          const kb = [
+            [Markup.button.callback('💾 Salvar', 'SAVE')],
+            [Markup.button.callback('❌ Salir', 'EXIT')],
+          ];
+          await ctx.reply('Reporte generado.', {
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: kb },
+          });
+          ctx.wizard.state.route = 'AFTER_RUN';
+          return;
         }
         if (data === 'PRIVATE') {
           const username = ctx.botInfo?.username;
@@ -241,6 +248,29 @@ const monitorAssist = new Scenes.WizardScene(
           ctx.wizard.state.filters.bancoNombre = id
             ? ctx.wizard.state.tmpBanks.find((b) => b.id === id)?.codigo || ''
             : 'Todos';
+          return showMain(ctx);
+        }
+        break;
+      case 'AFTER_RUN':
+        if (data === 'SAVE') {
+          const reps = ctx.wizard.state.lastReport || [];
+          for (const m of reps) {
+            await sendAndLog(ctx, m);
+          }
+          const kb = [
+            [Markup.button.callback('Sí', 'AGAIN')],
+            [Markup.button.callback('No', 'EXIT')],
+          ];
+          await ctx.reply('¿Deseas consultar otro usuario?', {
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: kb },
+          });
+          ctx.wizard.state.route = 'ASK_AGAIN';
+          return;
+        }
+        break;
+      case 'ASK_AGAIN':
+        if (data === 'AGAIN') {
           return showMain(ctx);
         }
         break;

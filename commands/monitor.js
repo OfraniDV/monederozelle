@@ -7,7 +7,8 @@
 const moment = require('moment-timezone');
 const path = require('path');
 // Migrado a HTML parse mode con sanitización centralizada en escapeHtml.
-const { escapeHtml } = require('../helpers/format');
+const { escapeHtml, fmtMoney } = require('../helpers/format');
+const { getDefaultPeriod } = require('../helpers/period');
 const { buildEntityFilter } = require('../helpers/filters');
 
 let db;
@@ -31,7 +32,7 @@ function normalize(str = '') {
 function parseArgs(raw = '') {
   const tokens = raw.split(/\s+/).slice(1); // quitar /monitor
   const opts = {
-    period: 'dia',
+    period: getDefaultPeriod(),
     historial: false,
     soloCambio: false,
     agente: null,
@@ -115,13 +116,6 @@ function calcRanges(period, tz) {
 }
 
 
-const moneyFmt = new Intl.NumberFormat('es-ES', {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-function fmtMoney(n) {
-  return moneyFmt.format(parseFloat(n || 0));
-}
 function fmtPct(p) {
   return p === null || p === undefined ? '—' : `${p.toFixed(2)}%`;
 }
@@ -204,6 +198,7 @@ fin AS (
 SELECT t.id, t.numero,
        b.codigo AS banco_codigo, b.nombre AS banco_nombre,
        ag.nombre AS agente, m.codigo AS moneda,
+       COALESCE(m.tasa_usd,1) AS tasa_usd,
        COALESCE(ini.saldo_ini,0) AS saldo_ini,
        COALESCE(fin.saldo_fin,0) AS saldo_fin,
        COALESCE(movs.movs,0) AS movs,
@@ -236,12 +231,14 @@ function buildMessage(moneda, rows, opts, range, historiales) {
 
   let totalIni = 0,
     totalFin = 0,
+    totalUsd = 0,
     up = 0,
     down = 0,
     same = 0;
   rows.forEach((r) => {
     totalIni += r.saldo_ini;
     totalFin += r.saldo_fin;
+    totalUsd += r.delta_usd;
     if (r.delta > 0) up++;
     else if (r.delta < 0) down++;
     else same++;
@@ -255,11 +252,13 @@ function buildMessage(moneda, rows, opts, range, historiales) {
   const filtStr = filtros.length ? `\nFiltros: ${filtros.join(', ')}\n` : '\n';
 
   let msg = `<b>Resumen de ${moneda} para periodo ${range.start.format('DD/MM/YYYY')} – ${range.end.clone().subtract(1, 'second').format('DD/MM/YYYY')}</b>${filtStr}`;
-  msg += `Total inicio: ${fmtMoney(totalIni)} → Total fin: ${fmtMoney(totalFin)} (Δ ${fmtMoney(totalFin - totalIni)})\n`;
+  const deltaTotal = totalFin - totalIni;
+  msg += `Cambio neto desde inicio del año: <code>${fmtMoney(deltaTotal)}</code> ${moneda} (equiv. <code>${fmtMoney(totalUsd)}</code> USD)\n`;
+  msg += `Total inicio: <code>${fmtMoney(totalIni)}</code> → Total fin: <code>${fmtMoney(totalFin)}</code> (Δ <code>${fmtMoney(deltaTotal)}</code>)\n`;
   msg += `Tarjetas: 📈 ${up}  📉 ${down}  ➖ ${same}\n\n`;
 
   // Tabla principal
-  const header = `${pad('Tarjeta', 12)}${pad('Agente', 12)}${pad('Banco', 8)}${pad('Inicio', 12, true)}${pad('Fin', 12, true)}${pad('Δ', 12, true)}${pad('%', 7, true)}${pad('Movs', 6, true)}${pad('Vol', 8, true)}${pad('Estado', 8)}`;
+  const header = `${pad('Tarjeta', 12)}${pad('Agente', 12)}${pad('Banco', 8)}${pad('Inicio', 12, true)}${pad('Fin', 12, true)}${pad('Δ', 12, true)}${pad('Δ USD', 10, true)}${pad('%', 7, true)}${pad('Movs', 6, true)}${pad('Vol', 8, true)}${pad('Estado', 8)}`;
   const lines = [header, '-'.repeat(header.length)];
   const agentOrder = [];
   const agentMap = new Map();
@@ -280,6 +279,7 @@ function buildMessage(moneda, rows, opts, range, historiales) {
           pad(fmtMoney(r.saldo_ini), 12, true) +
           pad(fmtMoney(r.saldo_fin), 12, true) +
           pad(fmtMoney(r.delta), 12, true) +
+          pad(fmtMoney(r.delta_usd), 10, true) +
           pad(fmtPct(r.pct), 7, true) +
           pad(r.movs, 6, true) +
           pad(fmtMoney(r.vol), 8, true) +
@@ -366,6 +366,8 @@ async function runMonitor(ctx, rawText) {
       const saldo_ini = parseFloat(r.saldo_ini) || 0;
       const saldo_fin = parseFloat(r.saldo_fin) || 0;
       const delta = saldo_fin - saldo_ini;
+      const tasa = parseFloat(r.tasa_usd) || 1;
+      const delta_usd = delta * tasa;
       const pct = saldo_ini !== 0 ? (delta / saldo_ini) * 100 : null;
       return {
         id: r.id,
@@ -376,6 +378,7 @@ async function runMonitor(ctx, rawText) {
         saldo_ini,
         saldo_fin,
         delta,
+        delta_usd,
         pct,
         movs: parseFloat(r.movs || 0),
         n_up: parseFloat(r.n_up || 0),
@@ -437,11 +440,14 @@ async function runMonitor(ctx, rawText) {
       porMoneda.get(d.moneda).push(d);
     });
 
+    const allMsgs = [];
     for (const [mon, lista] of porMoneda.entries()) {
       const msg = buildMessage(mon, lista, opts, rango, historiales);
+      allMsgs.push(msg);
       await sendChunks(ctx, msg);
     }
     console.log(`[monitor] proceso completado en ${Date.now() - inicio}ms`);
+    return allMsgs;
   } catch (err) {
     console.error('[monitor] error', err);
     try {
