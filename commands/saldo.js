@@ -239,9 +239,26 @@ const saldoWizard = new Scenes.WizardScene(
     }
 
     const { tarjeta } = ctx.wizard.state.data;
-    const saldoAnterior = parseFloat(tarjeta.saldo) || 0;
     const saldoNuevo = parseFloat(num);
-    const delta = saldoNuevo - saldoAnterior;
+
+    let saldoAnterior;
+    let delta;
+    let descripcion;
+
+    const { rows: ult } = await pool.query(
+      'SELECT saldo_nuevo FROM movimiento WHERE tarjeta_id = $1 ORDER BY creado_en DESC LIMIT 1',
+      [tarjeta.id]
+    );
+
+    if (ult.length === 0) {
+      saldoAnterior = saldoNuevo;
+      delta = 0;
+      descripcion = 'Saldo inicial';
+    } else {
+      saldoAnterior = parseFloat(ult[0].saldo_nuevo) || 0;
+      delta = saldoNuevo - saldoAnterior;
+      descripcion = delta >= 0 ? 'Actualización +' : 'Actualización –';
+    }
 
     try {
       await pool.query(
@@ -252,10 +269,10 @@ const saldoWizard = new Scenes.WizardScene(
             $2::numeric,
             $3::numeric,
             $4::numeric,
-            CASE WHEN $3 >= 0 THEN 'Actualización +' ELSE 'Actualización –' END
+            $5
         );
         `,
-        [tarjeta.id, saldoAnterior, delta, saldoNuevo]
+        [tarjeta.id, saldoAnterior, delta, saldoNuevo, descripcion]
       );
 
       recordChange(ctx.wizard.state.data.agente_id, tarjeta.id, saldoAnterior, saldoNuevo);
@@ -364,3 +381,5 @@ const saldoWizard = new Scenes.WizardScene(
 );
 
 module.exports = saldoWizard;
+
+// ✔ probado con tarjeta 5278
