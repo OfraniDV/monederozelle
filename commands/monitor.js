@@ -181,18 +181,20 @@ WITH movs AS (
    WHERE mv.creado_en >= $1 AND mv.creado_en < $2
    GROUP BY mv.tarjeta_id
 ),
+/* Antes se calculaba el saldo inicial como el último valor antes del período,
+   lo cual no reflejaba el "saldo inicial real" de la tarjeta. Ahora tomamos el
+   primer movimiento registrado en toda la base de datos y lo comparamos contra
+   el saldo actual más reciente. */
 ini AS (
   SELECT DISTINCT ON (tarjeta_id)
          tarjeta_id, saldo_nuevo AS saldo_ini
     FROM movimiento
-   WHERE creado_en < $1
-   ORDER BY tarjeta_id, creado_en DESC
+   ORDER BY tarjeta_id, creado_en ASC
 ),
 fin AS (
   SELECT DISTINCT ON (tarjeta_id)
          tarjeta_id, saldo_nuevo AS saldo_fin
     FROM movimiento
-   WHERE creado_en < $2
    ORDER BY tarjeta_id, creado_en DESC
 )
 SELECT t.id, t.numero,
@@ -253,8 +255,9 @@ function buildMessage(moneda, rows, opts, range, historiales) {
 
   let msg = `<b>Resumen de ${moneda} para periodo ${range.start.format('DD/MM/YYYY')} – ${range.end.clone().subtract(1, 'second').format('DD/MM/YYYY')}</b>${filtStr}`;
   const deltaTotal = totalFin - totalIni;
-  msg += `Cambio neto desde inicio del año: <code>${fmtMoney(deltaTotal)}</code> ${moneda} (equiv. <code>${fmtMoney(totalUsd)}</code> USD)\n`;
-  msg += `Total inicio: <code>${fmtMoney(totalIni)}</code> → Total fin: <code>${fmtMoney(totalFin)}</code> (Δ <code>${fmtMoney(deltaTotal)}</code>)\n`;
+  const emojiTotal = deltaTotal > 0 ? '📈' : deltaTotal < 0 ? '📉' : '➖';
+  msg +=
+    `Saldo inicio: <code>${fmtMoney(totalIni)}</code> → Saldo final: <code>${fmtMoney(totalFin)}</code> (Δ <code>${(deltaTotal >= 0 ? '+' : '') + fmtMoney(deltaTotal)}</code>) ${emojiTotal} (equiv. <code>${fmtMoney(totalUsd)}</code> USD)\n`;
   msg += `Tarjetas: 📈 ${up}  📉 ${down}  ➖ ${same}\n\n`;
 
   // Tabla principal
@@ -278,8 +281,8 @@ function buildMessage(moneda, rows, opts, range, historiales) {
           pad(r.banco, 8) +
           pad(fmtMoney(r.saldo_ini), 12, true) +
           pad(fmtMoney(r.saldo_fin), 12, true) +
-          pad(fmtMoney(r.delta), 12, true) +
-          pad(fmtMoney(r.delta_usd), 10, true) +
+          pad((r.delta >= 0 ? '+' : '') + fmtMoney(r.delta), 12, true) +
+          pad((r.delta_usd >= 0 ? '+' : '') + fmtMoney(r.delta_usd), 10, true) +
           pad(fmtPct(r.pct), 7, true) +
           pad(r.movs, 6, true) +
           pad(fmtMoney(r.vol), 8, true) +
@@ -306,12 +309,16 @@ function buildMessage(moneda, rows, opts, range, historiales) {
   const resBa = resumenPor(rows, 'banco');
   msg += `\n<b>Resumen por agente</b>\n<pre>`;
   resAg.forEach((val, key) => {
-    msg += `${pad(key, 15)}${pad(fmtMoney(val.ini), 12, true)}${pad(fmtMoney(val.fin), 12, true)}${pad(fmtMoney(val.fin - val.ini), 12, true)}\n`;
+    const delta = val.fin - val.ini;
+    const em = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
+    msg += `${pad(key, 15)}${pad(fmtMoney(val.ini), 12, true)}${pad(fmtMoney(val.fin), 12, true)}${pad((delta >= 0 ? '+' : '') + fmtMoney(delta), 12, true)} ${em}\n`;
   });
   msg += `</pre>`;
   msg += `\n<b>Resumen por banco</b>\n<pre>`;
   resBa.forEach((val, key) => {
-    msg += `${pad(key, 15)}${pad(fmtMoney(val.ini), 12, true)}${pad(fmtMoney(val.fin), 12, true)}${pad(fmtMoney(val.fin - val.ini), 12, true)}\n`;
+    const delta = val.fin - val.ini;
+    const em = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
+    msg += `${pad(key, 15)}${pad(fmtMoney(val.ini), 12, true)}${pad(fmtMoney(val.fin), 12, true)}${pad((delta >= 0 ? '+' : '') + fmtMoney(delta), 12, true)} ${em}\n`;
   });
   msg += `</pre>`;
 
@@ -325,7 +332,7 @@ function buildMessage(moneda, rows, opts, range, historiales) {
       hist.forEach((h) => {
         const fecha = moment(h.creado_en).tz(opts.tz).format('DD/MM HH:mm');
         const delta = h.saldo_nuevo - h.saldo_anterior;
-        msg += `\n• ${fecha} ${escapeHtml(h.descripcion || '')} ${fmtMoney(h.saldo_anterior)} → ${fmtMoney(h.saldo_nuevo)} (Δ ${fmtMoney(delta)})`;
+        msg += `\n• ${fecha} ${escapeHtml(h.descripcion || '')} ${fmtMoney(h.saldo_anterior)} → ${fmtMoney(h.saldo_nuevo)} (Δ ${(delta >= 0 ? '+' : '') + fmtMoney(delta)})`;
       });
     });
   }
