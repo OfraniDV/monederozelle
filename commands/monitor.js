@@ -179,7 +179,7 @@ WITH movs AS (
          SUM(ABS(mv.importe))                                    AS vol
     FROM movimiento mv
    WHERE mv.creado_en >= $1 AND mv.creado_en < $2
-     AND NOT (mv.importe = 0 AND mv.descripcion ILIKE '%saldo inicial%')
+     AND mv.descripcion NOT ILIKE '%saldo inicial%'
    GROUP BY mv.tarjeta_id
 ),
 ini_total AS ( -- saldo inicial histórico
