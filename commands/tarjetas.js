@@ -1,27 +1,34 @@
 // commands/tarjetas.js
-// Lista tarjetas agrupadas (moneda → banco) con subtotales.  Oculta bloques
-// vacíos (moneda o banco neto 0) y agentes sin saldo.  Incluye antispam delay.
-// Migrado a HTML parse mode; escapeHtml sanitiza todos los valores dinámicos.
-// Para volver a Markdown, ajustar textos y parse_mode.
+// Lista tarjetas agrupadas con resumenes globales.  Emite un solo mensaje
+// (o los mínimos necesarios) aprovechando el límite de 4096 caracteres por
+// mensaje en Telegram.  Se muestran totales antes del detalle y se incluye
+// para cada tarjeta el saldo inicial, final y la variación.
 
-const pool   = require('../psql/db.js');
-const sleep  = (ms) => new Promise(r => setTimeout(r, ms));
+const pool = require('../psql/db.js');
 const { escapeHtml } = require('../helpers/format');
+const { sendLargeMessage } = require('../helpers/sendLargeMessage');
 
-/* ───────── helpers ───────── */
+/* -------------------------------------------------------------------------- */
+/* Utilidades                                                                 */
+/* -------------------------------------------------------------------------- */
 const fmt = (v, d = 2) => {
   const num = parseFloat(v);
   const val = Number.isNaN(num) ? 0 : num;
   return escapeHtml(
-    val.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
+    val.toLocaleString('en-US', {
+      minimumFractionDigits: d,
+      maximumFractionDigits: d,
+    })
   );
 };
 
-/* ───────── comando /tarjetas ───────── */
+/* -------------------------------------------------------------------------- */
+/* Comando /tarjetas                                                          */
+/* -------------------------------------------------------------------------- */
 module.exports = (bot) => {
   bot.command('tarjetas', async (ctx) => {
     try {
-      /* 1. snapshot saldo actual de cada tarjeta */
+      // 1. Último movimiento por tarjeta
       const sql = `
         SELECT t.id, t.numero,
                COALESCE(ag.nombre,'—')  AS agente,
@@ -31,152 +38,169 @@ module.exports = (bot) => {
                COALESCE(m.codigo,'—')   AS moneda,
                COALESCE(m.emoji,'')     AS moneda_emoji,
                COALESCE(m.tasa_usd,1)   AS tasa_usd,
-               COALESCE(mv.saldo_nuevo,0) AS saldo
-        FROM tarjeta t
-        LEFT JOIN agente  ag ON ag.id = t.agente_id
-        LEFT JOIN banco   b  ON b.id = t.banco_id
-        LEFT JOIN moneda  m  ON m.id = t.moneda_id
-        LEFT JOIN LATERAL (
-          SELECT saldo_nuevo
-            FROM movimiento
-           WHERE tarjeta_id = t.id
-        ORDER BY creado_en DESC
-           LIMIT 1
-        ) mv ON TRUE;
-      `;
+               COALESCE(mv.saldo_anterior,0) AS saldo_ini,
+               COALESCE(mv.saldo_nuevo,0)    AS saldo_fin,
+               mv.descripcion AS mov_desc,
+               mv.creado_en  AS mov_fecha
+          FROM tarjeta t
+          LEFT JOIN agente ag ON ag.id = t.agente_id
+          LEFT JOIN banco  b  ON b.id = t.banco_id
+          LEFT JOIN moneda m  ON m.id = t.moneda_id
+          LEFT JOIN LATERAL (
+            SELECT saldo_anterior, saldo_nuevo, descripcion, creado_en
+              FROM movimiento
+             WHERE tarjeta_id = t.id
+          ORDER BY creado_en DESC
+             LIMIT 1
+          ) mv ON TRUE;`;
       const rows = (await pool.query(sql)).rows;
       if (!rows.length) return ctx.reply('No hay tarjetas registradas todavía.');
 
-      /* 2. estructuras */
-      const byMon   = {};
+      // 2. Agrupar por moneda y por agente
+      const byMon = {};
+      const agentMap = {};
       const bankUsd = {};
-      const agentMap= {};
       let globalUsd = 0;
 
-      rows.forEach(r => {
-        const saldo = parseFloat(r.saldo) || 0;
-        const tasa = parseFloat(r.tasa_usd) || 0;
+      rows.forEach((r) => {
+        const ini = parseFloat(r.saldo_ini) || 0;
+        const fin = parseFloat(r.saldo_fin) || 0;
+        const delta = fin - ini;
+        const tasa = parseFloat(r.tasa_usd) || 1;
 
-        /* moneda */
         byMon[r.moneda] ??= {
           emoji: r.moneda_emoji,
-          rate:  tasa,
+          rate: tasa,
+          ini: 0,
+          fin: 0,
           banks: {},
-          totalPos: 0,
-          totalNeg: 0
         };
         const mon = byMon[r.moneda];
-        /* banco */
-        mon.banks[r.banco] ??= { emoji: r.banco_emoji, filas: [], pos: 0, neg: 0 };
+        mon.ini += ini;
+        mon.fin += fin;
+        mon.banks[r.banco] ??= {
+          emoji: r.banco_emoji,
+          ini: 0,
+          fin: 0,
+          tarjetas: [],
+        };
         const bank = mon.banks[r.banco];
-        const fila = { ...r, saldo };
-        bank.filas.push(fila);
+        bank.ini += ini;
+        bank.fin += fin;
+        bank.tarjetas.push({
+          numero: r.numero,
+          saldo_ini: ini,
+          saldo_fin: fin,
+          delta,
+          agente: r.agente,
+          agente_emoji: r.agente_emoji,
+          desc: r.mov_desc,
+          fecha: r.mov_fecha,
+        });
 
-        if (saldo >= 0) { bank.pos += saldo; mon.totalPos += saldo; }
-        else            { bank.neg += saldo; mon.totalNeg += saldo; }
-
-        /* usd */
-        const usd = saldo * mon.rate;
+        const usd = fin * tasa;
         bankUsd[r.banco] = (bankUsd[r.banco] || 0) + usd;
         globalUsd += usd;
 
-        /* agente */
-        agentMap[r.agente] ??= { emoji: r.agente_emoji, totalUsd: 0, perMon: {} };
+        agentMap[r.agente] ??= {
+          emoji: r.agente_emoji,
+          totalIniUsd: 0,
+          totalFinUsd: 0,
+          perMon: {},
+        };
         const ag = agentMap[r.agente];
-        ag.totalUsd += usd;
-        ag.perMon[r.moneda] ??= { total: 0, filas: [], emoji: mon.emoji, rate: mon.rate };
-        ag.perMon[r.moneda].total += saldo;
-        ag.perMon[r.moneda].filas.push(fila);
+        ag.totalIniUsd += ini * tasa;
+        ag.totalFinUsd += fin * tasa;
+        ag.perMon[r.moneda] ??= {
+          emoji: r.moneda_emoji,
+          rate: tasa,
+          ini: 0,
+          fin: 0,
+          tarjetas: [],
+        };
+        const agMon = ag.perMon[r.moneda];
+        agMon.ini += ini;
+        agMon.fin += fin;
+        agMon.tarjetas.push({
+          numero: r.numero,
+          banco: r.banco,
+          banco_emoji: r.banco_emoji,
+          saldo_ini: ini,
+          saldo_fin: fin,
+          delta,
+        });
       });
 
-      /* 3. mensajes por moneda (omitiendo neto 0) */
+      // 3. Construir bloques lógicos
+      const blocks = [];
+      let resumen = '💳 <b>Tarjetas</b>\n';
+      resumen += '\n<b>Resumen por moneda</b>\n';
+      Object.entries(byMon).forEach(([code, info]) => {
+        if (info.ini === 0 && info.fin === 0) return;
+        const d = info.fin - info.ini;
+        resumen += `${info.emoji} <b>${escapeHtml(code)}</b>: ${fmt(info.ini)} → ${fmt(info.fin)} (Δ ${(d >= 0 ? '+' : '') + fmt(d)})\n\n`;
+      });
+      resumen += '<b>Resumen por agente (USD)</b>\n';
+      Object.entries(agentMap).forEach(([name, info]) => {
+        if (info.totalFinUsd === 0 && info.totalIniUsd === 0) return;
+        const d = info.totalFinUsd - info.totalIniUsd;
+        resumen += `${info.emoji ? info.emoji + ' ' : ''}${escapeHtml(name)}: ${fmt(info.totalIniUsd)} → ${fmt(info.totalFinUsd)} USD (Δ ${(d >= 0 ? '+' : '') + fmt(d)} USD)\n\n`;
+      });
+      resumen += `<b>Total general USD:</b> ${fmt(globalUsd)} USD`;
+      blocks.push(resumen);
+
       for (const [monCode, info] of Object.entries(byMon)) {
-        const neto = info.totalPos + info.totalNeg;
-        if (neto === 0) continue;                        // moneda vacía
-
-        let msg =
-          `💱 <b>Moneda:</b> ${info.emoji} ${escapeHtml(monCode)}\n\n` +
-          `📊 <b>Subtotales por banco:</b>\n`;
-
-        /* bancos */
-        Object.entries(info.banks)
-          .filter(([,d]) => d.pos + d.neg !== 0)        // omite banco neto 0
-          .sort(([a],[b])=>a.localeCompare(b))
-          .forEach(([bankCode, data]) => {
-            msg += `\n${data.emoji} <b>${escapeHtml(bankCode)}</b>\n`;
-            data.filas
-              .filter(f => f.saldo !== 0)               // omite filas 0
-              .forEach(r => {
-                const agTxt = `${r.agente_emoji ? r.agente_emoji + ' ' : ''}${escapeHtml(r.agente)}`;
-                const monTx = `${r.moneda_emoji ? r.moneda_emoji + ' ' : ''}${escapeHtml(r.moneda)}`;
-                msg += `• ${escapeHtml(r.numero)} – ${agTxt} – ${monTx} ⇒ ${fmt(r.saldo)}\n`;
+        if (info.ini === 0 && info.fin === 0) continue;
+        let msg = `${info.emoji} <b>${escapeHtml(monCode)}</b>\n`;
+        Object.entries(info.banks).forEach(([bankCode, bank]) => {
+          if (bank.ini === 0 && bank.fin === 0) return;
+          msg += `\n${bank.emoji} <b>${escapeHtml(bankCode)}</b>\n`;
+          bank.tarjetas.forEach((t) => {
+            const d = t.delta;
+            const agTxt = `${t.agente_emoji ? t.agente_emoji + ' ' : ''}${escapeHtml(t.agente)}`;
+            msg += `• ${escapeHtml(t.numero)} – ${agTxt} ⇒ ${fmt(t.saldo_ini)} → ${fmt(t.saldo_fin)} (Δ ${(d >= 0 ? '+' : '') + fmt(d)})\n`;
+            if (t.desc) {
+              const fecha = new Date(t.fecha).toLocaleString('es-CU', {
+                timeZone: 'America/Havana',
+                hour12: false,
+                day: '2-digit',
+                month: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
               });
-            if (data.pos) msg += `  <i>Subtotal ${escapeHtml(bankCode)} (activo):</i> ${fmt(data.pos)} ${escapeHtml(monCode)}\n`;
-            if (data.neg) msg += `  <i>Subtotal ${escapeHtml(bankCode)} (deuda):</i> ${fmt(data.neg)} ${escapeHtml(monCode)}\n`;
+              msg += `   · ${fecha} ${escapeHtml(t.desc)}\n`;
+            }
           });
-
-        const rateToUsd   = fmt(info.rate, 6);
-        const rateFromUsd = fmt(1 / info.rate, 2);
-        const activeUsd   = info.totalPos * info.rate;
-        const debtUsd     = info.totalNeg * info.rate;
-        const netoUsd     = activeUsd + debtUsd;
-
-        msg += `\n<b>Total activo:</b> ${fmt(info.totalPos)}\n`;
-        if (info.totalNeg) msg += `<b>Total deuda:</b> ${fmt(info.totalNeg)}\n`;
-        msg += `<b>Neto:</b> ${fmt(neto)}\n`;
-        msg += `\n<b>Equivalente activo en USD:</b> ${fmt(activeUsd)}\n`;
-        if (info.totalNeg) msg += `<b>Equivalente deuda en USD:</b> ${fmt(debtUsd)}\n`;
-        msg += `<b>Equivalente neto en USD:</b> ${fmt(netoUsd)}\n`;
-        msg += `\n<i>Tasa usada:</i>\n` +
-               `  • 1 ${escapeHtml(monCode)} = ${rateToUsd} USD\n` +
-               `  • 1 USD ≈ ${rateFromUsd} ${escapeHtml(monCode)}`;
-
-        await ctx.reply(msg, { parse_mode: 'HTML' });
-        await sleep(350);
-      }
-
-      /* 4. resumen global USD (omite bancos 0) */
-      let resumen = '🧮 <b>Resumen general en USD</b>\n';
-      Object.entries(bankUsd)
-        .filter(([,usd]) => usd !== 0)
-        .sort(([a],[b])=>a.localeCompare(b))
-        .forEach(([bank,usd])=>{
-          resumen += `• <b>${escapeHtml(bank)}</b>: ${fmt(usd)} USD\n`;
+          const bd = bank.fin - bank.ini;
+          msg += `<i>Subtotal:</i> ${fmt(bank.ini)} → ${fmt(bank.fin)} (Δ ${(bd >= 0 ? '+' : '') + fmt(bd)})\n\n`;
         });
-      resumen += `\n<b>Total general:</b> ${fmt(globalUsd)} USD`;
-      await ctx.reply(resumen, { parse_mode: 'HTML' });
-      await sleep(350);
-
-      /* 5. resumen por agente (omite agente 0) */
-      const today = new Date().toLocaleDateString('es-CU', { timeZone:'America/Havana' });
-      for (const [agName, agData] of Object.entries(agentMap)) {
-        if (agData.totalUsd === 0) continue;
-
-        let agMsg =
-          `📅 <b>${escapeHtml(today)}</b>\n` +
-          `👤 <b>Resumen de ${agData.emoji ? agData.emoji + ' ' : ''}${escapeHtml(agName)}</b>\n\n`;
-
-        Object.entries(agData.perMon)
-          .filter(([,m]) => m.total !== 0)              // omite moneda 0
-          .forEach(([monCode, mData]) => {
-            const line =
-              `${mData.emoji} <b>${escapeHtml(monCode)}</b>: ${fmt(mData.total)} ` +
-              `(≈ ${fmt(mData.total * mData.rate)} USD)`;
-            agMsg += line + '\n';
-
-            mData.filas
-              .filter(f => f.saldo !== 0)
-              .forEach(r => {
-                const deuda = r.saldo < 0 ? ' (deuda)' : '';
-                agMsg += `   • ${escapeHtml(r.numero)} ⇒ ${fmt(r.saldo)}${deuda}\n`;
-              });
-            agMsg += '\n';
-          });
-
-        agMsg += `<b>Total en USD:</b> ${fmt(agData.totalUsd)}`;
-        await ctx.reply(agMsg, { parse_mode: 'HTML' });
-        await sleep(350);
+        const md = info.fin - info.ini;
+        msg += `\n<b>Total:</b> ${fmt(info.ini)} → ${fmt(info.fin)} (Δ ${(md >= 0 ? '+' : '') + fmt(md)})\n`;
+        msg += `<b>Equiv. fin USD:</b> ${fmt(info.fin * info.rate)}\n`;
+        blocks.push(msg);
       }
+
+      const today = new Date().toLocaleDateString('es-CU', { timeZone: 'America/Havana' });
+      for (const [agName, ag] of Object.entries(agentMap)) {
+        if (ag.totalFinUsd === 0 && ag.totalIniUsd === 0) continue;
+        let agMsg = `📅 <b>${escapeHtml(today)}</b>\n`;
+        agMsg += `👤 <b>${ag.emoji ? ag.emoji + ' ' : ''}${escapeHtml(agName)}</b>\n\n`;
+        Object.entries(ag.perMon).forEach(([monCode, m]) => {
+          if (m.ini === 0 && m.fin === 0) return;
+          const d = m.fin - m.ini;
+          agMsg += `${m.emoji} <b>${escapeHtml(monCode)}</b>: ${fmt(m.ini)} → ${fmt(m.fin)} (Δ ${(d >= 0 ? '+' : '') + fmt(d)})\n`;
+          m.tarjetas.forEach((t) => {
+            agMsg += `   • ${escapeHtml(t.numero)} – ${t.banco_emoji} ${escapeHtml(t.banco)} ⇒ ${fmt(t.saldo_ini)} → ${fmt(t.saldo_fin)} (Δ ${(t.delta >= 0 ? '+' : '') + fmt(t.delta)})\n`;
+          });
+          agMsg += '\n';
+        });
+        const dUsd = ag.totalFinUsd - ag.totalIniUsd;
+        agMsg += `<b>Total USD:</b> ${fmt(ag.totalFinUsd)} (Δ ${(dUsd >= 0 ? '+' : '') + fmt(dUsd)} USD)`;
+        blocks.push(agMsg);
+      }
+
+      // 4. Envío final
+      await sendLargeMessage(ctx, blocks);
     } catch (err) {
       console.error('[tarjetas] error:', err);
       ctx.reply('❌ Error al listar tarjetas.');
