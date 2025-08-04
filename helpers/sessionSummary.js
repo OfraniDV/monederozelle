@@ -89,37 +89,46 @@ async function flushOnExit(ctx) {
 
       const cardRes = await query(
         `SELECT t.id, t.numero,
-                COALESCE(mv.saldo_nuevo,0) AS saldo
+                COALESCE(fin.saldo_fin,0) AS saldo_fin,
+                COALESCE(ini.saldo_ini,0) AS saldo_ini
            FROM tarjeta t
            LEFT JOIN LATERAL (
-             SELECT saldo_nuevo
+             SELECT saldo_nuevo AS saldo_fin
                FROM movimiento
               WHERE tarjeta_id = t.id
               ORDER BY creado_en DESC
               LIMIT 1
-           ) mv ON true
+           ) fin ON true
+           LEFT JOIN LATERAL (
+             SELECT saldo_nuevo AS saldo_ini
+               FROM movimiento
+              WHERE tarjeta_id = t.id
+              ORDER BY creado_en ASC
+              LIMIT 1
+           ) ini ON true
           WHERE t.agente_id = $1
           ORDER BY t.numero`,
         [agId],
       );
 
       const lines = [];
+      // Antes se tomaba el saldo previo a la sesión como "inicial".
+      // Ahora usamos el primer movimiento real de la tarjeta.
       for (const c of cardRes.rows) {
-        const change = cards.get(c.id);
-        const antes = change ? change.antes : parseFloat(c.saldo) || 0;
-        const despues = change ? change.despues : parseFloat(c.saldo) || 0;
+        const antes = parseFloat(c.saldo_ini) || 0;
+        const despues = parseFloat(c.saldo_fin) || 0;
         const delta = despues - antes;
         const emoji = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
         const deltaStr = `${delta >= 0 ? '+' : ''}${fmtMoney(delta)}`;
         const line = `${pad(c.numero, 8)} <code>${fmtMoney(antes)}</code> → <code>${fmtMoney(
           despues,
-        )}</code>   <code>${deltaStr}</code> ${emoji}`;
+        )}</code> (Δ <code>${deltaStr}</code>) ${emoji}`;
         lines.push(line);
       }
 
       const agentMsg =
         `👤 Agente: ${escapeHtml(agName)}\n` +
-        'Tarjeta   Saldo anterior → Saldo actual   Δ\n' +
+        'Tarjeta   Saldo inicial → Saldo actual   Δ\n' +
         lines.join('\n');
 
       await broadcast(ctx, recipients, agentMsg);

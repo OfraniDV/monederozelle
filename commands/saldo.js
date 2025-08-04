@@ -18,6 +18,7 @@ const { escapeHtml, fmtMoney } = require('../helpers/format');
 const { sendAndLog } = require('../helpers/reportSender');
 const { recordChange, flushOnExit } = require('../helpers/sessionSummary');
 const pool = require('../psql/db.js');
+const moment = require('moment-timezone');
 
 /* ───────── helpers ───────── */
 const kbBackOrCancel = Markup.inlineKeyboard([
@@ -258,39 +259,72 @@ const saldoWizard = new Scenes.WizardScene(
       );
 
       recordChange(ctx.wizard.state.data.agente_id, tarjeta.id, saldoAnterior, saldoNuevo);
-      const signo =
-        delta > 0 ? '📈 Aumentó' : delta < 0 ? '📉 Disminuyó' : '➖ Sin cambio';
+
+      // Construir historial del día para la tarjeta
+      const tz = 'America/Havana';
+      const start = moment.tz(tz).startOf('day');
+      const end = moment.tz(tz).endOf('day');
+      const histRows = (
+        await pool.query(
+          `SELECT creado_en, saldo_anterior, saldo_nuevo
+             FROM movimiento
+            WHERE tarjeta_id = $1 AND creado_en >= $2 AND creado_en <= $3
+            ORDER BY creado_en ASC`,
+          [tarjeta.id, start.toDate(), end.toDate()]
+        )
+      ).rows;
+      const lines = histRows.map((r) => {
+        const hora = moment(r.creado_en).tz(tz).format('HH:mm');
+        const d = parseFloat(r.saldo_nuevo) - parseFloat(r.saldo_anterior);
+        const e = d > 0 ? '📈' : d < 0 ? '📉' : '➖';
+        return `• ${hora} ${e} <code>${(d >= 0 ? '+' : '') + fmtMoney(d)}</code> → <code>${fmtMoney(r.saldo_nuevo)}</code>`;
+      });
+      const saldoIniDia = histRows.length
+        ? parseFloat(histRows[0].saldo_anterior)
+        : saldoAnterior;
+      const saldoFinDia = histRows.length
+        ? parseFloat(histRows[histRows.length - 1].saldo_nuevo)
+        : saldoNuevo;
+      const deltaDia = saldoFinDia - saldoIniDia;
+      const emojiDia = deltaDia > 0 ? '📈' : deltaDia < 0 ? '📉' : '➖';
+      lines.push(
+        `Saldo inicial del día: <code>${fmtMoney(saldoIniDia)}</code> → Saldo final del día: <code>${fmtMoney(saldoFinDia)}</code> (Δ <code>${(deltaDia >= 0 ? '+' : '') + fmtMoney(deltaDia)}</code>) ${emojiDia}`,
+      );
+
+      const emojiDelta = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
+      const signo = delta > 0 ? 'Aumentó' : delta < 0 ? 'Disminuyó' : 'Sin cambio';
       const txt =
-        `${signo} <code>${fmtMoney(Math.abs(delta))}</code> ${escapeHtml(tarjeta.moneda)}.\n` +
-        `Saldo nuevo de <b>${escapeHtml(tarjeta.numero)}</b>: <code>${fmtMoney(saldoNuevo)}</code> ${escapeHtml(tarjeta.moneda)}.\n\n` +
-        '¿Deseas actualizar otra tarjeta?';
+        `Saldo anterior: <code>${fmtMoney(saldoAnterior)}</code>\n` +
+        `Saldo informado: <code>${fmtMoney(saldoNuevo)}</code>\n` +
+        `${emojiDelta} ${signo} <code>${fmtMoney(Math.abs(delta))}</code> ${escapeHtml(tarjeta.moneda)}\n\n` +
+        '📆 Historial de hoy:\n' +
+        lines.join('\n') +
+        '\n\n¿Deseas actualizar otra tarjeta?';
       // ⚙️  DEPURACIÓN: muestra exactamente qué opciones se envían
       console.log('[SALDO_WIZ] sendAndLog extra →', kbContinue);
-      
+
       // Markup.inlineKeyboard() **ya** devuelve { reply_markup: { … } }.
       // No hay que volver a envolverlo en otra clave reply_markup
       // o Telegram descarta el teclado.
       // ⒈ mensaje interactivo SOLO en el chat actual
-      const sent = await sendAndLog(ctx, txt, { ...kbContinue, noForward:true });
+      const sent = await sendAndLog(ctx, txt, { ...kbContinue, noForward: true });
 
-   // ⒉ mensaje de registro para los grupos (sin teclado)
-   const now = new Date();
-   const fecha = now.toLocaleString('es-ES', {
-     day: '2-digit',
-     month: '2-digit',
-     year: 'numeric',
-     hour: '2-digit',
-     minute: '2-digit',
-   });
-   const logTxt =
-     `💳 <b>Movimiento – ${fecha}</b>\n` +
-     `👤 Usuario: @${escapeHtml(ctx.from.username || ctx.from.id)} (ID: ${ctx.from.id})\n` +
-     `• Tarjeta: <b>${escapeHtml(tarjeta.numero)}</b>\n` +
-     `• Saldo anterior: <code>${fmtMoney(saldoAnterior)}</code>\n` +
-     `• Saldo informado : <code>${fmtMoney(saldoNuevo)}</code>\n` +
-     `• Variación      : <code>${(delta>=0?'+':'') + fmtMoney(delta)}</code> ${delta>0?'📈':delta<0?'📉':'➖'}`;
+      // ⒉ mensaje de registro para los grupos (sin teclado)
+      const now = new Date();
+      const fecha = now.toLocaleString('es-ES', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      const logTxt =
+        `💳 <b>Movimiento – ${fecha}</b>\n` +
+        `👤 Usuario: @${escapeHtml(ctx.from.username || ctx.from.id)} (ID: ${ctx.from.id})\n` +
+        `• Tarjeta: <b>${escapeHtml(tarjeta.numero)}</b>\n` +
+        `• Saldo anterior → Saldo informado: <code>${fmtMoney(saldoAnterior)}</code> → <code>${fmtMoney(saldoNuevo)}</code> (Δ <code>${(delta >= 0 ? '+' : '') + fmtMoney(delta)}</code>) ${emojiDelta}`;
 
-   await sendAndLog(ctx, logTxt);   // se reenvía a stats / comerciales
+      await sendAndLog(ctx, logTxt); // se reenvía a stats / comerciales
 
       // Actualizamos el mensaje que se editará en los siguientes pasos
       if (sent?.message_id) {
