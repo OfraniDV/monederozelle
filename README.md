@@ -2,17 +2,25 @@
 
 <p align="center"><em>Un asistente de Telegram para manejar cuentas, tarjetas y movimientos de forma elegante.</em></p>
 
+## 🧠 ¿Qué es?
+
+Monedero Zelle Bot es una solución integral de administración financiera pensada para operar desde **Telegram**. El sistema combina wizards interactivos, una base de datos robusta y comandos heredados para ofrecer un control total sobre múltiples tarjetas Zelle y otras cuentas.
+
 ## ✨ Características principales
 
-- Gestión de <span style="color:#3498db;">monedas</span>, <span style="color:#2ecc71;">bancos</span>, <span style="color:#e67e22;">agentes</span> y <span style="color:#9b59b6;">tarjetas</span>.
-- Asistentes interactivos con botones para crear, editar y eliminar elementos.
-- Registro de movimientos y saldos con múltiples monedas.
-- Asistente de acceso para agregar o eliminar usuarios permitidos.
-- Formato HTML consistente con sanitización y edición inteligente para evitar errores.
-- Menú principal de tarjetas en formato de lista; los agentes siempre se muestran de dos en dos.
-- Teclados inline de dos botones por fila y navegación con paginación reutilizable.
-- `/tarjetas` permite hacer drill-down por agente o por combinación moneda+banco, o bien ver todas las tarjetas sin filtro.
-- `/monitor` combina filtros de periodo, moneda, agente y banco, con opción de "Ver en privado" y botones "Todos" para ver resúmenes globales.
+- Gestión completa de <span style="color:#3498db;">monedas</span>, <span style="color:#2ecc71;">bancos</span>, <span style="color:#e67e22;">agentes</span> y <span style="color:#9b59b6;">tarjetas</span> con búsquedas optimizadas.
+- Registro de movimientos multi-moneda y seguimiento de saldos históricos.
+- Wizards con botones y paginación para crear, editar o eliminar datos de forma guiada.
+- `/tarjetas`, `/monitor`, `/extracto` y otros comandos ofrecen reportes y análisis filtrables.
+- Control de acceso para permitir solo usuarios autorizados y comandos legacy para sistemas previos.
+- Interfaz HTML segura con sanitización, listas compactas y teclados de dos botones por fila.
+- Arranque resiliente: verifica la base PostgreSQL, extensiones e índices antes de iniciar el bot.
+
+## 🛠️ Tecnologías y arquitectura
+
+- **Node.js + Telegraf** para interactuar con la API de Telegram mediante scenes y sesiones.
+- **PostgreSQL** como almacenamiento principal; el bootstrap crea tablas, extensiones `unaccent` e índices de búsqueda.
+- **Jest** para pruebas automatizadas; el script `pretest` configura una base temporal.
 
 ## 🚀 Instalación
 
@@ -22,6 +30,16 @@ cd monederozelle
 npm install
 node bot.js
 ```
+
+## 🧪 Pruebas
+
+Ejecuta toda la suite con:
+
+```bash
+npm test
+```
+
+El proceso `pretest` levanta una base PostgreSQL de pruebas y aplica el esquema necesario de forma automática.
 
 ## 📦 Tablas principales
 
