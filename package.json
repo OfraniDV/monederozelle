@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node tests/filterConsistency.test.js"
+    "test": "node scripts/ensureTestDb.js && jest"
   },
   "author": "",
   "license": "ISC",
@@ -16,5 +16,13 @@
     "telegraf": "^4.16.3",
     "telegraf-session-local": "^2.1.1",
     "telegram-escape": "^1.1.1"
+  },
+  "devDependencies": {
+    "jest": "^30.0.5"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "setupFiles": ["<rootDir>/tests/setup.js"],
+    "testMatch": ["**/tests/dbConnection.test.js"]
   }
 }
