@@ -20,6 +20,7 @@ const bot = require('./bot');
 /* ───────── 2. Base de datos (tablas) ───────── */
 const crearTablaUsuarios = require('./psql/tablausuarios');
 const initWalletSchema   = require('./psql/initWalletSchema');
+const { ensure }         = require('./psql/ensureIndexesAndExtensions');
 
 /* ───────── 3. Legacy commands (monotabla) ───────── */
 const crearCuenta    = require('./commands/crearcuenta');
@@ -46,10 +47,17 @@ const accesoAssist    = require('./commands/acceso_assist');
 const extractoAssist  = require('./commands/extracto_assist');
 
 /* ───────── 6. Inicializar BD (idempotente) ───────── */
-(async () => {
-  await crearTablaUsuarios();
-  await initWalletSchema();
-})();
+async function initDatabase() {
+  console.log('🛠️ Verificando base de datos...');
+  try {
+    await ensure();
+    await crearTablaUsuarios();
+    await initWalletSchema();
+    console.log('✅ Base de datos preparada.');
+  } catch (e) {
+    console.error('❌ Error preparando la base de datos:', e.message);
+  }
+}
 
 /* ───────── 7. Scenes / Stage ───────── */
 const stage = new Scenes.Stage([tarjetaWizard, saldoWizard, tarjetasAssist, monitorAssist, accesoAssist, extractoAssist], { ttl: 300 });
@@ -185,5 +193,13 @@ const cleanExit = async (signal) => {
 process.once('SIGINT', () => cleanExit('SIGINT'));
 process.once('SIGTERM', () => cleanExit('SIGTERM'));
 
-/* arrancar */
-startBot();
+/* arrancar todo el sistema */
+const bootstrap = async () => {
+  console.log('🚀 Iniciando el sistema...');
+  await initDatabase();
+  console.log('🤖 Encendiendo bot de Telegram...');
+  await startBot();
+  console.log('✅ Inicio completo.');
+};
+
+bootstrap();
