@@ -200,26 +200,22 @@ async function showAgentList(ctx) {
 }
 
 function buildAgentBlocks(agent) {
-  const blocks = [];
+  const parts = [`👤 <b>${agent.emoji ? agent.emoji + ' ' : ''}${escapeHtml(agent.nombre)}</b>`];
   Object.values(agent.perMon)
     .filter((m) => m.total !== 0)
     .forEach((m) => {
-      let msg = `👤 <b>${agent.emoji ? agent.emoji + ' ' : ''}${escapeHtml(
-        agent.nombre
-      )}</b>\n`;
-      msg += `${m.emoji} <b>${escapeHtml(m.code)}</b>\n`;
+      let msg = `${m.emoji} <b>${escapeHtml(m.code)}</b>\n`;
       m.tarjetas
         .filter((t) => t.saldo !== 0)
         .forEach((t) => {
-          msg += `• ${escapeHtml(t.numero)} – ${escapeHtml(
-            t.banco
-          )} ⇒ ${fmt(t.saldo)}\n`;
+          msg += `• ${escapeHtml(t.numero)} – ${escapeHtml(t.banco)} ⇒ ${fmt(t.saldo)}\n`;
         });
       msg += `\n<b>Total:</b> ${fmt(m.total)} ${escapeHtml(m.code)}\n`;
-      msg += `<b>Equiv. USD:</b> ${fmt(m.total * m.rate)}\n`;
-      blocks.push(msg);
+      msg += `<b>Equiv. USD:</b> ${fmt(m.total * m.rate)}`;
+      parts.push(msg);
     });
-  return blocks.length ? blocks : ['No hay datos.'];
+  const text = parts.join('\n\n');
+  return text.trim() ? [text] : ['No hay datos.'];
 }
 
 async function showAgentDetail(ctx, agentId) {
@@ -227,6 +223,7 @@ async function showAgentDetail(ctx, agentId) {
   const blocks = buildAgentBlocks(agent);
   const kb = Markup.inlineKeyboard([buildBackExitRow()]);
   await sendLargeMessage(ctx, blocks, { reply_markup: kb.reply_markup }); // usar sendLargeMessage para evitar paginación manual
+  ctx.wizard.state.lastRender = {};
   ctx.wizard.state.route = { view: 'AGENT_DETAIL', agentId };
 }
 
@@ -300,44 +297,43 @@ async function showMonBankDetail(ctx, monCode, bankCode) {
   const blocks = buildMonBankBlocks(mon, bank);
   const kb = Markup.inlineKeyboard([buildBackExitRow()]);
   await sendLargeMessage(ctx, blocks, { reply_markup: kb.reply_markup }); // dividir automáticamente si excede 4096
+  ctx.wizard.state.lastRender = {};
   ctx.wizard.state.route = { view: 'MON_DETAIL', monCode, bankCode };
 }
 
 function buildAllBlocks(data) {
-  const blocks = ['💳 <b>Todas las tarjetas</b>'];
+  let text = '💳 <b>Todas las tarjetas</b>';
   Object.values(data.byMon)
     .sort((a, b) => a.code.localeCompare(b.code))
     .forEach((mon) => {
       Object.values(mon.banks)
         .sort((a, b) => a.code.localeCompare(b.code))
         .forEach((bank) => {
-          let msg = `${mon.emoji} <b>${escapeHtml(mon.code)}</b> - ${bank.emoji} <b>${escapeHtml(
+          text += `\n\n${mon.emoji} <b>${escapeHtml(mon.code)}</b> - ${bank.emoji} <b>${escapeHtml(
             bank.code
           )}</b>\n`;
           bank.tarjetas
             .filter((t) => t.saldo !== 0)
             .forEach((t) => {
-              const agTxt = `${
-                t.agente_emoji ? t.agente_emoji + ' ' : ''
-              }${escapeHtml(t.agente)}`;
-              msg += `• ${escapeHtml(t.numero)} – ${agTxt} ⇒ ${fmt(t.saldo)}\n`;
+              const agTxt = `${t.agente_emoji ? t.agente_emoji + ' ' : ''}${escapeHtml(t.agente)}`;
+              text += `• ${escapeHtml(t.numero)} – ${agTxt} ⇒ ${fmt(t.saldo)}\n`;
             });
           const total = bank.pos + bank.neg;
-          msg += `<b>Total activo:</b> ${fmt(bank.pos)} ${escapeHtml(mon.code)}\n`;
+          text += `<b>Total activo:</b> ${fmt(bank.pos)} ${escapeHtml(mon.code)}\n`;
           if (bank.neg)
-            msg += `<b>Total deuda:</b> ${fmt(bank.neg)} ${escapeHtml(mon.code)}\n`;
-          msg += `<b>Neto:</b> ${fmt(total)} ${escapeHtml(mon.code)}\n`;
-          msg += `<b>Equiv. neto USD:</b> ${fmt(total * mon.rate)}\n`;
-          blocks.push(msg);
+            text += `<b>Total deuda:</b> ${fmt(bank.neg)} ${escapeHtml(mon.code)}\n`;
+          text += `<b>Neto:</b> ${fmt(total)} ${escapeHtml(mon.code)}\n`;
+          text += `<b>Equiv. neto USD:</b> ${fmt(total * mon.rate)}\n`;
         });
     });
-  return blocks.length ? blocks : ['No hay datos.'];
+  return text.trim() ? [text] : ['No hay datos.'];
 }
 
 async function showAll(ctx) {
   const blocks = buildAllBlocks(ctx.wizard.state.data);
   const kb = Markup.inlineKeyboard([buildBackExitRow()]);
   await sendLargeMessage(ctx, blocks, { reply_markup: kb.reply_markup }); // usa sendLargeMessage para respetar límite de 4096
+  ctx.wizard.state.lastRender = {};
   ctx.wizard.state.route = { view: 'ALL' };
 }
 
