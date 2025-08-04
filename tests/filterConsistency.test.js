@@ -2,6 +2,7 @@
 require('dotenv').config({ path: './.env.test' });
 const { query } = require('../psql/db');
 const { buildEntityFilter } = require('../helpers/filters');
+const seedMinimal = require('./seedMinimal');
 
 async function testEntity(table, alias, id, name, idField = 'id', nameFields = ['nombre']) {
   let params = [];
@@ -14,6 +15,10 @@ async function testEntity(table, alias, id, name, idField = 'id', nameFields = [
 }
 
 describe('consistencia de filtros', () => {
+  beforeAll(async () => {
+    await seedMinimal();
+  });
+
   it('agente por id/nombre', async () => {
     const ag = await query('SELECT id,nombre FROM agente LIMIT 1');
     if (!ag.rows.length) return;
@@ -35,3 +40,4 @@ describe('consistencia de filtros', () => {
     await testEntity('moneda', 'm', id, codigo, 'id', ['codigo', 'nombre']);
   });
 });
+
