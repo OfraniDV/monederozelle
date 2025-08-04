@@ -1,13 +1,10 @@
 {
   "name": "walletadrian",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
   "scripts": {
-    "test": "node scripts/ensureTestDb.js && jest"
+    "pretest": "node scripts/ensureTestDb.js",
+    "test": "jest --runInBand"
   },
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.1",
@@ -21,8 +18,9 @@
     "jest": "^30.0.5"
   },
   "jest": {
-    "testEnvironment": "node",
-    "setupFiles": ["<rootDir>/tests/setup.js"],
-    "testMatch": ["**/tests/dbConnection.test.js"]
-  }
+  "testEnvironment": "node",
+  "setupFilesAfterEnv": ["<rootDir>/tests/setup.js"],
+  "testMatch": ["**/tests/**/*.test.js"],
+  "verbose": true
+}
 }
