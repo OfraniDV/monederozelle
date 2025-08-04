@@ -17,10 +17,8 @@ const { ownerIds } = require('./config');
 /* ───────── 1. Bot base ───────── */
 const bot = require('./bot');
 
-/* ───────── 2. Base de datos (tablas) ───────── */
-const crearTablaUsuarios = require('./psql/tablausuarios');
-const initWalletSchema   = require('./psql/initWalletSchema');
-const { ensure }         = require('./psql/ensureIndexesAndExtensions');
+/* ───────── 2. Bootstrap de base de datos ───────── */
+const { bootstrap: dbBootstrap } = require('./psql/ensureIndexesAndExtensions');
 
 /* ───────── 3. Legacy commands (monotabla) ───────── */
 const crearCuenta    = require('./commands/crearcuenta');
@@ -50,9 +48,7 @@ const extractoAssist  = require('./commands/extracto_assist');
 async function initDatabase() {
   console.log('🛠️ Verificando base de datos...');
   try {
-    await ensure();
-    await crearTablaUsuarios();
-    await initWalletSchema();
+    await dbBootstrap();
     console.log('✅ Base de datos preparada.');
   } catch (e) {
     console.error('❌ Error preparando la base de datos:', e.message);
@@ -194,7 +190,7 @@ process.once('SIGINT', () => cleanExit('SIGINT'));
 process.once('SIGTERM', () => cleanExit('SIGTERM'));
 
 /* arrancar todo el sistema */
-const bootstrap = async () => {
+const bootstrapApp = async () => {
   console.log('🚀 Iniciando el sistema...');
   await initDatabase();
   console.log('🤖 Encendiendo bot de Telegram...');
@@ -202,4 +198,4 @@ const bootstrap = async () => {
   console.log('✅ Inicio completo.');
 };
 
-bootstrap();
+bootstrapApp();
