@@ -6,8 +6,9 @@
  * Correcciones principales:
  * - Se añadió editIfChanged para evitar "400: message is not modified".
  * - Separación de bloques por agente y por combinación moneda+banco.
- * - Navegación jerárquica con botones Volver/Salir y paginación por entidad.
- * - Menús principales en filas de dos y paginación mostrada solo cuando hay más de una página.
+ * - Navegación jerárquica con botones Volver/Salir y envío de bloques con
+ *   sendLargeMessage evitando paginación manual.
+ * - Menús principales en filas de dos.
  *
  * Todo usa parse mode HTML y escapeHtml para sanear entradas dinámicas.
  * Las vistas se pueden extender añadiendo nuevas rutas en showMenu/builders.
@@ -17,22 +18,18 @@
  *   muestran sus monedas y tarjetas.
  * - "Por moneda y banco" → elegir moneda → banco → detalle sin mezclar otras
  *   combinaciones.
- * - Navegar con Siguiente/Anterior sin provocar "message is not modified".
+ * - Envíos largos divididos automáticamente respetando 4096 caracteres.
  */
 
-const { Scenes, Markup, Telegram } = require('telegraf');
+const { Scenes, Markup } = require('telegraf');
 const { escapeHtml } = require('../helpers/format');
+const { sendLargeMessage } = require('../helpers/sendLargeMessage');
 const {
   editIfChanged,
-  buildNavKeyboard,
   buildBackExitRow,
   arrangeInlineButtons,
 } = require('../helpers/ui');
 const pool = require('../psql/db.js');
-
-/* Configuración */
-const LINES_PER_PAGE = 12; // Líneas máximas por página para detalles largos
-const MAX_LEN = Telegram.MAX_MESSAGE_LENGTH;
 
 /* ───────── helpers ───────── */
 const fmt = (v, d = 2) => {
@@ -45,25 +42,6 @@ const fmt = (v, d = 2) => {
     })
   );
 };
-
-function paginate(text, linesPerPage = LINES_PER_PAGE) {
-  const lines = text.split('\n');
-  const pages = [];
-  let buf = '';
-  let count = 0;
-  for (const line of lines) {
-    const nl = line + '\n';
-    if (count >= linesPerPage || (buf + nl).length > MAX_LEN) {
-      pages.push(buf.trimEnd());
-      buf = '';
-      count = 0;
-    }
-    buf += nl;
-    count++;
-  }
-  if (buf.trim().length) pages.push(buf.trimEnd());
-  return pages.length ? pages : ['No hay datos.'];
-}
 
 async function wantExit(ctx) {
   if (ctx.callbackQuery?.data === 'EXIT') {
@@ -221,8 +199,8 @@ async function showAgentList(ctx) {
   ctx.wizard.state.route = { view: 'AGENT_LIST' };
 }
 
-function buildAgentPages(agent) {
-  const pages = [];
+function buildAgentBlocks(agent) {
+  const blocks = [];
   Object.values(agent.perMon)
     .filter((m) => m.total !== 0)
     .forEach((m) => {
@@ -239,24 +217,17 @@ function buildAgentPages(agent) {
         });
       msg += `\n<b>Total:</b> ${fmt(m.total)} ${escapeHtml(m.code)}\n`;
       msg += `<b>Equiv. USD:</b> ${fmt(m.total * m.rate)}\n`;
-      pages.push(msg);
+      blocks.push(msg);
     });
-  return pages.length ? pages : ['No hay datos.'];
+  return blocks.length ? blocks : ['No hay datos.'];
 }
 
-async function showAgentDetail(ctx, agentId, page = 0) {
+async function showAgentDetail(ctx, agentId) {
   const agent = ctx.wizard.state.data.byAgent[agentId];
-  const pages = buildAgentPages(agent);
-  const idx = Math.max(0, Math.min(page, pages.length - 1));
-  ctx.wizard.state.pages = pages;
-  ctx.wizard.state.pageIndex = idx;
+  const blocks = buildAgentBlocks(agent);
+  const kb = Markup.inlineKeyboard([buildBackExitRow()]);
+  await sendLargeMessage(ctx, blocks, { reply_markup: kb.reply_markup }); // usar sendLargeMessage para evitar paginación manual
   ctx.wizard.state.route = { view: 'AGENT_DETAIL', agentId };
-  const text = pages[idx] + `\n\nPágina ${idx + 1}/${pages.length}`;
-  const nav =
-    pages.length > 1
-      ? buildNavKeyboard()
-      : Markup.inlineKeyboard([buildBackExitRow()]);
-  await editIfChanged(ctx, text, { parse_mode: 'HTML', ...nav });
 }
 
 async function showMonList(ctx) {
@@ -302,7 +273,7 @@ async function showBankList(ctx, monCode) {
   ctx.wizard.state.route = { view: 'MON_BANKS', monCode };
 }
 
-function buildMonBankPages(mon, bank) {
+function buildMonBankBlocks(mon, bank) {
   let msg = `${mon.emoji} <b>${escapeHtml(mon.code)}</b> - ${bank.emoji} <b>${escapeHtml(
     bank.code
   )}</b>\n\n`;
@@ -320,78 +291,54 @@ function buildMonBankPages(mon, bank) {
     msg += `<b>Total deuda:</b> ${fmt(bank.neg)} ${escapeHtml(mon.code)}\n`;
   msg += `<b>Neto:</b> ${fmt(total)} ${escapeHtml(mon.code)}\n`;
   msg += `<b>Equiv. neto USD:</b> ${fmt(total * mon.rate)}\n`;
-  return paginate(msg);
+  return [msg];
 }
 
-async function showMonBankDetail(ctx, monCode, bankCode, page = 0) {
+async function showMonBankDetail(ctx, monCode, bankCode) {
   const mon = ctx.wizard.state.data.byMon[monCode];
   const bank = mon.banks[bankCode];
-  const pages = buildMonBankPages(mon, bank);
-  const idx = Math.max(0, Math.min(page, pages.length - 1));
-  ctx.wizard.state.pages = pages;
-  ctx.wizard.state.pageIndex = idx;
+  const blocks = buildMonBankBlocks(mon, bank);
+  const kb = Markup.inlineKeyboard([buildBackExitRow()]);
+  await sendLargeMessage(ctx, blocks, { reply_markup: kb.reply_markup }); // dividir automáticamente si excede 4096
   ctx.wizard.state.route = { view: 'MON_DETAIL', monCode, bankCode };
-  const text = pages[idx] + `\n\nPágina ${idx + 1}/${pages.length}`;
-  const nav =
-    pages.length > 1
-      ? buildNavKeyboard()
-      : Markup.inlineKeyboard([buildBackExitRow()]);
-  await editIfChanged(ctx, text, { parse_mode: 'HTML', ...nav });
 }
 
-function buildAllPages(data) {
-  const lines = ['💳 <b>Todas las tarjetas</b>', ''];
+function buildAllBlocks(data) {
+  const blocks = ['💳 <b>Todas las tarjetas</b>'];
   Object.values(data.byMon)
     .sort((a, b) => a.code.localeCompare(b.code))
     .forEach((mon) => {
       Object.values(mon.banks)
         .sort((a, b) => a.code.localeCompare(b.code))
         .forEach((bank) => {
-          lines.push(
-            `${mon.emoji} <b>${escapeHtml(mon.code)}</b> - ${bank.emoji} <b>${escapeHtml(bank.code)}</b>`
-          );
+          let msg = `${mon.emoji} <b>${escapeHtml(mon.code)}</b> - ${bank.emoji} <b>${escapeHtml(
+            bank.code
+          )}</b>\n`;
           bank.tarjetas
             .filter((t) => t.saldo !== 0)
             .forEach((t) => {
               const agTxt = `${
                 t.agente_emoji ? t.agente_emoji + ' ' : ''
               }${escapeHtml(t.agente)}`;
-              lines.push(
-                `• ${escapeHtml(t.numero)} – ${agTxt} ⇒ ${fmt(t.saldo)}`
-              );
+              msg += `• ${escapeHtml(t.numero)} – ${agTxt} ⇒ ${fmt(t.saldo)}\n`;
             });
           const total = bank.pos + bank.neg;
-          lines.push(
-            `<b>Total activo:</b> ${fmt(bank.pos)} ${escapeHtml(mon.code)}`
-          );
+          msg += `<b>Total activo:</b> ${fmt(bank.pos)} ${escapeHtml(mon.code)}\n`;
           if (bank.neg)
-            lines.push(
-              `<b>Total deuda:</b> ${fmt(bank.neg)} ${escapeHtml(mon.code)}`
-            );
-          lines.push(
-            `<b>Neto:</b> ${fmt(total)} ${escapeHtml(mon.code)}`
-          );
-          lines.push(
-            `<b>Equiv. neto USD:</b> ${fmt(total * mon.rate)}`
-          );
-          lines.push('');
+            msg += `<b>Total deuda:</b> ${fmt(bank.neg)} ${escapeHtml(mon.code)}\n`;
+          msg += `<b>Neto:</b> ${fmt(total)} ${escapeHtml(mon.code)}\n`;
+          msg += `<b>Equiv. neto USD:</b> ${fmt(total * mon.rate)}\n`;
+          blocks.push(msg);
         });
     });
-  return paginate(lines.join('\n'));
+  return blocks.length ? blocks : ['No hay datos.'];
 }
 
-async function showAll(ctx, page = 0) {
-  const pages = buildAllPages(ctx.wizard.state.data);
-  const idx = Math.max(0, Math.min(page, pages.length - 1));
-  ctx.wizard.state.pages = pages;
-  ctx.wizard.state.pageIndex = idx;
+async function showAll(ctx) {
+  const blocks = buildAllBlocks(ctx.wizard.state.data);
+  const kb = Markup.inlineKeyboard([buildBackExitRow()]);
+  await sendLargeMessage(ctx, blocks, { reply_markup: kb.reply_markup }); // usa sendLargeMessage para respetar límite de 4096
   ctx.wizard.state.route = { view: 'ALL' };
-  const text = pages[idx] + `\n\nPágina ${idx + 1}/${pages.length}`;
-  const nav =
-    pages.length > 1
-      ? buildNavKeyboard()
-      : Markup.inlineKeyboard([buildBackExitRow()]);
-  await editIfChanged(ctx, text, { parse_mode: 'HTML', ...nav });
 }
 
 async function showSummary(ctx) {
@@ -443,6 +390,9 @@ const tarjetasAssist = new Scenes.WizardScene(
     const data = ctx.callbackQuery?.data;
     if (!data) return;
     await ctx.answerCbQuery().catch(() => {});
+    if (ctx.callbackQuery?.message?.message_id) {
+      ctx.wizard.state.msgId = ctx.callbackQuery.message.message_id;
+    }
     const route = ctx.wizard.state.route?.view || 'MENU';
 
     if (!ctx.wizard.state.data) {
@@ -461,30 +411,11 @@ const tarjetasAssist = new Scenes.WizardScene(
         if (data.startsWith('AG_')) {
           const id = data.split('_')[1];
           console.log('[TARJETAS_ASSIST] cambio a vista AGENTE detalle', id);
-          return showAgentDetail(ctx, id, 0);
+          return showAgentDetail(ctx, id);
         }
         break;
       case 'AGENT_DETAIL':
         if (data === 'BACK') return showAgentList(ctx);
-        {
-          const pages = ctx.wizard.state.pages || [];
-          let i = ctx.wizard.state.pageIndex || 0;
-          const last = pages.length - 1;
-          let ni = i;
-          if (data === 'FIRST') ni = 0;
-          else if (data === 'PREV') ni = Math.max(0, i - 1);
-          else if (data === 'NEXT') ni = Math.min(last, i + 1);
-          else if (data === 'LAST') ni = last;
-          if (ni === i) return ctx.answerCbQuery('Sin más páginas').catch(() => {});
-          ctx.wizard.state.pageIndex = ni;
-          const txt =
-            pages[ni] + `\n\nPágina ${ni + 1}/${pages.length}`;
-          const nav =
-            pages.length > 1
-              ? buildNavKeyboard()
-              : Markup.inlineKeyboard([buildBackExitRow()]);
-          await editIfChanged(ctx, txt, { parse_mode: 'HTML', ...nav });
-        }
         break;
       case 'MON_LIST':
         if (data === 'BACK') return showMenu(ctx);
@@ -503,32 +434,13 @@ const tarjetasAssist = new Scenes.WizardScene(
             mon,
             bank
           );
-          return showMonBankDetail(ctx, mon, bank, 0);
+          return showMonBankDetail(ctx, mon, bank);
         }
         break;
       case 'MON_DETAIL':
         if (data === 'BACK') {
           const { monCode } = ctx.wizard.state.route;
           return showBankList(ctx, monCode);
-        }
-        {
-          const pages = ctx.wizard.state.pages || [];
-          let i = ctx.wizard.state.pageIndex || 0;
-          const last = pages.length - 1;
-          let ni = i;
-          if (data === 'FIRST') ni = 0;
-          else if (data === 'PREV') ni = Math.max(0, i - 1);
-          else if (data === 'NEXT') ni = Math.min(last, i + 1);
-          else if (data === 'LAST') ni = last;
-          if (ni === i) return ctx.answerCbQuery('Sin más páginas').catch(() => {});
-          ctx.wizard.state.pageIndex = ni;
-          const txt =
-            pages[ni] + `\n\nPágina ${ni + 1}/${pages.length}`;
-          const nav =
-            pages.length > 1
-              ? buildNavKeyboard()
-              : Markup.inlineKeyboard([buildBackExitRow()]);
-          await editIfChanged(ctx, txt, { parse_mode: 'HTML', ...nav });
         }
         break;
       case 'SUMMARY':
@@ -539,25 +451,6 @@ const tarjetasAssist = new Scenes.WizardScene(
         break;
       case 'ALL':
         if (data === 'BACK') return showMenu(ctx);
-        {
-          const pages = ctx.wizard.state.pages || [];
-          let i = ctx.wizard.state.pageIndex || 0;
-          const last = pages.length - 1;
-          let ni = i;
-          if (data === 'FIRST') ni = 0;
-          else if (data === 'PREV') ni = Math.max(0, i - 1);
-          else if (data === 'NEXT') ni = Math.min(last, i + 1);
-          else if (data === 'LAST') ni = last;
-          if (ni === i) return ctx.answerCbQuery('Sin más páginas').catch(() => {});
-          ctx.wizard.state.pageIndex = ni;
-          const txt =
-            pages[ni] + `\n\nPágina ${ni + 1}/${pages.length}`;
-          const nav =
-            pages.length > 1
-              ? buildNavKeyboard()
-              : Markup.inlineKeyboard([buildBackExitRow()]);
-          await editIfChanged(ctx, txt, { parse_mode: 'HTML', ...nav });
-        }
         break;
       default:
         break;
