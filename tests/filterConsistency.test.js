@@ -1,6 +1,6 @@
 const assert = require('assert');
-const { query } = require('../psql/db');
-const { buildEntityFilter } = require('../helpers/filters');
+const { query } = require('../src/psql/db');
+const { buildEntityFilter } = require('../src/helpers/filters');
 
 async function testEntity(table, alias, id, name, idField = 'id', nameFields = ['nombre']) {
   let params = [];

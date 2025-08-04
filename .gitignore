@@ -2,8 +2,6 @@ node_modules/
 .env
 *.lock
 *.log
-./KYC/kycimg/
+KYC/kycimg/
 *.jpg
-../psql/db.js
 *.data
-commands/session.data

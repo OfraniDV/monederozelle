@@ -2,8 +2,9 @@
   "name": "walletadrian",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/app.js",
   "scripts": {
+    "start": "node src/app.js",
     "test": "node tests/filterConsistency.test.js"
   },
   "author": "",
