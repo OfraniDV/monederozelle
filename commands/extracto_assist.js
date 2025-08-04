@@ -335,7 +335,7 @@ async function showExtract(ctx) {
     [ids, since],
   );
 
-  // Obtener saldo inicial real de cada tarjeta (primer movimiento cronológico)
+  /* Saldo inicial histórico (primer movimiento) */
   const iniRows = await q(
     `SELECT DISTINCT ON (tarjeta_id) tarjeta_id, saldo_nuevo
        FROM movimiento
@@ -346,6 +346,19 @@ async function showExtract(ctx) {
   const iniMap = new Map();
   iniRows.forEach((r) =>
     iniMap.set(r.tarjeta_id, parseFloat(r.saldo_nuevo) || 0),
+  );
+
+  /* Saldo inmediatamente ANTES del período → inicio del período */
+  const preRows = await q(
+    `SELECT DISTINCT ON (tarjeta_id) tarjeta_id, saldo_nuevo
+       FROM movimiento
+      WHERE tarjeta_id = ANY($1) AND creado_en < $2
+      ORDER BY tarjeta_id, creado_en DESC`,
+    [ids, since],
+  );
+  const preMap = new Map();
+  preRows.forEach((r) =>
+    preMap.set(r.tarjeta_id, parseFloat(r.saldo_nuevo) || 0),
   );
 
   if (!movs.length) {
@@ -402,8 +415,10 @@ async function showExtract(ctx) {
       out: 0,
       // Antes se tomaba el saldo del primer movimiento del período como inicial,
       // lo cual era incorrecto. Ahora usamos el primer movimiento real.
-      saldoIni: iniMap.get(mv.tarjeta_id) ?? 0,
-      saldoFin: iniMap.get(mv.tarjeta_id) ?? 0,
+      saldoIniHist: iniMap.get(mv.tarjeta_id) ?? 0,
+      saldoIniPer:  preMap.get(mv.tarjeta_id) ?? (iniMap.get(mv.tarjeta_id) ?? 0),
+      saldoFinPer:  preMap.get(mv.tarjeta_id) ?? (iniMap.get(mv.tarjeta_id) ?? 0),
+      saldoFinHist: iniMap.get(mv.tarjeta_id) ?? 0,
       initPrinted: false,
     };
     const imp = parseFloat(mv.importe) || 0;
@@ -422,7 +437,8 @@ async function showExtract(ctx) {
       desc: mv.descripcion || '',
     });
     card.days.add(fecha.format('YYYY-MM-DD'));
-    card.saldoFin = parseFloat(mv.saldo_nuevo) || card.saldoFin;
+    card.saldoFinPer  = parseFloat(mv.saldo_nuevo) || card.saldoFinPer;
+    card.saldoFinHist = card.saldoFinPer; /* último saldo conocido */
     g.cards.set(mv.tarjeta_id, card);
   });
 
@@ -431,8 +447,9 @@ async function showExtract(ctx) {
     if (body) body += '\n';
     body += `💱 <b>${g.emoji ? g.emoji + ' ' : ''}${escapeHtml(code)}</b>\n`;
     for (const card of g.cards.values()) {
-      const delta = card.saldoFin - card.saldoIni;
-      const emojiDelta = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
+      const deltaPer = card.saldoFinPer - card.saldoIniPer;
+      const deltaHist = card.saldoFinHist - card.saldoIniHist;
+      const emojiPer = deltaPer > 0 ? '📈' : deltaPer < 0 ? '📉' : '➖';
 
       // Construir líneas compactas siguiendo el estilo de saldo.js
       // Ejemplo:
@@ -462,29 +479,34 @@ async function showExtract(ctx) {
         card.banco,
       )} / 💳 ${escapeHtml(card.numero)}\n`;
       body +=
-        `Saldo inicial (original): <code>${fmtMoney(card.saldoIni)}</code> → Saldo actual: <code>${fmtMoney(
-          card.saldoFin,
-        )}</code> (Δ <code>${(delta >= 0 ? '+' : '') + fmtMoney(delta)}</code>) ${emojiDelta}\n`;
+        `Saldo inicio (período): <code>${fmtMoney(card.saldoIniPer)}</code> → Saldo fin (período): <code>${fmtMoney(
+          card.saldoFinPer,
+        )}</code> (Δ <code>${(deltaPer >= 0 ? '+' : '') + fmtMoney(deltaPer)}</code>) ${emojiPer}\n`;
+
+      body +=
+        `Saldo inicio (histórico): <code>${fmtMoney(card.saldoIniHist)}</code> → Saldo actual: <code>${fmtMoney(
+          card.saldoFinHist,
+        )}</code> (Δ <code>${(deltaHist >= 0 ? '+' : '') + fmtMoney(deltaHist)}</code>) ${emojiPer}\n`;
       body += `↗️ <code>${fmtMoney(card.in)}</code>  ↘️ <code>${fmtMoney(card.out)}</code>\n`;
       body += `Historial:\n${lines.join('\n')}\n`;
     }
 
-    const totalIni = Array.from(g.cards.values()).reduce(
-      (a, c) => a + c.saldoIni,
+    const totalIniPer = Array.from(g.cards.values()).reduce(
+      (a, c) => a + c.saldoIniPer,
       0,
     );
-    const totalFin = Array.from(g.cards.values()).reduce(
-      (a, c) => a + c.saldoFin,
+    const totalFinPer = Array.from(g.cards.values()).reduce(
+      (a, c) => a + c.saldoFinPer,
       0,
     );
-    const deltaTotal = totalFin - totalIni;
-    const emojiTot = deltaTotal > 0 ? '📈' : deltaTotal < 0 ? '📉' : '➖';
+    const deltaPerTot = totalFinPer - totalIniPer;
+    const emojiPerTot = deltaPerTot > 0 ? '📈' : deltaPerTot < 0 ? '📉' : '➖';
     body += `↗️ <code>${fmtMoney(g.in)}</code>  ↘️ <code>${fmtMoney(g.out)}</code>\n`;
     body +=
-      `Saldo inicial (original): <code>${fmtMoney(totalIni)}</code> → Saldo actual: <code>${fmtMoney(
-        totalFin,
-      )}</code> (Δ <code>${(deltaTotal >= 0 ? '+' : '') + fmtMoney(deltaTotal)}</code>) ${emojiTot}\n`;
-    body += `Equiv. USD: <code>${fmtMoney(totalFin * g.rate)}</code>\n`;
+      `Saldo inicio (período): <code>${fmtMoney(totalIniPer)}</code> → Saldo fin (período): <code>${fmtMoney(
+        totalFinPer,
+      )}</code> (Δ <code>${(deltaPerTot >= 0 ? '+' : '') + fmtMoney(deltaPerTot)}</code>) ${emojiPerTot}\n`;
+      body += `Equiv. USD: <code>${fmtMoney(totalFinPer * g.rate)}</code>\n`;
   }
 
     const text = header(st.filters) + body + '\n\n';
