@@ -173,12 +173,13 @@ async function sendChunks(ctx, text) {
 const SQL_BASE = `
 WITH movs AS (
   SELECT mv.tarjeta_id,
-         COUNT(*)                                                AS movs,
-         COUNT(*) FILTER (WHERE saldo_nuevo > saldo_anterior)    AS n_up,
-         COUNT(*) FILTER (WHERE saldo_nuevo < saldo_anterior)    AS n_down,
-         SUM(ABS(saldo_nuevo - saldo_anterior))                  AS vol
+         COUNT(*) FILTER (WHERE mv.importe <> 0)                  AS movs,
+         COUNT(*) FILTER (WHERE mv.importe > 0)                   AS n_up,
+         COUNT(*) FILTER (WHERE mv.importe < 0)                   AS n_down,
+         SUM(ABS(mv.importe))                                    AS vol
     FROM movimiento mv
    WHERE mv.creado_en >= $1 AND mv.creado_en < $2
+     AND NOT (mv.importe = 0 AND mv.descripcion ILIKE '%saldo inicial%')
    GROUP BY mv.tarjeta_id
 ),
 ini_total AS ( -- saldo inicial histórico
@@ -500,3 +501,4 @@ module.exports = { runMonitor };
 // - Se incluyó manejo de tildes y eñes al parsear argumentos.
 // - Se agregó historial detallado opcional por tarjeta.
 // - Se añadieron logs prefijados [monitor] y manejo de errores en español.
+// ✔ probado con tarjeta 5278
