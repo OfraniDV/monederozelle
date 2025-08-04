@@ -93,6 +93,15 @@ const safe = (fn) => async (ctx) => {
   }
 };
 
+/* Guard que restringe comandos a los OWNER_IDs */
+const ownerOnly = (fn) => async (ctx) => {
+  const uid = ctx.from?.id ? Number(ctx.from.id) : 0;
+  if (!ownerIds.includes(uid)) {
+    return ctx.reply('🚫 No tienes permisos para ejecutar ese comando.');
+  }
+  return fn(ctx);
+};
+
 /* ───────── 10. Comando /start ───────── */
 bot.command('start', (ctx) => {
   const nombre = ctx.from.first_name || 'Usuario';
@@ -116,14 +125,14 @@ bot.command('resumen',        safe(resumirCuenta));
 bot.command('resumentotal',   safe(resumenTotal));
 
 /* ───────── 12. Nuevos comandos (wizards) ───────── */
-bot.command('monedas',  (ctx) => ctx.scene.enter('MONEDA_WIZ'));   // protegido por middleware
-bot.command('bancos',   (ctx) => ctx.scene.enter('BANCO_CREATE_WIZ'));
-bot.command('agentes',  (ctx) => ctx.scene.enter('AGENTE_WIZ'));
-bot.command('tarjeta',  (ctx) => ctx.scene.enter('TARJETA_WIZ'));
+bot.command('monedas',  ownerOnly((ctx) => ctx.scene.enter('MONEDA_WIZ')));
+bot.command('bancos',   ownerOnly((ctx) => ctx.scene.enter('BANCO_CREATE_WIZ')));
+bot.command('agentes',  ownerOnly((ctx) => ctx.scene.enter('AGENTE_WIZ')));
+bot.command('tarjeta',  ownerOnly((ctx) => ctx.scene.enter('TARJETA_WIZ')));
 bot.command('saldo',    (ctx) => ctx.scene.enter('SALDO_WIZ'));
 bot.command('tarjetas', (ctx) => ctx.scene.enter('TARJETAS_ASSIST'));
 bot.command('monitor',  (ctx) => ctx.scene.enter('MONITOR_ASSIST'));
-bot.command('acceso',   (ctx) => ctx.scene.enter('ACCESO_ASSIST'));
+bot.command('acceso',   ownerOnly((ctx) => ctx.scene.enter('ACCESO_ASSIST')));
 bot.command('extracto', (ctx) => ctx.scene.enter('EXTRACTO_ASSIST'));
 
 /* ───────── 13. Gestión de accesos (solo OWNER) ───────── */
