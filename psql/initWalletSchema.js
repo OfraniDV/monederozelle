@@ -60,9 +60,6 @@ async function syncSequences() {
  *  - Asegurar índices únicos donde corresponde.
  */
 const getAllDDLs = () => [
-  // Asegurar la existencia del esquema personalizado
-  `CREATE SCHEMA IF NOT EXISTS chema;`,
-
   // 1. Moneda: tiene código (abreviatura), nombre, tasa_usd (en USD), emoji.
   `
   CREATE TABLE IF NOT EXISTS moneda (

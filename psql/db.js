@@ -20,10 +20,6 @@ const poolConfig = connectionString
 
 // Crear el pool de conexiones.
 const pool = new Pool(poolConfig);
-// Asegurar que todas las sesiones usen el esquema "chema".
-pool.on('connect', (client) => {
-  client.query('SET search_path TO chema,public');
-});
 
 // Log simple para cada consulta ejecutada.
 async function query(text, params) {

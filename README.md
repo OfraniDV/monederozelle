@@ -20,46 +20,12 @@
 git clone <repositorio>
 cd monederozelle
 npm install
-npm start
+node bot.js
 ```
-
-## ⚙️ Configuración de entorno
-
-Crea un archivo `.env` en la raíz del proyecto o utiliza el `.env.test` incluido como base:
-
-```env
-# Telegram
-BOT_TOKEN=tu_token_aqui
-OWNER_ID=12345678
-
-# PostgreSQL
-DB_HOST=localhost
-DB_URL=localhost            # compatibilidad hacia atrás
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=secret
-DB_NAME=wallet
-
-STATS_CHAT_ID=
-```
-
-Las tablas se crean dentro del esquema `chema`. Si aún no existe, ejecútalo manualmente:
-
-```sql
-CREATE SCHEMA IF NOT EXISTS chema;
-```
-
-Para soportar búsquedas sin tildes ni eñes se requiere la extensión `unaccent`:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS unaccent;
-```
-
-El script `initWalletSchema` inicializa/migra el esquema automáticamente al arrancar el bot.
 
 ## 📦 Tablas principales
 
-El bot utiliza una base de datos PostgreSQL donde todas las tablas residen en el esquema `chema`:
+El bot utiliza una base de datos PostgreSQL con las siguientes tablas:
 
 - **moneda**: código, nombre, tasa respecto al USD y emoji.
 - **banco**: código, nombre legible y emoji identificador.
@@ -96,15 +62,6 @@ Comprueba la latencia del bot.
 ```text
 /ping
 Pong! 123 ms
-```
-
-### 📜 <span style="color:#34495e;">/comandos</span>
-Lista todos los comandos disponibles junto con su descripción y forma de uso.
-
-**Ejemplo:**
-```text
-/comandos
-• /start — Saluda y confirma que el bot está activo.
 ```
 
 ### 🆔 <span style="color:#e67e22;">/crearcuenta</span>
