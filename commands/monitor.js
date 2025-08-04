@@ -169,51 +169,64 @@ async function sendChunks(ctx, text) {
   }
 }
 
-/* ───────── SQL base ───────── */
+/* ───────── SQL base v2 (saldos del período + globales) ───────── */
 const SQL_BASE = `
 WITH movs AS (
   SELECT mv.tarjeta_id,
-         COUNT(*) AS movs,
-         COUNT(*) FILTER (WHERE saldo_nuevo > saldo_anterior) AS n_up,
-         COUNT(*) FILTER (WHERE saldo_nuevo < saldo_anterior) AS n_down,
-         SUM(ABS(saldo_nuevo - saldo_anterior)) AS vol
+         COUNT(*)                                                AS movs,
+         COUNT(*) FILTER (WHERE saldo_nuevo > saldo_anterior)    AS n_up,
+         COUNT(*) FILTER (WHERE saldo_nuevo < saldo_anterior)    AS n_down,
+         SUM(ABS(saldo_nuevo - saldo_anterior))                  AS vol
     FROM movimiento mv
    WHERE mv.creado_en >= $1 AND mv.creado_en < $2
    GROUP BY mv.tarjeta_id
 ),
-/* Antes se calculaba el saldo inicial como el último valor antes del período,
-   lo cual no reflejaba el "saldo inicial real" de la tarjeta. Ahora tomamos el
-   primer movimiento registrado en toda la base de datos y lo comparamos contra
-   el saldo actual más reciente. */
-ini AS (
-  SELECT DISTINCT ON (tarjeta_id)
-         tarjeta_id, saldo_nuevo AS saldo_ini
+ini_total AS ( -- saldo inicial histórico
+  SELECT DISTINCT ON (tarjeta_id) tarjeta_id, saldo_nuevo AS saldo_ini_total
     FROM movimiento
    ORDER BY tarjeta_id, creado_en ASC
 ),
-fin AS (
-  SELECT DISTINCT ON (tarjeta_id)
-         tarjeta_id, saldo_nuevo AS saldo_fin
+fin_total AS ( -- saldo actual
+  SELECT DISTINCT ON (tarjeta_id) tarjeta_id, saldo_nuevo AS saldo_fin_total
     FROM movimiento
+   ORDER BY tarjeta_id, creado_en DESC
+),
+ini_per AS (  -- saldo justo antes del comienzo del período
+  SELECT DISTINCT ON (tarjeta_id) tarjeta_id, saldo_nuevo AS saldo_ini_period
+    FROM movimiento
+   WHERE creado_en < $1
+   ORDER BY tarjeta_id, creado_en DESC
+),
+fin_per AS (  -- saldo al cierre del período
+  SELECT DISTINCT ON (tarjeta_id) tarjeta_id, saldo_nuevo AS saldo_fin_period
+    FROM movimiento
+   WHERE creado_en >= $1 AND creado_en < $2
    ORDER BY tarjeta_id, creado_en DESC
 )
 SELECT t.id, t.numero,
        b.codigo AS banco_codigo, b.nombre AS banco_nombre,
        ag.nombre AS agente, m.codigo AS moneda,
-       COALESCE(m.tasa_usd,1) AS tasa_usd,
-       COALESCE(ini.saldo_ini,0) AS saldo_ini,
-       COALESCE(fin.saldo_fin,0) AS saldo_fin,
-       COALESCE(movs.movs,0) AS movs,
-       COALESCE(movs.n_up,0) AS n_up,
-       COALESCE(movs.n_down,0) AS n_down,
-       COALESCE(movs.vol,0) AS vol
+       COALESCE(m.tasa_usd,1)                                   AS tasa_usd,
+       COALESCE(ini_total.saldo_ini_total,0)                    AS saldo_ini_total,
+       COALESCE(fin_total.saldo_fin_total,0)                    AS saldo_fin_total,
+       COALESCE(ini_per.saldo_ini_period,
+                ini_total.saldo_ini_total,0)                    AS saldo_ini_period,
+       COALESCE(fin_per.saldo_fin_period,
+                ini_per.saldo_ini_period,
+                ini_total.saldo_ini_total,0)                    AS saldo_fin_period,
+       COALESCE(movs.movs,0)                                    AS movs,
+       COALESCE(movs.n_up,0)                                    AS n_up,
+       COALESCE(movs.n_down,0)                                  AS n_down,
+       COALESCE(movs.vol,0)                                     AS vol
   FROM tarjeta t
-  JOIN banco b ON b.id = t.banco_id
+  JOIN banco  b ON b.id = t.banco_id
   JOIN agente ag ON ag.id = t.agente_id
   JOIN moneda m ON m.id = t.moneda_id
-  LEFT JOIN ini ON ini.tarjeta_id = t.id
-  LEFT JOIN fin ON fin.tarjeta_id = t.id
-  LEFT JOIN movs ON movs.tarjeta_id = t.id
+  LEFT JOIN ini_total ON ini_total.tarjeta_id = t.id
+  LEFT JOIN fin_total ON fin_total.tarjeta_id = t.id
+  LEFT JOIN ini_per   ON ini_per.tarjeta_id   = t.id
+  LEFT JOIN fin_per   ON fin_per.tarjeta_id   = t.id
+  LEFT JOIN movs      ON movs.tarjeta_id      = t.id
 `;
 
 /* ───────── mensaje por moneda ───────── */
@@ -231,15 +244,19 @@ function buildMessage(moneda, rows, opts, range, historiales) {
   }
   const tableRows = sorted.slice(0, opts.limite);
 
-  let totalIni = 0,
-    totalFin = 0,
+  let totalIniPer = 0,
+    totalFinPer = 0,
+    totalIniTot = 0,
+    totalFinTot = 0,
     totalUsd = 0,
     up = 0,
     down = 0,
     same = 0;
   rows.forEach((r) => {
-    totalIni += r.saldo_ini;
-    totalFin += r.saldo_fin;
+    totalIniPer += r.saldo_ini;
+    totalFinPer += r.saldo_fin;
+    totalIniTot += r.saldo_ini_total;
+    totalFinTot += r.saldo_fin_total;
     totalUsd += r.delta_usd;
     if (r.delta > 0) up++;
     else if (r.delta < 0) down++;
@@ -254,10 +271,15 @@ function buildMessage(moneda, rows, opts, range, historiales) {
   const filtStr = filtros.length ? `\nFiltros: ${filtros.join(', ')}\n` : '\n';
 
   let msg = `<b>Resumen de ${moneda} para periodo ${range.start.format('DD/MM/YYYY')} – ${range.end.clone().subtract(1, 'second').format('DD/MM/YYYY')}</b>${filtStr}`;
-  const deltaTotal = totalFin - totalIni;
-  const emojiTotal = deltaTotal > 0 ? '📈' : deltaTotal < 0 ? '📉' : '➖';
+  const deltaPer   = totalFinPer - totalIniPer;
+  const emojiPer   = deltaPer > 0 ? '📈' : deltaPer < 0 ? '📉' : '➖';
   msg +=
-    `Saldo inicio: <code>${fmtMoney(totalIni)}</code> → Saldo final: <code>${fmtMoney(totalFin)}</code> (Δ <code>${(deltaTotal >= 0 ? '+' : '') + fmtMoney(deltaTotal)}</code>) ${emojiTotal} (equiv. <code>${fmtMoney(totalUsd)}</code> USD)\n`;
+    `Saldo inicio (período): <code>${fmtMoney(totalIniPer)}</code> → Saldo fin (período): <code>${fmtMoney(totalFinPer)}</code> (Δ <code>${(deltaPer >= 0 ? '+' : '') + fmtMoney(deltaPer)}</code>) ${emojiPer}\n`;
+
+  const deltaTot   = totalFinTot - totalIniTot;
+  const emojiTot   = deltaTot > 0 ? '📈' : deltaTot < 0 ? '📉' : '➖';
+  msg +=
+    `Saldo inicio (histórico): <code>${fmtMoney(totalIniTot)}</code> → Saldo actual: <code>${fmtMoney(totalFinTot)}</code> (Δ <code>${(deltaTot >= 0 ? '+' : '') + fmtMoney(deltaTot)}</code>) ${emojiTot} (equiv. <code>${fmtMoney(totalUsd)}</code> USD)\n`;
   msg += `Tarjetas: 📈 ${up}  📉 ${down}  ➖ ${same}\n\n`;
 
   // Tabla principal
@@ -370,9 +392,11 @@ async function runMonitor(ctx, rawText) {
 
     const { rows } = await query(sql, params);
     let datos = rows.map((r) => {
-      const saldo_ini = parseFloat(r.saldo_ini) || 0;
-      const saldo_fin = parseFloat(r.saldo_fin) || 0;
-      const delta = saldo_fin - saldo_ini;
+      const saldo_ini  = parseFloat(r.saldo_ini_period) || 0;   // período
+      const saldo_fin  = parseFloat(r.saldo_fin_period) || saldo_ini;
+      const delta      = saldo_fin - saldo_ini;                 // Δ período
+      const delta_total = (parseFloat(r.saldo_fin_total)||0) -
+                          (parseFloat(r.saldo_ini_total)||0);   // Δ histórico
       const tasa = parseFloat(r.tasa_usd) || 1;
       const delta_usd = delta * tasa;
       const pct = saldo_ini !== 0 ? (delta / saldo_ini) * 100 : null;
@@ -384,7 +408,10 @@ async function runMonitor(ctx, rawText) {
         moneda: r.moneda || '—',
         saldo_ini,
         saldo_fin,
-        delta,
+        saldo_ini_total: parseFloat(r.saldo_ini_total) || 0,
+        saldo_fin_total: parseFloat(r.saldo_fin_total) || 0,
+        delta,             // período
+        delta_total,       // histórico
         delta_usd,
         pct,
         movs: parseFloat(r.movs || 0),
