@@ -38,6 +38,7 @@ async function wantExit(ctx) {
     if (ctx.scene?.current) {
       await flushOnExit(ctx);
       await ctx.scene.leave();
+      ctx.wizard.state = {};
       await ctx.reply('❌ Operación cancelada.');
       return true;
     }
@@ -47,6 +48,7 @@ async function wantExit(ctx) {
     if (['/cancel', '/salir', 'salir'].includes(t) && ctx.scene?.current) {
       await flushOnExit(ctx);
       await ctx.scene.leave();
+      ctx.wizard.state = {};
       await ctx.reply('❌ Operación cancelada.');
       return true;
     }
@@ -379,6 +381,10 @@ const saldoWizard = new Scenes.WizardScene(
     return ctx.reply('Usa los botones para continuar.');
   }
 );
+
+saldoWizard.leave(async ctx => {
+  ctx.wizard.state = {};
+});
 
 module.exports = saldoWizard;
 
