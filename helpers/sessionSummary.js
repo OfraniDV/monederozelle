@@ -3,6 +3,7 @@ const { fmtMoney, escapeHtml } = require('./format');
 const { ownerIds, statsChatId, comercialesGroupId } = require('../config');
 const db = require('../psql/db.js');
 const { query } = db;
+const moment = require('moment-timezone');
 
 // agentId => Map(tarjetaId => {antes, despues})
 const changes = new Map();
@@ -83,6 +84,9 @@ async function flushOnExit(ctx) {
     await broadcast(ctx, recipients, header);
 
     const agentSummaries = [];
+    const tz = 'America/Havana';
+    const start = moment.tz(tz).startOf('day');
+    const end = moment.tz(tz).endOf('day');
     for (const [agId, cards] of changes.entries()) {
       const agRes = await query('SELECT nombre FROM agente WHERE id=$1', [agId]);
       const agName = agRes.rows[0]?.nombre || `#${agId}`;
@@ -90,7 +94,8 @@ async function flushOnExit(ctx) {
       const cardRes = await query(
         `SELECT t.id, t.numero,
                 COALESCE(fin.saldo_fin,0) AS saldo_fin,
-                COALESCE(ini.saldo_ini,0) AS saldo_ini
+                COALESCE(ini.saldo_ini,0) AS saldo_ini,
+                COALESCE(dia.saldo_ini_dia, fin.saldo_fin) AS saldo_ini_dia
            FROM tarjeta t
            LEFT JOIN LATERAL (
              SELECT saldo_nuevo AS saldo_fin
@@ -106,32 +111,73 @@ async function flushOnExit(ctx) {
               ORDER BY creado_en ASC
               LIMIT 1
            ) ini ON true
+           LEFT JOIN LATERAL (
+             SELECT saldo_anterior AS saldo_ini_dia
+               FROM movimiento
+              WHERE tarjeta_id = t.id AND creado_en >= $2 AND creado_en <= $3
+              ORDER BY creado_en ASC
+              LIMIT 1
+           ) dia ON true
           WHERE t.agente_id = $1
           ORDER BY t.numero`,
-        [agId],
+        [agId, start.toDate(), end.toDate()],
       );
 
-      const lines = [];
-      // Antes se tomaba el saldo previo a la sesión como "inicial".
-      // Ahora usamos el primer movimiento real de la tarjeta.
+      const linesTot = [];
+      const linesDia = [];
+      const linesUlt = [];
       for (const c of cardRes.rows) {
-        const antes = parseFloat(c.saldo_ini) || 0;
-        const despues = parseFloat(c.saldo_fin) || 0;
-        const delta = despues - antes;
-        const emoji = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
-        const deltaStr = `${delta >= 0 ? '+' : ''}${fmtMoney(delta)}`;
-        const line = `${pad(c.numero, 8)} <code>${fmtMoney(antes)}</code> → <code>${fmtMoney(
-          despues,
-        )}</code> (Δ <code>${deltaStr}</code>) ${emoji}`;
-        lines.push(line);
+        const fin = parseFloat(c.saldo_fin) || 0;
+        const iniTot = parseFloat(c.saldo_ini) || 0;
+        const iniDia = parseFloat(c.saldo_ini_dia);
+
+        const deltaTot = fin - iniTot;
+        const emTot = deltaTot > 0 ? '📈' : deltaTot < 0 ? '📉' : '➖';
+        const lineTot = `${pad(c.numero, 8)} <code>${fmtMoney(iniTot)}</code> → <code>${fmtMoney(
+          fin,
+        )}</code> (Δ <code>${deltaTot >= 0 ? '+' : ''}${fmtMoney(deltaTot)}</code>) ${emTot}`;
+        linesTot.push(lineTot);
+
+        const deltaDia = fin - iniDia;
+        const emDia = deltaDia > 0 ? '📈' : deltaDia < 0 ? '📉' : '➖';
+        const lineDia = `${pad(c.numero, 8)} <code>${fmtMoney(iniDia)}</code> → <code>${fmtMoney(
+          fin,
+        )}</code> (Δ <code>${deltaDia >= 0 ? '+' : ''}${fmtMoney(deltaDia)}</code>) ${emDia}`;
+        linesDia.push(lineDia);
+
+        const change = changes.get(agId)?.get(c.id);
+        if (change) {
+          const antes = parseFloat(change.antes) || 0;
+          const despues = parseFloat(change.despues) || 0;
+          const deltaUlt = despues - antes;
+          const emUlt = deltaUlt > 0 ? '📈' : deltaUlt < 0 ? '📉' : '➖';
+          const lineUlt = `${pad(c.numero, 8)} <code>${fmtMoney(antes)}</code> → <code>${fmtMoney(
+            despues,
+          )}</code> (Δ <code>${deltaUlt >= 0 ? '+' : ''}${fmtMoney(deltaUlt)}</code>) ${emUlt}`;
+          linesUlt.push(lineUlt);
+        }
       }
 
       const agentMsg =
         `👤 Agente: ${escapeHtml(agName)}\n` +
         'Tarjeta   Saldo inicial → Saldo actual   Δ\n' +
-        lines.join('\n');
-
+        linesTot.join('\n');
       await broadcast(ctx, recipients, agentMsg);
+
+      const agentDia =
+        `📆 Actualización del día – ${escapeHtml(agName)}\n` +
+        'Tarjeta   Saldo inicial → Saldo actual   Δ\n' +
+        linesDia.join('\n');
+      await broadcast(ctx, recipients, agentDia);
+
+      if (linesUlt.length) {
+        const agentUlt =
+          `🕘 Última actualización – ${escapeHtml(agName)}\n` +
+          'Tarjeta   Saldo anterior → Saldo nuevo   Δ\n' +
+          linesUlt.join('\n');
+        await broadcast(ctx, recipients, agentUlt);
+      }
+
       agentSummaries.push({ agName, changed: cards.size, total: cardRes.rows.length });
     }
 
