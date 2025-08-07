@@ -1,8 +1,8 @@
 // tests/filterConsistency.test.js
 require('dotenv').config({ path: './.env.test' });
-const { query } = require('../psql/db');
-const { buildEntityFilter } = require('../helpers/filters');
-const seedMinimal = require('./seedMinimal');
+const { query } = require('../../psql/db');
+const { buildEntityFilter } = require('../../helpers/filters');
+const seedMinimal = require('../seedMinimal');
 
 async function testEntity(table, alias, id, name, idField = 'id', nameFields = ['nombre']) {
   let params = [];

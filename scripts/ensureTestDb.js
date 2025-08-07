@@ -97,8 +97,8 @@ DATABASE_URL=postgresql://${TEST_ROLE}:${TEST_PASS}@localhost:5432/${TEST_DB}
 async function runMigrationsAndSeeds() {
   // Usar la conexión generada en .env.test
   require('dotenv').config({ path: '.env.test', override: true });
-  const { bootstrap } = require('../psql/ensureIndexesAndExtensions');
-  const seedMinimal = require('../psql/seedMinimal');
+  const { bootstrap } = require('./ensureIndexesAndExtensions');
+  const seedMinimal = require('./seedMinimal');
   await bootstrap();
   await seedMinimal();
 }

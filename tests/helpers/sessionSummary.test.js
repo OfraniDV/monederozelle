@@ -1,6 +1,6 @@
-const { query } = require('../psql/db');
-const { recordChange, flushOnExit } = require('../helpers/sessionSummary');
-const seedMinimal = require('./seedMinimal');
+const { query } = require('../../psql/db');
+const { recordChange, flushOnExit } = require('../../helpers/sessionSummary');
+const seedMinimal = require('../seedMinimal');
 const moment = require('moment-timezone');
 
 test('flushOnExit reports total, day and last deltas', async () => {

@@ -5,8 +5,8 @@ require('dotenv').config({ path: path.resolve(__dirname, '../.env.test'), overri
 // Asegura DB de test y esquema completo
 const { pool } = require('../psql/db');
 const { ensureRoleAndDb } = require('../scripts/ensureTestDb');
-const crearTablaUsuarios = require('../psql/tablausuarios');
-const initWalletSchema = require('../psql/initWalletSchema');
+const crearTablaUsuarios = require('../scripts/tablausuarios');
+const initWalletSchema = require('../scripts/initWalletSchema');
 
 beforeAll(async () => {
   // 1. Crear role + base de test y .env.test
@@ -16,7 +16,7 @@ beforeAll(async () => {
   await initWalletSchema();
 });
 
-afterAll(async () => {
-  // Cierra todas las conexiones del pool y permite que Jest salga limpio
-  await pool.end();
-});
+  afterAll(async () => {
+    // Cierra todas las conexiones del pool y permite que Jest salga limpio
+    await pool.end();
+  });

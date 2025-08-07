@@ -1,4 +1,4 @@
-const { parseArgs, calcRanges } = require('../commands/monitor');
+const { parseArgs, calcRanges } = require('../../commands/monitor');
 const moment = require('moment-timezone');
 
 describe('parseArgs', () => {

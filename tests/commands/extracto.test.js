@@ -1,7 +1,7 @@
-jest.mock('../psql/db.js', () => ({ query: jest.fn() }));
+jest.mock('../../psql/db.js', () => ({ query: jest.fn() }));
 
-const pool = require('../psql/db.js');
-const extracto = require('../commands/extracto_assist');
+const pool = require('../../psql/db.js');
+const extracto = require('../../commands/extracto_assist');
 const { showExtract } = extracto;
 
 const sampleDate = new Date('2024-03-05T12:00:00Z');
