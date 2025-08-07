@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "pretest": "node scripts/ensureTestDb.js",
-    "test": "jest --runInBand"
+    "test": "jest",
+    "lint": "eslint . --ext .js"
   },
   "dependencies": {
     "date-fns": "^4.1.0",
@@ -15,12 +16,13 @@
     "telegram-escape": "^1.1.1"
   },
   "devDependencies": {
-    "jest": "^30.0.5"
+    "jest": "^30.0.5",
+    "eslint": "^9.0.0"
   },
   "jest": {
   "testEnvironment": "node",
   "setupFilesAfterEnv": ["<rootDir>/tests/setup.js"],
-  "testMatch": ["**/tests/**/*.test.js"],
+  "testMatch": ["**/tests/**/*.test.js", "**/__tests__/**/*.test.js"],
   "verbose": true
 }
 }

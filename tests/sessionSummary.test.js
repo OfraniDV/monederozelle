@@ -5,6 +5,7 @@ const moment = require('moment-timezone');
 
 test('flushOnExit reports total, day and last deltas', async () => {
   await seedMinimal();
+  await query('DELETE FROM tarjeta');
   await query(
     'INSERT INTO tarjeta (id, agente_id, banco_id, moneda_id, numero) VALUES (1,1,1,1,\'TST\')'
   );

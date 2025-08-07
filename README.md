@@ -33,9 +33,10 @@ node bot.js
 
 ## 🧪 Pruebas
 
-Ejecuta toda la suite con:
+Instala dependencias y ejecuta la suite con:
 
 ```bash
+npm install
 npm test
 ```
 
