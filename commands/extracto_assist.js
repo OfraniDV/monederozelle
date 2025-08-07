@@ -21,6 +21,8 @@ const {
   editIfChanged,
   buildBackExitRow,
   arrangeInlineButtons,
+  buildSaveExitRow,
+  sendReportWithKb,
 } = require('../helpers/ui');
 const pool = require('../psql/db.js');
 
@@ -596,18 +598,8 @@ async function showExtract(ctx) {
     const text = header(st.filters) + body + '\n\n';
     const pages = smartPaginate(text);
     st.lastReport = pages;
-    for (let i = 0; i < pages.length; i++) {
-      const prefix = pages.length > 1 ? `<b>(${i + 1}/${pages.length})</b>\n` : '';
-      await ctx.reply(prefix + pages[i], { parse_mode: 'HTML' });
-    }
-    const kb = [
-      [Markup.button.callback('💾 Salvar', 'SAVE')],
-      [Markup.button.callback('❌ Salir', 'EXIT')],
-    ];
-    await ctx.reply('Reporte generado.', {
-      parse_mode: 'HTML',
-      reply_markup: { inline_keyboard: kb },
-    });
+    const kb = Markup.inlineKeyboard([buildSaveExitRow()]).reply_markup; // UX-2025
+    await sendReportWithKb(ctx, pages, kb); // UX-2025
     st.route = 'AFTER_RUN';
   } catch (err) {
     console.error('[extracto] showExtract error', err);

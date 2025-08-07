@@ -18,6 +18,19 @@ Este documento explica cómo levantar el entorno de pruebas y ejecutar la suite 
 - `tests/helpers/` — pruebas de helpers.
 - `tests/scenes/` — pruebas de escenas.
 
+## Mocks de Telegraf
+
+Las pruebas que validan la UX del teclado usan mocks de Jest para
+`ctx.reply` y las funciones `ctx.telegram.editMessage*`. Esto permite
+comprobar el orden de los mensajes y que el último envío incluya el
+teclado de una sola fila.
+
+## Nuevos tests
+
+- `tests/commands/assistantsUX.test.js`: verifica que los asistentes
+  terminen con el mensaje `Reporte generado.` seguido por los botones
+  `💾 Salvar` y `❌ Salir`.
+
 ## Flujo local (desarrollo)
 
 1. Clona el repositorio y entra:
