@@ -160,7 +160,7 @@ function header(f) {
     `💱 Moneda: <b>${escapeHtml(f.monedaNombre || 'Todas')}</b>\n` +
     `🏦 Banco: <b>${escapeHtml(f.bancoNombre || 'Todos')}</b>\n` +
     `💳 Tarjeta: <b>${escapeHtml(f.tarjetaNumero || 'Todas')}</b>\n` +
-    `Periodo: <b>${f.period || 'día'}</b>\n\n`
+    `Periodo: <b>${escapeHtml(f.fecha || f.mes || f.period || 'día')}</b>\n\n`
   );
 }
 
@@ -287,20 +287,71 @@ async function showPeriod(ctx) {
   ctx.wizard.state.route = 'PERIOD';
 }
 
+async function showDayMenu(ctx) {
+  const today = moment().date();
+  const daysInMonth = moment().daysInMonth();
+  const buttons = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    buttons.push(
+      Markup.button.callback(
+        d <= today ? String(d) : `\uD83D\uDD12 ${d}`,
+        d <= today ? `DAY_${d}` : 'LOCKED',
+      ),
+    );
+  }
+  const kb = arrangeInlineButtons(buttons);
+  kb.push(buildBackExitRow('BACK', 'EXIT'));
+  await editIfChanged(ctx, header(ctx.wizard.state.filters) + 'Elige día:', {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: kb },
+  });
+  ctx.wizard.state.route = 'DAY';
+}
+
+async function showMonthMenu(ctx) {
+  const now = moment();
+  const current = now.month();
+  const months = moment.months();
+  const buttons = months.map((m, idx) =>
+    Markup.button.callback(
+      idx <= current ? m : `\uD83D\uDD12 ${m}`,
+      idx <= current ? `MES_${idx + 1}` : 'LOCKED',
+    ),
+  );
+  const kb = arrangeInlineButtons(buttons);
+  kb.push(buildBackExitRow('BACK', 'EXIT'));
+  await editIfChanged(ctx, header(ctx.wizard.state.filters) + 'Elige mes:', {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: kb },
+  });
+  ctx.wizard.state.route = 'MONTH';
+}
+
 /* ───────── Reporte final ───────── */
 
 async function showExtract(ctx) {
   try {
     const st = ctx.wizard.state;
-    const period = st.filters.period || getDefaultPeriod();
-
-  /* rango */
-  const now = new Date();
-  let since;
-  if (period === 'semana') since = new Date(now.getTime() - 7 * 864e5);
-  else if (period === 'mes') since = new Date(now.getFullYear(), now.getMonth(), 1);
-  else if (period === 'ano') since = new Date(now.getFullYear(), 0, 1);
-  else since = new Date(now.getTime() - 864e5);
+    const f = st.filters;
+    const now = moment();
+    let since;
+    let until;
+    if (f.fecha) {
+      const d = moment(f.fecha, 'YYYY-MM-DD');
+      since = d.clone().startOf('day');
+      until = d.clone().endOf('day');
+    } else if (f.mes) {
+      const m = moment(f.mes, 'YYYY-MM');
+      since = m.clone().startOf('month');
+      until = m.clone().endOf('month');
+    } else {
+      const period = f.period || getDefaultPeriod();
+      if (period === 'semana') since = now.clone().subtract(7, 'days');
+      else if (period === 'mes') since = now.clone().startOf('month');
+      else if (period === 'ano') since = now.clone().startOf('year');
+      else since = now.clone().subtract(1, 'day');
+      until = now;
+    }
 
   const ids = filterCards(st).map((c) => c.id);
   if (!ids.length) {
@@ -323,16 +374,18 @@ async function showExtract(ctx) {
   const movs = await q(
     `SELECT mv.tarjeta_id, mv.descripcion, mv.importe, mv.saldo_nuevo, mv.creado_en,
             t.numero,
+            COALESCE(ag.nombre,'Sin agente') AS agente, COALESCE(ag.emoji,'') AS agente_emoji,
             COALESCE(b.codigo,'Sin banco') AS banco, COALESCE(b.emoji,'') AS banco_emoji,
             COALESCE(m.codigo,'---') AS moneda, COALESCE(m.emoji,'') AS mon_emoji,
             COALESCE(m.tasa_usd,1)  AS tasa
        FROM movimiento mv
        JOIN tarjeta t ON t.id = mv.tarjeta_id
+       LEFT JOIN agente ag ON ag.id = t.agente_id
        LEFT JOIN banco  b ON b.id = t.banco_id
        JOIN moneda  m ON m.id = t.moneda_id
-      WHERE mv.tarjeta_id = ANY($1) AND mv.creado_en >= $2
+      WHERE mv.tarjeta_id = ANY($1) AND mv.creado_en >= $2 AND mv.creado_en <= $3
       ORDER BY mv.creado_en ASC`,
-    [ids, since],
+    [ids, since.toDate(), until.toDate()],
   );
 
   /* Saldo inicial histórico (primer movimiento) */
@@ -354,7 +407,7 @@ async function showExtract(ctx) {
        FROM movimiento
       WHERE tarjeta_id = ANY($1) AND creado_en < $2
       ORDER BY tarjeta_id, creado_en DESC`,
-    [ids, since],
+    [ids, since.toDate()],
   );
   const preMap = new Map();
   preRows.forEach((r) =>
@@ -396,39 +449,31 @@ async function showExtract(ctx) {
     console.warn('[extracto] sin movimientos', { filtros: st.filters, diag });
   }
 
-  const groups = {};
+  const byAgent = {};
   movs.forEach((mv) => {
-    const g = (groups[mv.moneda] ??= {
-      emoji: mv.mon_emoji,
-      rate: parseFloat(mv.tasa) || 1,
-      in: 0,
-      out: 0,
+    const ag = (byAgent[mv.agente] ??= {
+      emoji: mv.agente_emoji,
       cards: new Map(),
     });
-    const card = g.cards.get(mv.tarjeta_id) || {
+    const card = ag.cards.get(mv.tarjeta_id) || {
       numero: mv.numero,
       banco: mv.banco,
       bancoEmoji: mv.banco_emoji,
+      moneda: mv.moneda,
+      monEmoji: mv.mon_emoji,
       movs: [],
       days: new Set(),
       in: 0,
       out: 0,
-      // Antes se tomaba el saldo del primer movimiento del período como inicial,
-      // lo cual era incorrecto. Ahora usamos el primer movimiento real.
       saldoIniHist: iniMap.get(mv.tarjeta_id) ?? 0,
-      saldoIniPer:  preMap.get(mv.tarjeta_id) ?? (iniMap.get(mv.tarjeta_id) ?? 0),
-      saldoFinPer:  preMap.get(mv.tarjeta_id) ?? (iniMap.get(mv.tarjeta_id) ?? 0),
+      saldoIniPer: preMap.get(mv.tarjeta_id) ?? (iniMap.get(mv.tarjeta_id) ?? 0),
+      saldoFinPer: preMap.get(mv.tarjeta_id) ?? (iniMap.get(mv.tarjeta_id) ?? 0),
       saldoFinHist: iniMap.get(mv.tarjeta_id) ?? 0,
       initPrinted: false,
     };
     const imp = parseFloat(mv.importe) || 0;
-    if (imp >= 0) {
-      g.in += imp;
-      card.in += imp;
-    } else {
-      g.out += -imp;
-      card.out += -imp;
-    }
+    if (imp >= 0) card.in += imp;
+    else card.out += -imp;
     const fecha = moment(mv.creado_en).tz('America/Havana');
     card.movs.push({
       fecha,
@@ -437,16 +482,16 @@ async function showExtract(ctx) {
       desc: mv.descripcion || '',
     });
     card.days.add(fecha.format('YYYY-MM-DD'));
-    card.saldoFinPer  = parseFloat(mv.saldo_nuevo) || card.saldoFinPer;
-    card.saldoFinHist = card.saldoFinPer; /* último saldo conocido */
-    g.cards.set(mv.tarjeta_id, card);
+    card.saldoFinPer = parseFloat(mv.saldo_nuevo) || card.saldoFinPer;
+    card.saldoFinHist = card.saldoFinPer;
+    ag.cards.set(mv.tarjeta_id, card);
   });
 
   let body = '';
-  for (const [code, g] of Object.entries(groups)) {
+  for (const [agName, ag] of Object.entries(byAgent)) {
     if (body) body += '\n';
-    body += `💱 <b>${g.emoji ? g.emoji + ' ' : ''}${escapeHtml(code)}</b>\n`;
-    for (const card of g.cards.values()) {
+    body += `👤 <b>${ag.emoji ? ag.emoji + ' ' : ''}${escapeHtml(agName)}</b>\n`;
+    for (const card of ag.cards.values()) {
       const deltaPer = card.saldoFinPer - card.saldoIniPer;
       const deltaHist = card.saldoFinHist - card.saldoIniHist;
       const emojiPer = deltaPer > 0 ? '📈' : deltaPer < 0 ? '📉' : '➖';
@@ -477,7 +522,7 @@ async function showExtract(ctx) {
 
       body += `\n🏦 ${card.bancoEmoji ? card.bancoEmoji + ' ' : ''}${escapeHtml(
         card.banco,
-      )} / 💳 ${escapeHtml(card.numero)}\n`;
+      )} / 💳 ${escapeHtml(card.numero)} (${card.monEmoji ? card.monEmoji + ' ' : ''}${escapeHtml(card.moneda)})\n`;
       body +=
         `Saldo inicio (período): <code>${fmtMoney(card.saldoIniPer)}</code> → Saldo fin (período): <code>${fmtMoney(
           card.saldoFinPer,
@@ -491,22 +536,6 @@ async function showExtract(ctx) {
       body += `Historial:\n${lines.join('\n')}\n`;
     }
 
-    const totalIniPer = Array.from(g.cards.values()).reduce(
-      (a, c) => a + c.saldoIniPer,
-      0,
-    );
-    const totalFinPer = Array.from(g.cards.values()).reduce(
-      (a, c) => a + c.saldoFinPer,
-      0,
-    );
-    const deltaPerTot = totalFinPer - totalIniPer;
-    const emojiPerTot = deltaPerTot > 0 ? '📈' : deltaPerTot < 0 ? '📉' : '➖';
-    body += `↗️ <code>${fmtMoney(g.in)}</code>  ↘️ <code>${fmtMoney(g.out)}</code>\n`;
-    body +=
-      `Saldo inicio (período): <code>${fmtMoney(totalIniPer)}</code> → Saldo fin (período): <code>${fmtMoney(
-        totalFinPer,
-      )}</code> (Δ <code>${(deltaPerTot >= 0 ? '+' : '') + fmtMoney(deltaPerTot)}</code>) ${emojiPerTot}\n`;
-      body += `Equiv. USD: <code>${fmtMoney(totalFinPer * g.rate)}</code>\n`;
   }
 
     const text = header(st.filters) + body + '\n\n';
@@ -538,7 +567,7 @@ const extractoAssist = new Scenes.WizardScene(
   async (ctx) => {
     const msg = await ctx.reply('Cargando…', { parse_mode: 'HTML' });
     ctx.wizard.state.msgId = msg.message_id;
-    ctx.wizard.state.filters = { period: getDefaultPeriod() };
+    ctx.wizard.state.filters = { period: getDefaultPeriod(), fecha: null, mes: null };
     await showAgents(ctx);
     return ctx.wizard.next();
   },
@@ -563,6 +592,8 @@ const extractoAssist = new Scenes.WizardScene(
           return showBancos(ctx);
         case 'PERIOD':
           return showTarjetas(ctx);
+        case 'DAY':
+        case 'MONTH':
         case 'EXTRACT':
           return showPeriod(ctx);
         default:
@@ -617,8 +648,36 @@ const extractoAssist = new Scenes.WizardScene(
         }
         break;
       case 'PERIOD':
+        if (data === 'PER_dia') return showDayMenu(ctx);
+        if (data === 'PER_mes') return showMonthMenu(ctx);
         if (data.startsWith('PER_')) {
           st.filters.period = data.split('_')[1];
+          st.filters.fecha = null;
+          st.filters.mes = null;
+          return showExtract(ctx);
+        }
+        break;
+      case 'DAY':
+        if (data === 'BACK') return showPeriod(ctx);
+        if (data === 'LOCKED') return ctx.answerCbQuery('No disponible');
+        if (data.startsWith('DAY_')) {
+          const d = data.split('_')[1];
+          const now = moment();
+          st.filters.period = 'dia';
+          st.filters.fecha = `${now.format('YYYY-MM')}-${String(d).padStart(2, '0')}`;
+          st.filters.mes = null;
+          return showExtract(ctx);
+        }
+        break;
+      case 'MONTH':
+        if (data === 'BACK') return showPeriod(ctx);
+        if (data === 'LOCKED') return ctx.answerCbQuery('No disponible');
+        if (data.startsWith('MES_')) {
+          const m = data.split('_')[1];
+          const year = moment().format('YYYY');
+          st.filters.period = 'mes';
+          st.filters.mes = `${year}-${String(m).padStart(2, '0')}`;
+          st.filters.fecha = null;
           return showExtract(ctx);
         }
         break;
@@ -649,7 +708,7 @@ const extractoAssist = new Scenes.WizardScene(
         );
         if (data === 'AGAIN') {
           await ctx.editMessageText('🔁 Nuevo extracto', { parse_mode: 'HTML' });
-          st.filters = { period: getDefaultPeriod() };
+          st.filters = { period: getDefaultPeriod(), fecha: null, mes: null };
           st.tarjetasAll = [];
           st.lastReport = [];
           return showAgents(ctx);
@@ -660,3 +719,4 @@ const extractoAssist = new Scenes.WizardScene(
 );
 
 module.exports = extractoAssist;
+module.exports.showExtract = showExtract;

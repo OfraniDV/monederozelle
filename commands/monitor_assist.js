@@ -19,6 +19,7 @@
  */
 
 const { Scenes, Markup } = require('telegraf');
+const moment = require('moment');
 const { escapeHtml } = require('../helpers/format');
 const { getDefaultPeriod } = require('../helpers/period');
 const { sendAndLog } = require('../helpers/reportSender');
@@ -46,7 +47,7 @@ async function showMain(ctx) {
   const f = ctx.wizard.state.filters;
   const text =
     `📈 <b>Monitor</b>\n` +
-    `Periodo: <b>${escapeHtml(f.period)}</b>\n` +
+    `Periodo: <b>${escapeHtml(f.fecha || f.mes || f.period)}</b>\n` +
     `Moneda: <b>${escapeHtml(f.monedaNombre || 'Todas')}</b>\n` +
     `Agente: <b>${escapeHtml(f.agenteNombre || 'Todos')}</b>\n` +
     `Banco: <b>${escapeHtml(f.bancoNombre || 'Todos')}</b>\n\n` +
@@ -85,6 +86,46 @@ async function showPeriodMenu(ctx) {
     reply_markup: { inline_keyboard: kb },
   });
   ctx.wizard.state.route = 'PERIOD';
+}
+
+async function showDayMenu(ctx) {
+  const today = moment().date();
+  const daysInMonth = moment().daysInMonth();
+  const buttons = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    buttons.push(
+      Markup.button.callback(
+        d <= today ? String(d) : `\uD83D\uDD12 ${d}`,
+        d <= today ? `DAY_${d}` : 'LOCKED',
+      ),
+    );
+  }
+  const kb = arrangeInlineButtons(buttons);
+  kb.push(buildBackExitRow());
+  await editIfChanged(ctx, 'Selecciona el día:', {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: kb },
+  });
+  ctx.wizard.state.route = 'DAY';
+}
+
+async function showMonthMenu(ctx) {
+  const now = moment();
+  const current = now.month();
+  const months = moment.months();
+  const buttons = months.map((m, idx) =>
+    Markup.button.callback(
+      idx <= current ? m : `\uD83D\uDD12 ${m}`,
+      idx <= current ? `MES_${idx + 1}` : 'LOCKED',
+    ),
+  );
+  const kb = arrangeInlineButtons(buttons);
+  kb.push(buildBackExitRow());
+  await editIfChanged(ctx, 'Selecciona el mes:', {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: kb },
+  });
+  ctx.wizard.state.route = 'MONTH';
 }
 
 async function showAgentMenu(ctx) {
@@ -166,7 +207,12 @@ const monitorAssist = new Scenes.WizardScene(
     console.log('[MONITOR_ASSIST] paso 0: menú principal');
     const msg = await ctx.reply('Cargando…', { parse_mode: 'HTML' });
     ctx.wizard.state.msgId = msg.message_id;
-    ctx.wizard.state.filters = { period: getDefaultPeriod(), monedaNombre: 'Todas' };
+    ctx.wizard.state.filters = {
+      period: getDefaultPeriod(),
+      monedaNombre: 'Todas',
+      fecha: null,
+      mes: null,
+    };
     await showMain(ctx);
     return ctx.wizard.next();
   },
@@ -188,6 +234,8 @@ const monitorAssist = new Scenes.WizardScene(
           if (f.agenteId) cmd += ` --agente=${f.agenteId}`;
           if (f.bancoId) cmd += ` --banco=${f.bancoId}`;
           if (f.monedaId) cmd += ` --moneda=${f.monedaNombre}`;
+          if (f.fecha) cmd += ` --fecha=${f.fecha}`;
+          if (f.mes) cmd += ` --mes=${f.mes}`;
           await editIfChanged(ctx, 'Generando reporte...', { parse_mode: 'HTML' });
           const msgs = await runMonitor(ctx, cmd);
           ctx.wizard.state.lastReport = msgs;
@@ -212,9 +260,37 @@ const monitorAssist = new Scenes.WizardScene(
         break;
       case 'PERIOD':
         if (data === 'BACK') return showMain(ctx);
+        if (data === 'PER_dia') return showDayMenu(ctx);
+        if (data === 'PER_mes') return showMonthMenu(ctx);
         if (data.startsWith('PER_')) {
           const period = data.split('_')[1];
           ctx.wizard.state.filters.period = period;
+          ctx.wizard.state.filters.fecha = null;
+          ctx.wizard.state.filters.mes = null;
+          return showMain(ctx);
+        }
+        break;
+      case 'DAY':
+        if (data === 'BACK') return showPeriodMenu(ctx);
+        if (data === 'LOCKED') return ctx.answerCbQuery('No disponible');
+        if (data.startsWith('DAY_')) {
+          const d = data.split('_')[1];
+          const now = moment();
+          ctx.wizard.state.filters.period = 'dia';
+          ctx.wizard.state.filters.fecha = `${now.format('YYYY-MM')}-${String(d).padStart(2, '0')}`;
+          ctx.wizard.state.filters.mes = null;
+          return showMain(ctx);
+        }
+        break;
+      case 'MONTH':
+        if (data === 'BACK') return showPeriodMenu(ctx);
+        if (data === 'LOCKED') return ctx.answerCbQuery('No disponible');
+        if (data.startsWith('MES_')) {
+          const m = data.split('_')[1];
+          const year = moment().format('YYYY');
+          ctx.wizard.state.filters.period = 'mes';
+          ctx.wizard.state.filters.mes = `${year}-${String(m).padStart(2, '0')}`;
+          ctx.wizard.state.filters.fecha = null;
           return showMain(ctx);
         }
         break;
@@ -281,3 +357,5 @@ const monitorAssist = new Scenes.WizardScene(
 );
 
 module.exports = monitorAssist;
+module.exports.showDayMenu = showDayMenu;
+module.exports.showMonthMenu = showMonthMenu;

@@ -41,6 +41,8 @@ function parseArgs(raw = '') {
     tz: 'America/Havana',
     limite: 30,
     orden: 'delta',
+    fecha: null,
+    mes: null,
   };
 
   tokens.forEach((t) => {
@@ -71,6 +73,12 @@ function parseArgs(raw = '') {
         case '--moneda':
           opts.moneda = val;
           break;
+        case '--fecha':
+          opts.fecha = val;
+          break;
+        case '--mes':
+          opts.mes = val;
+          break;
         case '--tz':
           if (val) opts.tz = val;
           break;
@@ -89,11 +97,19 @@ function parseArgs(raw = '') {
   return opts;
 }
 
-function calcRanges(period, tz) {
+function calcRanges(period, tz, fecha, mes) {
+  if (fecha) {
+    const d = moment.tz(fecha, tz);
+    return { start: d.startOf('day'), end: d.endOf('day') };
+  }
+  if (mes) {
+    const m = moment.tz(mes, 'YYYY-MM', tz);
+    return { start: m.startOf('month'), end: m.endOf('month') };
+  }
   const now = moment.tz(tz);
   let start;
   switch (period) {
-    case 'semana':                         // últimos 7 días rodantes
+    case 'semana':
       start = now.clone().startOf('day').subtract(6, 'days');
       break;
     case 'mes':
@@ -105,7 +121,7 @@ function calcRanges(period, tz) {
     default:
       start = now.clone().startOf('day');
   }
-  const end  = now.clone().endOf('day'); // hasta el momento actual
+  const end = now.clone().endOf('day');
   let prevStart;
   if (period === 'semana') prevStart = start.clone().subtract(7, 'days');
   else if (period === 'mes') prevStart = start.clone().subtract(1, 'month');
@@ -370,7 +386,7 @@ async function runMonitor(ctx, rawText) {
   try {
     const opts = parseArgs(rawText || '');
     console.log('[monitor] opciones', opts);
-    const rango = calcRanges(opts.period, opts.tz);
+    const rango = calcRanges(opts.period, opts.tz, opts.fecha, opts.mes);
 
     const params = [rango.start.toDate(), rango.end.toDate()];
     const condiciones = [];
@@ -491,7 +507,7 @@ async function runMonitor(ctx, rawText) {
   }
 }
 
-module.exports = { runMonitor };
+module.exports = { runMonitor, parseArgs, calcRanges };
 
 // Comentarios de modificaciones:
 // - Se implementó el comando /monitor con soporte de rangos (día, semana, mes, año).
