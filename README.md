@@ -83,6 +83,20 @@ Estas utilidades facilitan la creación de asistentes consistentes:
 - `editIfChanged(ctx, text, options)`: evita editar mensajes cuando el contenido no cambia.
 - `buildNavKeyboard(opts)`: genera un teclado de navegación con paginación y controles Volver/Salir.
 - `arrangeInlineButtons(buttons)`: organiza botones en filas de dos para teclados más elegantes.
+- `buildSaveExitRow()`: crea una fila única con botones 💾 Salvar / ❌ Salir.
+- `sendReportWithKb(ctx, pages, kb)`: envía páginas largas y añade al final un teclado Save/Exit.
+
+## UX de teclados
+
+Para mejorar la experiencia, los reportes extensos se envían en varias páginas
+seguidas de un mensaje final con los botones en una sola fila
+`💾 Salvar` / `❌ Salir`. Utiliza los helpers `buildSaveExitRow()` y
+`sendReportWithKb()` para aplicar esta convención:
+
+```js
+const kb = Markup.inlineKeyboard([buildSaveExitRow()]).reply_markup;
+await sendReportWithKb(ctx, paginas, kb);
+```
 
 ## 📚 Uso de comandos
 

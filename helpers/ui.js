@@ -60,6 +60,14 @@ function buildBackExitRow(back = 'BACK', exit = 'EXIT') {
   ];
 }
 
+// UX-2025: fila estándar de guardado/salida en una sola fila
+function buildSaveExitRow(save = 'SAVE', exit = 'EXIT') {
+  return [
+    Markup.button.callback('💾 Salvar', save),
+    Markup.button.callback('❌ Salir', exit),
+  ];
+}
+
 /**
  * Construye un teclado estándar con controles de paginación.
  *
@@ -109,4 +117,20 @@ function arrangeInlineButtons(buttons = []) {
   return rows;
 }
 
-module.exports = { editIfChanged, buildNavKeyboard, buildBackExitRow, arrangeInlineButtons };
+// UX-2025: envía páginas y agrega teclado de acción al final
+async function sendReportWithKb(ctx, pages = [], kbInline) {
+  for (const p of pages) {
+    await ctx.reply(p, { parse_mode: 'HTML' });
+  }
+  const extra = { parse_mode: 'HTML' };
+  if (kbInline) extra.reply_markup = kbInline;
+  await ctx.reply('Reporte generado.\nSelecciona una acción:', extra);
+}
+module.exports = {
+  editIfChanged,
+  buildNavKeyboard,
+  buildBackExitRow,
+  arrangeInlineButtons,
+  buildSaveExitRow,
+  sendReportWithKb,
+};

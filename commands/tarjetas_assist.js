@@ -24,10 +24,13 @@
 const { Scenes, Markup } = require('telegraf');
 const { escapeHtml } = require('../helpers/format');
 const { sendLargeMessage } = require('../helpers/sendLargeMessage');
+const { sendAndLog } = require('../helpers/reportSender');
 const {
   editIfChanged,
   buildBackExitRow,
   arrangeInlineButtons,
+  buildSaveExitRow,
+  sendReportWithKb,
 } = require('../helpers/ui');
 const pool = require('../psql/db.js');
 
@@ -221,10 +224,12 @@ function buildAgentBlocks(agent) {
 async function showAgentDetail(ctx, agentId) {
   const agent = ctx.wizard.state.data.byAgent[agentId];
   const blocks = buildAgentBlocks(agent);
-  const kb = Markup.inlineKeyboard([buildBackExitRow()]);
-  await sendLargeMessage(ctx, blocks, { reply_markup: kb.reply_markup }); // usar sendLargeMessage para evitar paginación manual
+  ctx.wizard.state.lastReport = blocks; // UX-2025
+  await sendLargeMessage(ctx, blocks); // UX-2025
+  const kb = Markup.inlineKeyboard([buildSaveExitRow()]).reply_markup; // UX-2025
+  await sendReportWithKb(ctx, [], kb); // UX-2025
   ctx.wizard.state.lastRender = {};
-  ctx.wizard.state.route = { view: 'AGENT_DETAIL', agentId };
+  ctx.wizard.state.route = { view: 'AFTER_REPORT' }; // UX-2025
 }
 
 async function showMonList(ctx) {
@@ -295,10 +300,12 @@ async function showMonBankDetail(ctx, monCode, bankCode) {
   const mon = ctx.wizard.state.data.byMon[monCode];
   const bank = mon.banks[bankCode];
   const blocks = buildMonBankBlocks(mon, bank);
-  const kb = Markup.inlineKeyboard([buildBackExitRow()]);
-  await sendLargeMessage(ctx, blocks, { reply_markup: kb.reply_markup }); // dividir automáticamente si excede 4096
+  ctx.wizard.state.lastReport = blocks; // UX-2025
+  await sendLargeMessage(ctx, blocks); // UX-2025
+  const kb = Markup.inlineKeyboard([buildSaveExitRow()]).reply_markup; // UX-2025
+  await sendReportWithKb(ctx, [], kb); // UX-2025
   ctx.wizard.state.lastRender = {};
-  ctx.wizard.state.route = { view: 'MON_DETAIL', monCode, bankCode };
+  ctx.wizard.state.route = { view: 'AFTER_REPORT' }; // UX-2025
 }
 
 function buildAllBlocks(data) {
@@ -331,10 +338,12 @@ function buildAllBlocks(data) {
 
 async function showAll(ctx) {
   const blocks = buildAllBlocks(ctx.wizard.state.data);
-  const kb = Markup.inlineKeyboard([buildBackExitRow()]);
-  await sendLargeMessage(ctx, blocks, { reply_markup: kb.reply_markup }); // usa sendLargeMessage para respetar límite de 4096
+  ctx.wizard.state.lastReport = blocks; // UX-2025
+  await sendLargeMessage(ctx, blocks); // UX-2025
+  const kb = Markup.inlineKeyboard([buildSaveExitRow()]).reply_markup; // UX-2025
+  await sendReportWithKb(ctx, [], kb); // UX-2025
   ctx.wizard.state.lastRender = {};
-  ctx.wizard.state.route = { view: 'ALL' };
+  ctx.wizard.state.route = { view: 'AFTER_REPORT' }; // UX-2025
 }
 
 async function showSummary(ctx) {
@@ -448,6 +457,15 @@ const tarjetasAssist = new Scenes.WizardScene(
       case 'ALL':
         if (data === 'BACK') return showMenu(ctx);
         break;
+      case 'AFTER_REPORT':
+        if (data === 'SAVE') {
+          const reps = ctx.wizard.state.lastReport || [];
+          for (const m of reps) {
+            await sendAndLog(ctx, m);
+          }
+          return;
+        }
+        break; // UX-2025
       default:
         break;
     }
