@@ -143,7 +143,10 @@ function uniqBy(arr, key) {
   return [...m.values()];
 }
 
-function filterCards(st) {
+async function filterCards(st) {
+  if (!st.tarjetasAll || !st.tarjetasAll.length) {
+    st.tarjetasAll = await loadTarjetas(st.filters);
+  }
   let cards = st.tarjetasAll || [];
   const f = st.filters;
   if (f.monedaId) cards = cards.filter((c) => c.moneda_id === f.monedaId);
@@ -224,7 +227,7 @@ async function showMonedas(ctx) {
   st.filters.tarjetaId = 0;
   st.filters.tarjetaNumero = null;
 
-  const mons = uniqBy(filterCards(st), 'moneda_id');
+  const mons = uniqBy(await filterCards(st), 'moneda_id');
   const buttons = [
     Markup.button.callback('Todas', 'MO_0'),
     ...mons.map((m) =>
@@ -250,7 +253,7 @@ async function showBancos(ctx) {
   st.filters.tarjetaId = 0;
   st.filters.tarjetaNumero = null;
 
-  const banks = uniqBy(filterCards(st), 'banco_id');
+  const banks = uniqBy(await filterCards(st), 'banco_id');
   const buttons = [
     Markup.button.callback('Todos', 'BK_0'),
     ...banks.map((b) =>
@@ -274,7 +277,7 @@ async function showTarjetas(ctx) {
   st.filters.tarjetaId = 0;
   st.filters.tarjetaNumero = null;
 
-  const cards = filterCards(st);
+  const cards = await filterCards(st);
   const buttons = [
     Markup.button.callback('Todas', 'TA_0'),
     ...cards.map((t) =>
@@ -363,15 +366,15 @@ async function showExtract(ctx) {
   try {
     const st = ctx.wizard.state;
     const f = st.filters;
-    const now = moment();
+    const now = moment.tz('America/Havana');
     let since;
     let until;
     if (f.fecha) {
-      const d = moment(f.fecha, 'YYYY-MM-DD');
+      const d = moment.tz(f.fecha, 'YYYY-MM-DD', 'America/Havana');
       since = d.clone().startOf('day');
       until = d.clone().endOf('day');
     } else if (f.mes) {
-      const m = moment(f.mes, 'YYYY-MM');
+      const m = moment.tz(f.mes, 'YYYY-MM', 'America/Havana');
       since = m.clone().startOf('month');
       until = m.clone().endOf('month');
     } else {
@@ -383,12 +386,28 @@ async function showExtract(ctx) {
       until = now;
     }
 
-  const ids = filterCards(st).map((c) => c.id);
-  if (!ids.length) {
-    console.warn('[extracto] filtros sin tarjetas', st.filters);
-    await ctx.reply('⚠️ No hay tarjetas con esos filtros.');
-    return;
-  }
+    // Asegura que las tarjetas se carguen según los filtros actuales
+    await filterCards(st);
+
+    const params = [since.toDate(), until.toDate()];
+    const conds = ['mv.creado_en >= $1', 'mv.creado_en <= $2'];
+    let idx = 3;
+    if (f.agenteId) {
+      params.push(f.agenteId);
+      conds.push(`t.agente_id = $${idx++}`);
+    }
+    if (f.bancoId) {
+      params.push(f.bancoId);
+      conds.push(`t.banco_id = $${idx++}`);
+    }
+    if (f.monedaId) {
+      params.push(f.monedaId);
+      conds.push(`t.moneda_id = $${idx++}`);
+    }
+    if (f.tarjetaId) {
+      params.push(f.tarjetaId);
+      conds.push(`t.id = $${idx++}`);
+    }
 
   // coherencia: agenteId vs agenteNombre
   if (st.filters.agenteId && st.filters.agenteNombre && st.filters.agenteNombre !== 'Todos') {
@@ -413,32 +432,38 @@ async function showExtract(ctx) {
        LEFT JOIN agente ag ON ag.id = t.agente_id
        LEFT JOIN banco  b ON b.id = t.banco_id
        JOIN moneda  m ON m.id = t.moneda_id
-      WHERE mv.tarjeta_id = ANY($1) AND mv.creado_en >= $2 AND mv.creado_en <= $3
+      WHERE ${conds.join(' AND ')}
       ORDER BY mv.creado_en ASC`,
-    [ids, since.toDate(), until.toDate()],
+    params,
   );
 
+  const cardIds = [...new Set(movs.map((m) => m.tarjeta_id))];
+
   /* Saldo inicial histórico (primer movimiento) */
-  const iniRows = await q(
-    `SELECT DISTINCT ON (tarjeta_id) tarjeta_id, saldo_nuevo
-       FROM movimiento
-      WHERE tarjeta_id = ANY($1)
-      ORDER BY tarjeta_id, creado_en ASC`,
-    [ids],
-  );
+  const iniRows = cardIds.length
+    ? await q(
+        `SELECT DISTINCT ON (tarjeta_id) tarjeta_id, saldo_nuevo
+           FROM movimiento
+          WHERE tarjeta_id = ANY($1)
+          ORDER BY tarjeta_id, creado_en ASC`,
+        [cardIds],
+      )
+    : [];
   const iniMap = new Map();
   iniRows.forEach((r) =>
     iniMap.set(r.tarjeta_id, parseFloat(r.saldo_nuevo) || 0),
   );
 
   /* Saldo inmediatamente ANTES del período → inicio del período */
-  const preRows = await q(
-    `SELECT DISTINCT ON (tarjeta_id) tarjeta_id, saldo_nuevo
-       FROM movimiento
-      WHERE tarjeta_id = ANY($1) AND creado_en < $2
-      ORDER BY tarjeta_id, creado_en DESC`,
-    [ids, since.toDate()],
-  );
+  const preRows = cardIds.length
+    ? await q(
+        `SELECT DISTINCT ON (tarjeta_id) tarjeta_id, saldo_nuevo
+           FROM movimiento
+          WHERE tarjeta_id = ANY($1) AND creado_en < $2
+          ORDER BY tarjeta_id, creado_en DESC`,
+        [cardIds, since.toDate()],
+      )
+    : [];
   const preMap = new Map();
   preRows.forEach((r) =>
     preMap.set(r.tarjeta_id, parseFloat(r.saldo_nuevo) || 0),

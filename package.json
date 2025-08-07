@@ -2,9 +2,10 @@
   "name": "walletadrian",
   "version": "1.0.0",
     "scripts": {
-      "pretest": "node scripts/ensureTestDb.js",
-      "test": "jest",
-      "lint": "eslint . --ext .js",
+    "pretest": "node scripts/ensureTestDb.js",
+    "test": "jest --runInBand",
+    "test:extracto": "jest tests/commands/extracto.test.js",
+    "lint": "eslint . --ext .js",
       "db:bootstrap": "node scripts/ensureIndexesAndExtensions.js",
       "db:init": "node scripts/initWalletSchema.js",
       "db:seed": "node scripts/seedMinimal.js",
