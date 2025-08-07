@@ -166,11 +166,33 @@ function header(f) {
 
 function addRunAndExit(kb) {
   kb.push([Markup.button.callback('📄 Generar informe', 'RUN')]);
+  kb.push([
+    Markup.button.callback('⬅️ Anterior', 'BACK_TO_FILTER'),
+    Markup.button.callback('🏠 Menú Inicial', 'GO_HOME'),
+  ]);
   kb.push(buildBackExitRow('BACK', 'EXIT'));
   return kb;
 }
 
 /* ─────────── Vistas ─────────── */
+
+async function showFilterMenu(ctx) {
+  const buttons = [
+    Markup.button.callback('📤 Agente', 'FIL_AGENT'),
+    Markup.button.callback('💱 Moneda', 'FIL_MONEDA'),
+    Markup.button.callback('🏦 Banco', 'FIL_BANCO'),
+    Markup.button.callback('💳 Tarjeta', 'FIL_TARJETA'),
+    Markup.button.callback('⏱ Periodo', 'FIL_PERIOD'),
+  ];
+  const kb = arrangeInlineButtons(buttons);
+  kb.push([Markup.button.callback('📄 Generar informe', 'RUN')]);
+  kb.push(buildBackExitRow('BACK', 'EXIT'));
+  await editIfChanged(ctx, header(ctx.wizard.state.filters) + 'Elige filtro:', {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: kb },
+  });
+  ctx.wizard.state.route = 'FILTER';
+}
 
 async function showAgents(ctx) {
   const rows = await loadAgentes();
@@ -300,6 +322,10 @@ async function showDayMenu(ctx) {
     );
   }
   const kb = arrangeInlineButtons(buttons);
+  kb.push([
+    Markup.button.callback('⬅️ Anterior', 'BACK_TO_FILTER'),
+    Markup.button.callback('🏠 Menú Inicial', 'GO_HOME'),
+  ]);
   kb.push(buildBackExitRow('BACK', 'EXIT'));
   await editIfChanged(ctx, header(ctx.wizard.state.filters) + 'Elige día:', {
     parse_mode: 'HTML',
@@ -319,6 +345,10 @@ async function showMonthMenu(ctx) {
     ),
   );
   const kb = arrangeInlineButtons(buttons);
+  kb.push([
+    Markup.button.callback('⬅️ Anterior', 'BACK_TO_FILTER'),
+    Markup.button.callback('🏠 Menú Inicial', 'GO_HOME'),
+  ]);
   kb.push(buildBackExitRow('BACK', 'EXIT'));
   await editIfChanged(ctx, header(ctx.wizard.state.filters) + 'Elige mes:', {
     parse_mode: 'HTML',
@@ -568,48 +598,83 @@ const extractoAssist = new Scenes.WizardScene(
     const msg = await ctx.reply('Cargando…', { parse_mode: 'HTML' });
     ctx.wizard.state.msgId = msg.message_id;
     ctx.wizard.state.filters = { period: getDefaultPeriod(), fecha: null, mes: null };
-    await showAgents(ctx);
+    await showFilterMenu(ctx);
     return ctx.wizard.next();
   },
   /* pasos dinámicos */
-  async (ctx) => {
-    if (await wantExit(ctx)) return;
-    const data = ctx.callbackQuery?.data;
-    if (!data) return;
-    await ctx.answerCbQuery().catch(() => {});
-    console.log('[extracto] click', ctx.wizard.state.route, data);
+  handleAction,
+);
 
-    const st = ctx.wizard.state;
+async function handleAction(ctx) {
+  if (await wantExit(ctx)) return;
+  const data = ctx.callbackQuery?.data;
+  if (!data) return;
+  await ctx.answerCbQuery().catch(() => {});
+  console.log('[extracto] click', ctx.wizard.state.route, data);
 
-    /* navegación */
-    if (data === 'BACK') {
-      switch (st.route) {
-        case 'MONEDAS':
-          return showAgents(ctx);
-        case 'BANCOS':
-          return showMonedas(ctx);
-        case 'TARJETAS':
-          return showBancos(ctx);
-        case 'PERIOD':
-          return showTarjetas(ctx);
-        case 'DAY':
-        case 'MONTH':
-        case 'EXTRACT':
-          return showPeriod(ctx);
-        default:
-          return showAgents(ctx);
-      }
-    }
+  const st = ctx.wizard.state;
 
-    /* botón RUN */
-    if (data === 'RUN') {
-      if (st.route === 'EXTRACT') return; // ya estamos
-      if (!st.filters.period) return showPeriod(ctx);
-      return showExtract(ctx);
-    }
+  /* navegación principal */
+  if (data === 'GO_HOME') {
+    return showFilterMenu(ctx);
+  }
 
-    /* callbacks específicos */
+  if (data === 'BACK_TO_FILTER') {
     switch (st.route) {
+      case 'MONEDAS':
+        return showAgents(ctx);
+      case 'BANCOS':
+        return showMonedas(ctx);
+      case 'TARJETAS':
+        return showBancos(ctx);
+      case 'PERIOD':
+        return showTarjetas(ctx);
+      case 'DAY':
+      case 'MONTH':
+      case 'EXTRACT':
+        return showPeriod(ctx);
+      default:
+        return showFilterMenu(ctx);
+    }
+  }
+
+  /* navegación previa */
+  if (data === 'BACK') {
+    switch (st.route) {
+      case 'MONEDAS':
+        return showAgents(ctx);
+      case 'BANCOS':
+        return showMonedas(ctx);
+      case 'TARJETAS':
+        return showBancos(ctx);
+      case 'PERIOD':
+        return showTarjetas(ctx);
+      case 'DAY':
+      case 'MONTH':
+      case 'EXTRACT':
+        return showPeriod(ctx);
+      default:
+        return showFilterMenu(ctx);
+    }
+  }
+
+  /* botón RUN */
+  if (data === 'RUN') {
+    if (st.route === 'EXTRACT') return; // ya estamos
+    if (!st.filters.period) return showPeriod(ctx);
+    return showExtract(ctx);
+  }
+
+  if (st.route === 'FILTER') {
+    if (data === 'FIL_AGENT') return showAgents(ctx);
+    if (data === 'FIL_MONEDA') return showMonedas(ctx);
+    if (data === 'FIL_BANCO') return showBancos(ctx);
+    if (data === 'FIL_TARJETA') return showTarjetas(ctx);
+    if (data === 'FIL_PERIOD') return showPeriod(ctx);
+  }
+
+  /* callbacks específicos */
+  switch (st.route) {
       case 'AGENTS':
         if (data.startsWith('AG_')) {
           const id = +data.split('_')[1];
@@ -715,8 +780,9 @@ const extractoAssist = new Scenes.WizardScene(
         }
         break;
     }
-  },
-);
+}
 
 module.exports = extractoAssist;
 module.exports.showExtract = showExtract;
+module.exports.showFilterMenu = showFilterMenu;
+module.exports.handleAction = handleAction;

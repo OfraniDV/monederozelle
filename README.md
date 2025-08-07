@@ -22,6 +22,13 @@ Monedero Zelle Bot es una solución integral de administración financiera pensa
 - **PostgreSQL** como almacenamiento principal; el bootstrap crea tablas, extensiones `unaccent` e índices de búsqueda.
 - **Jest** para pruebas automatizadas; el script `pretest` configura una base temporal.
 
+## 📂 Estructura del proyecto
+
+- `commands/`: comandos y asistentes de Telegram.
+- `helpers/`: funciones reutilizables.
+- `scripts/`: tareas y utilidades ejecutables con `npm run`.
+- `tests/`: suite de pruebas dividida en `tests/commands/`, `tests/helpers/` y `tests/scenes/`.
+
 ## 🚀 Instalación
 
 ```bash
@@ -41,6 +48,13 @@ npm test
 ```
 
 El proceso `pretest` levanta una base PostgreSQL de pruebas y aplica el esquema necesario de forma automática.
+
+Ejecuta tareas de base de datos desde la carpeta `scripts/` con npm:
+
+```bash
+npm run db:bootstrap   # prepara índices y extensiones
+npm run db:seed        # inserta datos mínimos
+```
 
 ## 📦 Tablas principales
 

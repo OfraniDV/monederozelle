@@ -18,7 +18,7 @@ const { ownerIds } = require('./config');
 const bot = require('./bot');
 
 /* ───────── 2. Bootstrap de base de datos ───────── */
-const { bootstrap: dbBootstrap } = require('./psql/ensureIndexesAndExtensions');
+const { bootstrap: dbBootstrap } = require('./scripts/ensureIndexesAndExtensions');
 
 /* ───────── 3. Legacy commands (monotabla) ───────── */
 const crearCuenta    = require('./commands/crearcuenta');

@@ -6,7 +6,7 @@
 // Al finalizar, sincroniza **todas** las secuencias SERIAL con (MAX(id)+1) de su
 // tabla para evitar errores 23505 cuando se insertaron filas manualmente.
 // -----------------------------------------------------------------------------
-const { pool } = require('./db.js'); // Exporta un Pool de pg
+const { pool } = require('../psql/db.js'); // Exporta un Pool de pg
 
 /**
  * Ejecuta un conjunto de sentencias DDL dentro de una transacción.
@@ -147,3 +147,10 @@ const initWalletSchema = async () => {
 };
 
 module.exports = initWalletSchema;
+
+if (require.main === module) {
+  initWalletSchema().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  }).then(() => process.exit(0));
+}

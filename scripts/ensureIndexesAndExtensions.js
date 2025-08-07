@@ -1,5 +1,5 @@
 // psql/bootstrapSchemaAndIndexes.js
-const { pool } = require('./db.js');
+const { pool } = require('../psql/db.js');
 const crearTablaUsuarios = require('./tablausuarios');
 const initWalletSchema   = require('./initWalletSchema');
 
@@ -105,3 +105,10 @@ async function bootstrap() {
 }
 
 module.exports = { bootstrap };
+
+if (require.main === module) {
+  bootstrap().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  }).then(() => process.exit(0));
+}

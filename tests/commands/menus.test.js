@@ -1,4 +1,4 @@
-const monitorAssist = require('../commands/monitor_assist');
+const monitorAssist = require('../../commands/monitor_assist');
 const { showDayMenu, showMonthMenu } = monitorAssist;
 const moment = require('moment');
 

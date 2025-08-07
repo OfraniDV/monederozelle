@@ -2,7 +2,7 @@
 // Semillas mínimas para pruebas. Inserta un registro por tabla clave
 // usando ON CONFLICT para que sea idempotente.
 
-const { query } = require('./db');
+const { query } = require('../psql/db');
 
 const seedMinimal = async () => {
   await query(
@@ -19,3 +19,9 @@ const seedMinimal = async () => {
 
 module.exports = seedMinimal;
 
+if (require.main === module) {
+  seedMinimal().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  }).then(() => process.exit(0));
+}
