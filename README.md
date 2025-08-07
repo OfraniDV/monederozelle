@@ -56,6 +56,15 @@ npm run db:bootstrap   # prepara índices y extensiones
 npm run db:seed        # inserta datos mínimos
 ```
 
+### Tests de Extracto
+
+El asistente de extracto incluye pruebas específicas que inicializan la base de datos con movimientos de ejemplo.
+Ejecuta únicamente estas pruebas con:
+
+```bash
+npm run test:extracto
+```
+
 ## 📦 Tablas principales
 
 El bot utiliza una base de datos PostgreSQL con las siguientes tablas:
