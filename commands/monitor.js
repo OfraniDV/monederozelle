@@ -268,7 +268,11 @@ function buildMessage(moneda, rows, opts, range, historiales) {
     totalUsd = 0,
     up = 0,
     down = 0,
-    same = 0;
+    same = 0,
+    totalPos = 0,
+    totalNeg = 0,
+    totalPosUsd = 0,
+    totalNegUsd = 0;
   rows.forEach((r) => {
     totalIniPer += r.saldo_ini;
     totalFinPer += r.saldo_fin;
@@ -278,6 +282,13 @@ function buildMessage(moneda, rows, opts, range, historiales) {
     if (r.delta > 0) up++;
     else if (r.delta < 0) down++;
     else same++;
+    if (r.saldo_fin > 0) {
+      totalPos += r.saldo_fin;
+      totalPosUsd += r.saldo_fin_usd;
+    } else if (r.saldo_fin < 0) {
+      totalNeg += Math.abs(r.saldo_fin);
+      totalNegUsd += Math.abs(r.saldo_fin_usd);
+    }
   });
 
   const filtros = [];
@@ -340,7 +351,14 @@ function buildMessage(moneda, rows, opts, range, historiales) {
     else if (r.delta < 0) totalOut += Math.abs(r.delta);
   });
   msg += `\n<b>Entradas netas:</b> <code>${fmtMoney(totalIn)}</code>`;
-  msg += `\n<b>Salidas netas:</b>  <code>${fmtMoney(totalOut)}</code>\n`;
+  msg += `\n<b>Salidas netas:</b>  <code>${fmtMoney(totalOut)}</code>`;
+
+  /* ─── Saldos totales ────────────────────────────── */
+  const neto = totalPos - totalNeg;
+  const netoUsd = totalPosUsd - totalNegUsd;
+  msg += `\n<b>Saldo positivo total:</b> <code>${fmtMoney(totalPos)}</code> (equiv. <code>${fmtMoney(totalPosUsd)}</code> USD)`;
+  msg += `\n<b>Saldo negativo total:</b> <code>${fmtMoney(totalNeg)}</code> (equiv. <code>${fmtMoney(totalNegUsd)}</code> USD)`;
+  msg += `\n<b>Diferencia:</b> <code>${(neto >= 0 ? '+' : '') + fmtMoney(neto)}</code> (equiv. <code>${(netoUsd >= 0 ? '+' : '') + fmtMoney(netoUsd)}</code> USD)\n`;
 
 
   // Resumenes por agente y banco
@@ -416,6 +434,7 @@ async function runMonitor(ctx, rawText) {
                           (parseFloat(r.saldo_ini_total)||0);   // Δ histórico
       const tasa = parseFloat(r.tasa_usd) || 1;
       const delta_usd = delta * tasa;
+      const saldo_fin_usd = saldo_fin * tasa;
       const pct = saldo_ini !== 0 ? (delta / saldo_ini) * 100 : null;
       return {
         id: r.id,
@@ -430,6 +449,7 @@ async function runMonitor(ctx, rawText) {
         delta,             // período
         delta_total,       // histórico
         delta_usd,
+        saldo_fin_usd,
         pct,
         movs: parseFloat(r.movs || 0),
         n_up: parseFloat(r.n_up || 0),
