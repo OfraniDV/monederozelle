@@ -18,6 +18,15 @@
 const MAX_CHARS = 4000; // margen respecto al límite de 4096
 
 /**
+ * Reemplaza caracteres inválidos asegurando una cadena UTF-8 válida para Telegram.
+ * @param {string} text
+ * @returns {string}
+ */
+function sanitizeUtf8(text = '') {
+  return Buffer.from(text, 'utf8').toString('utf8');
+}
+
+/**
  * Devuelve las etiquetas HTML abiertas que quedan sin cerrar en un
  * fragmento. Se usa para cerrar/reabrir al dividir.
  * @param {string} html
@@ -106,7 +115,7 @@ async function sendLargeMessage(ctx, blocks = [], opts = {}) {
   const sizes = [];
   for (let i = 0; i < total; i++) {
     const prefix = total > 1 ? `(${i + 1}/${total})\n` : '';
-    const msg = prefix + chunks[i];
+    const msg = sanitizeUtf8(prefix + chunks[i]);
     try {
       await ctx.reply(msg, { parse_mode: 'HTML', ...opts });
     } catch (err) {
@@ -118,4 +127,4 @@ async function sendLargeMessage(ctx, blocks = [], opts = {}) {
   console.log(`[sendLargeMessage] partes=${total} tamaños=${sizes.join(',')}`);
 }
 
-module.exports = { sendLargeMessage, safeSplitHtmlBlock };
+module.exports = { sendLargeMessage, safeSplitHtmlBlock, sanitizeUtf8 };
