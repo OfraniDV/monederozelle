@@ -10,6 +10,7 @@ const path = require('path');
 const { escapeHtml, fmtMoney } = require('../helpers/format');
 const { getDefaultPeriod } = require('../helpers/period');
 const { buildEntityFilter } = require('../helpers/filters');
+const { sendLargeMessage } = require('../helpers/sendLargeMessage');
 
 let db;
 try {
@@ -167,22 +168,6 @@ function resumenPor(rows, campo) {
     mapa.set(key, obj);
   });
   return mapa;
-}
-
-async function sendChunks(ctx, text) {
-  const max = 3900;
-  let restante = text;
-  while (restante.length > 0) {
-    let corte = restante.length <= max ? restante.length : restante.lastIndexOf('\n', max);
-    if (corte <= 0) corte = Math.min(restante.length, max);
-    const chunk = restante.slice(0, corte);
-    restante = restante.slice(corte);
-    try {
-      await ctx.reply(chunk, { parse_mode: 'HTML' });
-    } catch (e) {
-      await ctx.reply(chunk); // fallback sin parse_mode
-    }
-  }
 }
 
 /* ───────── SQL base v2 (saldos del período + globales) ───────── */
@@ -515,7 +500,7 @@ async function runMonitor(ctx, rawText) {
     for (const [mon, lista] of porMoneda.entries()) {
       const msg = buildMessage(mon, lista, opts, rango, historiales);
       allMsgs.push(msg);
-      await sendChunks(ctx, msg);
+      await sendLargeMessage(ctx, [msg]);
     }
     console.log(`[monitor] proceso completado en ${Date.now() - inicio}ms`);
     return allMsgs;
