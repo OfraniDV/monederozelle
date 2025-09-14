@@ -58,8 +58,7 @@ async function initDatabase() {
 
 /* ───────── 7. Scenes / Stage ───────── */
 const stage = new Scenes.Stage(
-  [tarjetaWizard, saldoWizard, tarjetasAssist, monitorAssist, accesoAssist, extractoAssist],
-  { ttl: 0 },
+  [tarjetaWizard, saldoWizard, tarjetasAssist, monitorAssist, accesoAssist, extractoAssist]
 );
 stage.hears(/^(salir)$/i, async (ctx) => {
   await flushOnExit(ctx);
