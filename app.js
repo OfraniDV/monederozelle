@@ -13,6 +13,7 @@ const { Scenes, session } = require('telegraf');
 // to prevent markup breakage when interpolating dynamic content.
 const { escapeHtml } = require('./helpers/format');
 const { ownerIds } = require('./config');
+const { flushOnExit } = require('./helpers/sessionSummary');
 
 /* ───────── 1. Bot base ───────── */
 const bot = require('./bot');
@@ -56,7 +57,15 @@ async function initDatabase() {
 }
 
 /* ───────── 7. Scenes / Stage ───────── */
-const stage = new Scenes.Stage([tarjetaWizard, saldoWizard, tarjetasAssist, monitorAssist, accesoAssist, extractoAssist], { ttl: 300 });
+const stage = new Scenes.Stage(
+  [tarjetaWizard, saldoWizard, tarjetasAssist, monitorAssist, accesoAssist, extractoAssist],
+  { ttl: 0 },
+);
+stage.hears(/^(salir)$/i, async (ctx) => {
+  await flushOnExit(ctx);
+  if (ctx.scene?.current) await ctx.scene.leave();
+  await ctx.reply('❌ Operación cancelada.');
+});
 bot.use(session());
 bot.use(stage.middleware());
 
