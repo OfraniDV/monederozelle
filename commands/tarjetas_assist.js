@@ -22,7 +22,7 @@
  */
 
 const { Scenes, Markup } = require('telegraf');
-const { escapeHtml } = require('../helpers/format');
+const { escapeHtml, boldHeader } = require('../helpers/format');
 const { sendLargeMessage } = require('../helpers/sendLargeMessage');
 const { sendAndLog } = require('../helpers/reportSender');
 const {
@@ -348,7 +348,7 @@ async function showAll(ctx) {
 
 async function showSummary(ctx) {
   const { bankUsd, globalUsd } = ctx.wizard.state.data;
-  let resumen = '🧮 <b>Resumen general en USD</b>\n';
+  let resumen = boldHeader('🧮', 'Resumen general en USD') + '\n';
   Object.entries(bankUsd)
     .filter(([, usd]) => usd !== 0)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -383,7 +383,7 @@ const tarjetasAssist = new Scenes.WizardScene(
       Markup.button.callback('❌ Salir', 'EXIT'),
     ];
     const kb = Markup.inlineKeyboard(buttons.map((b) => [b]));
-    const text = '💳 <b>Tarjetas</b>\nElige la vista deseada:';
+    const text = `${boldHeader('💳', 'Tarjetas')}\nElige la vista deseada:`;
     const msg = await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb.reply_markup });
     ctx.wizard.state.msgId = msg.message_id;
     ctx.wizard.state.lastRender = { text, reply_markup: kb.reply_markup };

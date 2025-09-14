@@ -20,4 +20,8 @@ function fmtMoney(n) {
   return Number.parseFloat(n || 0).toFixed(2);
 }
 
-module.exports = { escapeHtml, fmtMoney };
+function boldHeader(icon, text) {
+  return `${icon} <b>${escapeHtml(text)}</b>`;
+}
+
+module.exports = { escapeHtml, fmtMoney, boldHeader };

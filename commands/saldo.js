@@ -14,7 +14,7 @@
 // Requiere que las tablas ya existan con las columnas definidas en initWalletSchema.
 
 const { Scenes, Markup } = require('telegraf');
-const { escapeHtml, fmtMoney } = require('../helpers/format');
+const { escapeHtml, fmtMoney, boldHeader } = require('../helpers/format');
 const { sendAndLog } = require('../helpers/reportSender');
 const { recordChange, flushOnExit } = require('../helpers/sessionSummary');
 const pool = require('../psql/db.js');
@@ -77,7 +77,7 @@ async function showAgentes(ctx) {
   }
   kb.push([Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')]);
 
-  const txt = '👥 <b>Seleccione uno de los Agentes disponibles</b>';
+  const txt = `${boldHeader('👥', 'Agentes disponibles')}\nSeleccione uno:`;
   const extra = { parse_mode: 'HTML', ...Markup.inlineKeyboard(kb) };
 
   const msgId = ctx.wizard.state.data?.msgId;
@@ -312,7 +312,9 @@ const saldoWizard = new Scenes.WizardScene(
 
       const emojiDelta = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
       const signo = delta > 0 ? 'Aumentó' : delta < 0 ? 'Disminuyó' : 'Sin cambio';
+      const header = `${boldHeader('💰', 'Saldo actualizado')}\n`;
       const txt =
+        header +
         `Saldo anterior: <code>${fmtMoney(saldoAnterior)}</code>\n` +
         `Saldo informado: <code>${fmtMoney(saldoNuevo)}</code>\n` +
         `${emojiDelta} ${signo} <code>${fmtMoney(Math.abs(delta))}</code> ${escapeHtml(tarjeta.moneda)}\n\n` +
