@@ -12,7 +12,7 @@
 
 const { Scenes, Markup } = require('telegraf');
 const moment = require('moment-timezone');
-const { escapeHtml, fmtMoney } = require('../helpers/format');
+const { escapeHtml, fmtMoney, boldHeader } = require('../helpers/format');
 const { getDefaultPeriod } = require('../helpers/period');
 const { sendAndLog } = require('../helpers/reportSender');
 const { flushOnExit } = require('../helpers/sessionSummary');
@@ -160,7 +160,7 @@ async function filterCards(st) {
 /* Visual helpers ---------------------------------------------------------- */
 function header(f) {
   return (
-    '📄 <b>Extracto</b>\n' +
+    `${boldHeader('📄', 'Extracto')}\n` +
     `👤 Agente: <b>${escapeHtml(f.agenteNombre || 'Todos')}</b>\n` +
     `💱 Moneda: <b>${escapeHtml(f.monedaNombre || 'Todas')}</b>\n` +
     `🏦 Banco: <b>${escapeHtml(f.bancoNombre || 'Todos')}</b>\n` +

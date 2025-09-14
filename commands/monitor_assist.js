@@ -20,7 +20,7 @@
 
 const { Scenes, Markup } = require('telegraf');
 const moment = require('moment');
-const { escapeHtml } = require('../helpers/format');
+const { escapeHtml, boldHeader } = require('../helpers/format');
 const { getDefaultPeriod } = require('../helpers/period');
 const { sendAndLog } = require('../helpers/reportSender');
 const { flushOnExit } = require('../helpers/sessionSummary');
@@ -48,7 +48,7 @@ async function wantExit(ctx) {
 async function showMain(ctx) {
   const f = ctx.wizard.state.filters;
   const text =
-    `📈 <b>Monitor</b>\n` +
+    `${boldHeader('📈', 'Monitor')}\n` +
     `Periodo: <b>${escapeHtml(f.fecha || f.mes || f.period)}</b>\n` +
     `Moneda: <b>${escapeHtml(f.monedaNombre || 'Todas')}</b>\n` +
     `Agente: <b>${escapeHtml(f.agenteNombre || 'Todos')}</b>\n` +

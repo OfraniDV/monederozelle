@@ -7,7 +7,7 @@
 const moment = require('moment-timezone');
 const path = require('path');
 // Migrado a HTML parse mode con sanitización centralizada en escapeHtml.
-const { escapeHtml, fmtMoney } = require('../helpers/format');
+const { escapeHtml, fmtMoney, boldHeader } = require('../helpers/format');
 const { getDefaultPeriod } = require('../helpers/period');
 const { buildEntityFilter } = require('../helpers/filters');
 const { sendLargeMessage } = require('../helpers/sendLargeMessage');
@@ -281,9 +281,14 @@ function buildMessage(moneda, rows, opts, range, historiales) {
   if (opts.banco) filtros.push(`banco=${escapeHtml(opts.banco)}`);
   if (opts.moneda) filtros.push(`moneda=${escapeHtml(opts.moneda)}`);
   if (opts.soloCambio) filtros.push('solo-cambio');
-  const filtStr = filtros.length ? `\nFiltros: ${filtros.join(', ')}\n` : '\n';
+  const filtStr = filtros.length ? `Filtros: ${filtros.join(', ')}\n` : '';
 
-  let msg = `<b>Resumen de ${moneda} para periodo ${range.start.format('DD/MM/YYYY')} – ${range.end.clone().subtract(1, 'second').format('DD/MM/YYYY')}</b>${filtStr}`;
+  let msg =
+    `${boldHeader('📊', 'Monitor')}\n` +
+    `Moneda: <b>${escapeHtml(moneda)}</b>\n` +
+    `Periodo: <b>${range.start.format('DD/MM/YYYY')} – ${range.end.clone().subtract(1, 'second').format('DD/MM/YYYY')}</b>\n` +
+    filtStr +
+    `\n`;
   const deltaPer   = totalFinPer - totalIniPer;
   const emojiPer   = deltaPer > 0 ? '📈' : deltaPer < 0 ? '📉' : '➖';
   msg +=

@@ -5,7 +5,7 @@
 // para cada tarjeta el saldo inicial, final y la variación.
 
 const pool = require('../psql/db.js');
-const { escapeHtml } = require('../helpers/format');
+const { escapeHtml, boldHeader } = require('../helpers/format');
 const { sendLargeMessage } = require('../helpers/sendLargeMessage');
 
 /* -------------------------------------------------------------------------- */
@@ -133,7 +133,7 @@ module.exports = (bot) => {
 
       // 3. Construir bloques lógicos
       const blocks = [];
-      let resumen = '💳 <b>Tarjetas</b>\n';
+      let resumen = boldHeader('💳', 'Tarjetas') + '\n';
       resumen += '\n<b>Resumen por moneda</b>\n';
       Object.entries(byMon).forEach(([code, info]) => {
         if (info.ini === 0 && info.fin === 0) return;
