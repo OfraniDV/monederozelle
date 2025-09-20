@@ -2,9 +2,10 @@
 
 const {
   computeNeeds,
-  computePlan,
   renderAdvice,
   aggregateBalances,
+  computePlan,
+  computeProjection,
 } = require('../../middlewares/fondoAdvisor');
 
 beforeEach(() => {
@@ -73,10 +74,13 @@ describe('fondoAdvisor core calculations', () => {
   test('renderAdvice genera mensaje en español sin etiquetas prohibidas', () => {
     const config = {
       cushion: 150000,
-      buyRate: 400,
       sellRate: 452,
       minSellUsd: 40,
       liquidityBanks: ['BANDEC', 'MITRANSFER', 'METRO', 'BPA'],
+      sellFeePct: 0,
+      fxMarginPct: 0,
+      sellRoundToUsd: 1,
+      minKeepUsd: 0,
     };
     const liquidity = {
       BANDEC: 70771.82,
@@ -94,13 +98,20 @@ describe('fondoAdvisor core calculations', () => {
       usdInventory: 200,
       sellRate: config.sellRate,
       minSellUsd: config.minSellUsd,
+      sellFeePct: config.sellFeePct,
+      fxMarginPct: config.fxMarginPct,
+      sellRoundToUsd: config.sellRoundToUsd,
+      minKeepUsd: config.minKeepUsd,
+      sellRateSource: 'env',
     });
+    const projection = computeProjection(161654, -168764, plan.sellNow.cupIn);
     const result = {
       activosCup: 161654,
       deudasCup: -168764,
       netoCup: 161654 - 168764,
       ...needs,
       plan,
+      projection,
       liquidityByBank: liquidity,
       config,
       urgency: '🟠 PRIORITARIO',
@@ -112,6 +123,8 @@ describe('fondoAdvisor core calculations', () => {
     expect(message).toContain('Objetivo: vender 348 USD a 452 ⇒ +157,296 CUP');
     expect(message).toContain('Vende ahora: 200 USD ⇒ +90,400 CUP');
     expect(message).toContain('Faltante tras venta: 66,710 CUP (≈ 148 USD)');
+    expect(message).toContain('🧾 <b>Proyección post-venta</b>');
+    expect(message).toContain('Colchón proyectado: 83,290 CUP');
     expect(message).toContain('🏦 <b>Liquidez rápida disponible</b>');
     expect(message).not.toContain('ciclos');
     expect(message).not.toContain('<br>');
