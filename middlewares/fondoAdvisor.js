@@ -140,8 +140,12 @@ function classifyMonthlyUsage(rows = [], config = {}) {
     const limit = bank === 'BPA' ? bpaLimit : defaultLimit;
     const remainingRaw = limit - usedOut;
     const remaining = remainingRaw > 0 ? remainingRaw : 0;
-    // Detectar BOLSA: banco MITRANSFER + agente contiene "BOLSA"
-    const isBolsa = bank === 'MITRANSFER' && /BOLSA/.test(row.agente || '');
+    // Detectar BOLSA:
+    //  • Todo MITRANSFER se considera BOLSA
+    //  • Además, si agente o número contienen "BOLSA"
+    const isBolsa = bank === 'MITRANSFER'
+      || /BOLSA/.test(row.agente || '')
+      || /BOLSA/.test(row.numero || '');
     const status = remaining === 0
       ? extendableSet.has(bank)
         ? 'EXTENDABLE'
@@ -545,6 +549,22 @@ function renderAdvice(result) {
   ];
   blocks.push(objetivo.join('\n'));
 
+  // Bloque de inventario USD/Zelle (1x1) — total y utilizable
+  try {
+    const invTotal = Math.max(0, Math.floor(result.usdInventory || 0));
+    const invReserve = Math.max(0, Math.round(config.minKeepUsd || 0));
+    const invUsable = Math.max(0, invTotal - invReserve);
+    const invLines = [
+      '💵 <b>Inventario USD/Zelle</b>',
+      `• Total: ${fmtUsd(invTotal)} USD`,
+      `• Reservado: ${fmtUsd(invReserve)} USD`,
+      `• Usable ahora: ${fmtUsd(invUsable)} USD${invUsable < (config.minSellUsd || 0) ? ' (⚠️ por debajo del mínimo de venta)' : ''}`
+    ];
+    blocks.push(invLines.join('\n'));
+  } catch (e) {
+    console.error('[fondoAdvisor] Inventario USD render error:', e.message);
+  }
+
   const venta = [
     '💸 <b>Venta requerida (Zelle)</b>',
     `• Objetivo: vender ${fmtUsd(plan.sellTarget.usd)} USD a ${fmtCup(plan.sellNet)} ⇒ +${fmtCup(plan.sellTarget.cupIn)} CUP`,
@@ -564,8 +584,8 @@ function renderAdvice(result) {
 
   const limitsData = monthlyLimits || { cards: [] };
   const orderedCards = sortCardsByPreference(limitsData.cards || [], config.allocationBankOrder || [])
-    // No mostrar BOLSA en el bloque de límites
-    .filter((c) => !c.isBolsa);
+    // No mostrar BOLSA (MITRANSFER y similares) en el bloque de límites
+    .filter((c) => !c.isBolsa && c.bank !== 'MITRANSFER');
   const limitPreLines = [];
   if (!orderedCards.length) {
     limitPreLines.push('—');

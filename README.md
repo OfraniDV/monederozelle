@@ -93,11 +93,14 @@ monitor o extracto (hook en el evento `leave`). El asistente de `/saldo` dispara
 `leaveMiddleware` para garantizar que, incluso si no se registra el middleware global, se envíe el reporte al finalizar. Además
 puede ejecutarse manualmente mediante el comando `/fondo`. El análisis:
 
-- Calcula la necesidad en CUP con `necesidad = |deudas| + colchón − activos`, permite configurar el colchón objetivo y deriva la venta objetivo/instantánea en USD con redondeos enteros.
+- Calcula la necesidad en CUP con `necesidad = |deudas| + colchón - activos`, permite configurar el colchón objetivo y deriva la venta objetivo/instantánea en USD con redondeos enteros.
 - Lee la tasa SELL desde la tabla `moneda` (código `CUP`) y usa las variables `ADVISOR_*` como fallback.
-- Ignora como liquidez las cuentas por cobrar cuyo banco/agente/número contenga “debe/deuda/deudor”.
+- Ignora como liquidez las cuentas por cobrar cuyo banco/agente/número contenga "debe/deuda/deudor".
+- Muestra un bloque 💵 <b>Inventario USD/Zelle</b> con Total, Reservado (`ADVISOR_MIN_KEEP_USD`) y Usable ahora; el inventario USD y Zelle es 1 × 1 y si el usable cae por debajo de `ADVISOR_MIN_SELL_USD` se marca con ⚠️.
+- Evalúa los límites mensuales sumando las SALIDAS (`importe < 0`) del mes por tarjeta CUP y renderiza una tabla monoespaciada dentro de `<pre>` con columnas Banco, Tarjeta (`#1234`), `SAL/LIM`, `LIBRE` y Estado (🟥 BLOCKED, 🟡 EXTENDABLE, 🟢 OK). MITRANSFER/BOLSA nunca aparece en esa tabla.
+- Distribuye el CUP entrante siguiendo `ADVISOR_ALLOCATION_BANK_ORDER`, excluyendo MITRANSFER salvo como fallback: las asignaciones BOLSA se etiquetan con 🧳 y se anota el fee de 1 CUP por bolsa→bolsa y 5 % por bolsa→banco.
 - Resume inventario USD disponible, venta inmediata, faltante tras la operación y muestra una alerta cuando el inventario está por debajo del mínimo permitido sin sugerir ciclos de compra/venta.
-- Clasifica la urgencia en 🔴/🟠/🟢, explica la fórmula y parámetros en un mensaje HTML sin `<br>` ni `<ul>` usando `sendLargeMessage`.
+- Clasifica la urgencia en 🟥/🟡/🟢, explica la fórmula y parámetros en un mensaje HTML sin `<br>` ni `<ul>` usando `sendLargeMessage`.
 - Emite logs con prefijo `[fondoAdvisor]` para config, tasas, totales, necesidad, ventas y urgencia para facilitar auditorías.
 - Está cubierto por pruebas en `tests/__tests__/fondoAdvisor.calc.test.js` y `tests/__tests__/fondoAdvisor.test.js` con una cobertura superior al 95 % en la lógica pura.
 
