@@ -15,7 +15,7 @@
 //
 // También registra por consola cuántas partes se enviaron y su tamaño.
 
-const { safeReply } = require('./telegram');
+const { safeReply, sanitizeAllowedHtml } = require('./telegram');
 
 const MAX_CHARS = 4000; // margen respecto al límite de 4096
 
@@ -118,7 +118,7 @@ async function sendLargeMessage(ctx, blocks = [], opts = {}) {
   for (let i = 0; i < total; i++) {
     const prefix = total > 1 ? `(${i + 1}/${total})\n` : '';
     const msg = sanitizeUtf8(prefix + chunks[i]);
-    await safeReply(ctx, msg, { parse_mode: 'HTML', ...opts });
+    await safeReply(ctx, msg, { parse_mode: 'HTML', ...opts }, { transformText: sanitizeAllowedHtml });
     sizes.push(msg.length);
     await new Promise((r) => setTimeout(r, 300));
   }
