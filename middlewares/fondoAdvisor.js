@@ -618,24 +618,25 @@ function renderAdvice(result) {
   const orderedCards = sortCardsByPreference(limitsData.cards || [], config.allocationBankOrder || [])
     // No mostrar BOLSA (MITRANSFER y similares) en el bloque de límites
     .filter((c) => !c.isBolsa && c.bank !== 'MITRANSFER');
+  const limitDefaultFmt = formatInteger(config.limitMonthlyDefaultCup ?? DEFAULT_CONFIG.limitMonthlyDefaultCup);
+  const limitBpaFmt = formatInteger(config.limitMonthlyBpaCup ?? config.limitMonthlyDefaultCup ?? DEFAULT_CONFIG.limitMonthlyBpaCup);
+  const limitInfoLine = `ℹ️ Límite mensual: Estándar ${limitDefaultFmt} CUP • BPA ${limitBpaFmt} CUP (ampliable)`;
   const limitPreLines = [];
   if (!orderedCards.length) {
     limitPreLines.push('—');
   } else {
-    const hdr = `${'Banco'.padEnd(8)} ${'Tarjeta'.padEnd(13)} ${'SAL/LIM'.padStart(17)} ${'SALDO'.padStart(10)} ${'LIBRE'.padStart(10)} ${'CAP'.padStart(10)}  Estado`;
+    const hdr = `${'Banco'.padEnd(8)} ${'Tarjeta'.padEnd(13)} ${'SAL'.padStart(10)} ${'SALDO'.padStart(10)} ${'LIBRE'.padStart(10)} ${'CAP'.padStart(10)}  Estado`;
     const dash = '─'.repeat(hdr.length);
     limitPreLines.push(hdr, dash);
     orderedCards.forEach((card) => {
       const bank = (card.bank || '').toUpperCase();
       const mask = card.mask || maskCardNumber(card.numero);
-      const usedStr = formatInteger(card.usedOut).padStart(8);
-      const limitStr = formatInteger(card.limit).padStart(8);
+      const salStr = formatInteger(card.usedOut).padStart(10);
       const saldoStr = formatInteger(card.balancePos).padStart(10);
       const remainingStr = formatInteger(card.remaining).padStart(10);
       const capStr = formatInteger(card.depositCap).padStart(10);
       const statusText = describeLimitStatus(card.status);
-      const salLim = `${usedStr}/${limitStr}`.padStart(17);
-      const line = `${bank.padEnd(8)} ${mask.padEnd(13)} ${salLim} ${saldoStr} ${remainingStr} ${capStr}  ${statusText}`;
+      const line = `${bank.padEnd(8)} ${mask.padEnd(13)} ${salStr} ${saldoStr} ${remainingStr} ${capStr}  ${statusText}`;
       limitPreLines.push(line);
     });
   }
@@ -693,6 +694,7 @@ function renderAdvice(result) {
   const limitsBlock = [
     '────────────────────────────────',
     '🚦 <b>Límite mensual por tarjeta</b>',
+    limitInfoLine,
     `<pre>${limitPreLines.map((line) => escapeHtml(line)).join('\n')}</pre>`,
     '📍 <b>Sugerencia de destino del CUP</b>',
     `<pre>${suggestionPreLines.map((line) => escapeHtml(line)).join('\n')}</pre>`,
