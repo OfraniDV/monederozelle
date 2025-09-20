@@ -124,7 +124,7 @@ describe('fondoAdvisor core calculations', () => {
     expect(message).toContain('Vende ahora: 200 USD ⇒ +90,400 CUP');
     expect(message).toContain('Faltante tras venta: 66,710 CUP (≈ 148 USD)');
     expect(message).toContain('🧾 <b>Proyección post-venta</b>');
-    expect(message).toContain('Colchón proyectado: 252,054 CUP');
+    expect(message).toContain('Colchón proyectado: 83,290 CUP');
     expect(message).toContain('🏦 <b>Liquidez rápida disponible</b>');
     expect(message).not.toContain('ciclos');
     expect(message).not.toContain('<br>');

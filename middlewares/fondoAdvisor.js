@@ -265,9 +265,12 @@ function computePlan({
 
 function computeProjection(activosCup = 0, deudasCup = 0, sellNowCupIn = 0) {
   const activosPost = Math.round((activosCup || 0) + (sellNowCupIn || 0));
+  const deudaAbs = Math.abs(deudasCup || 0);
+  const negativosPost = Math.max(deudaAbs - activosPost, 0);
+  const colchonPost = Math.max(activosPost - deudaAbs, 0);
   return {
-    negativosPost: 0,
-    colchonPost: activosPost,
+    negativosPost,
+    colchonPost,
   };
 }
 

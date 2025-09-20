@@ -65,7 +65,7 @@ describe('fondoAdvisor pure calculations', () => {
     expect(plan.remainingUsd).toBe(0);
 
     const projection = computeProjection(131654, -168764, plan.sellNow.cupIn);
-    expect(projection).toEqual({ negativosPost: 0, colchonPost: 169170 });
+    expect(projection).toEqual({ negativosPost: 0, colchonPost: 406 });
   });
 
   test('aplica fee, margen FX y redondeo', () => {
