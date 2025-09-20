@@ -3,12 +3,11 @@
 // Envío centralizado de reportes:
 //   • ctx.reply() al chat actual (devolvemos el objeto mensaje para poder
 //     actualizar estados en los wizards).
-//   • Reenvío opcional al grupo de estadísticas (STATS_CHAT_ID).
 //   • Reenvío opcional al grupo de comerciales (ID_GROUP_COMERCIALES).
 //   • Notificación a los owners cuando ocurre un error.
 // -----------------------------------------------------------------------------
 
-const { statsChatId, comercialesGroupId, ownerIds } = require('../config');
+const { comercialesGroupId, ownerIds } = require('../config');
 const { escapeHtml } = require('./format');
 const { safeReply, safeSendMessage, sanitizeAllowedHtml } = require('./telegram');
 
@@ -64,29 +63,7 @@ async function sendAndLog(ctx, html, extra = {}) {
     return null;
   }
 
-  /* 2⃣  Reenvío al grupo de estadísticas */
-  if (statsChatId) {
-    try {
-      await safeSendMessage(
-        ctx.telegram,
-        statsChatId,
-        safe,
-        {
-          parse_mode: 'HTML',
-          disable_web_page_preview: true,
-        },
-        { transformText: sanitizeAllowedHtml }
-      );
-    } catch (err) {
-      console.error('[reportSender] error enviando a STATS_CHAT_ID', err);
-      await notifyOwners(
-        ctx,
-        `⚠️ No se pudo reenviar a STATS_CHAT_ID (${escapeHtml(err.message)})`,
-      );
-    }
-  }
-
-  /* 3⃣  Reenvío al grupo de comerciales (si existe) */
+  /* 2⃣  Reenvío al grupo de comerciales (si existe) */
   if (comercialesGroupId) {
     try {
       await safeSendMessage(
@@ -108,7 +85,7 @@ async function sendAndLog(ctx, html, extra = {}) {
     }
   }
 
-  /* 4⃣  Devolver el mensaje para que el caller pueda usar message_id */
+  /* 3⃣  Devolver el mensaje para que el caller pueda usar message_id */
   return message;
 }
 

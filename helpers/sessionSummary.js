@@ -78,7 +78,7 @@ async function flushOnExit(ctx) {
 
     const recipients = new Set();
     if (chatId) recipients.add(chatId);
-    if (statsChatId && statsChatId !== chatId) recipients.add(statsChatId);
+    // Evitamos reenviar automáticamente al grupo de estadísticas para reducir el spam.
     if (comercialesGroupId && comercialesGroupId !== chatId)
       recipients.add(comercialesGroupId);
 
