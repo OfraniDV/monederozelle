@@ -27,12 +27,7 @@ const DEFAULT_CONFIG = {
   limitMonthlyBpaCup: 120000,
   extendableBanks: ['BPA'],
   allocationBankOrder: ['BANDEC', 'MITRANSFER', 'METRO', 'BPA'],
-  transferOutPatterns: {
-    BANDEC: ['%transfer%', '%transf%', '%envio%', '%enviar%', '%pago movil%'],
-    METRO: ['%transfer%', '%movil%', '%envio%'],
-    MITRANSFER: ['%transfer%', '%envio%', '%wallet%'],
-    BPA: ['%transfer%', '%multibanca%', '%envio%', '%pago%'],
-  },
+  assessableBanks: ['BANDEC', 'BPA', 'METRO', 'MITRANSFER'],
 };
 
 const USD_CODES = new Set(['USD', 'MLC']);
@@ -49,30 +44,6 @@ function parseList(value, fallback) {
     .split(',')
     .map((s) => s.trim().toUpperCase())
     .filter(Boolean);
-}
-
-function parsePatternJson(value, fallback) {
-  if (!value) return { ...fallback };
-  try {
-    const parsed = JSON.parse(value);
-    if (!parsed || typeof parsed !== 'object') return { ...fallback };
-    const result = {};
-    Object.entries(parsed).forEach(([bank, patterns]) => {
-      const key = (bank || '').toUpperCase();
-      if (!key) return;
-      if (!Array.isArray(patterns)) {
-        result[key] = [];
-        return;
-      }
-      result[key] = patterns
-        .map((p) => (typeof p === 'string' ? p.trim() : ''))
-        .filter(Boolean);
-    });
-    return result;
-  } catch (err) {
-    console.error('[fondoAdvisor] Error parseando TRANSFER_OUT_PATTERNS_JSON:', err.message);
-    return { ...fallback };
-  }
 }
 
 function loadConfig(env = process.env) {
@@ -92,13 +63,10 @@ function loadConfig(env = process.env) {
       parseNumber(env.LIMIT_MONTHLY_BPA_CUP, DEFAULT_CONFIG.limitMonthlyBpaCup)
     ),
     extendableBanks: parseList(env.LIMIT_EXTENDABLE_BANKS, DEFAULT_CONFIG.extendableBanks),
+    assessableBanks: parseList(env.LIMIT_ASSESSABLE_BANKS, DEFAULT_CONFIG.assessableBanks),
     allocationBankOrder: parseList(
       env.ADVISOR_ALLOCATION_BANK_ORDER,
       DEFAULT_CONFIG.allocationBankOrder
-    ),
-    transferOutPatterns: parsePatternJson(
-      env.TRANSFER_OUT_PATTERNS_JSON,
-      DEFAULT_CONFIG.transferOutPatterns
     ),
   };
 }
@@ -109,45 +77,47 @@ function maskCardNumber(numero) {
   return `****${last4}`;
 }
 
-function buildUsageCondition(patternMap = {}) {
-  const entries = Object.entries(patternMap).map(([bank, patterns]) => [
-    (bank || '').toUpperCase(),
-    Array.isArray(patterns)
-      ? patterns.map((p) => (typeof p === 'string' ? p.trim() : '')).filter(Boolean)
-      : [],
-  ]);
-  const withPatterns = entries.filter(([, arr]) => arr.length);
-  const withoutPatterns = entries.filter(([, arr]) => !arr.length);
-  const params = [];
-  const clauses = [];
+async function getMonthlyOutflowsByCard(config = {}) {
+  const assessableBanks = (config.assessableBanks || DEFAULT_CONFIG.assessableBanks || [])
+    .map((bank) => (bank || '').toUpperCase())
+    .filter(Boolean);
 
-  withPatterns.forEach(([bank, patterns]) => {
-    params.push(bank);
-    const bankIdx = params.length;
-    params.push(patterns);
-    const patternsIdx = params.length;
-    clauses.push(`(UPPER(b.codigo) = $${bankIdx} AND mv.descripcion ILIKE ANY($${patternsIdx}))`);
-  });
-
-  const fallbackParts = [];
-  if (withoutPatterns.length) {
-    params.push(withoutPatterns.map(([bank]) => bank));
-    const fallbackIdx = params.length;
-    fallbackParts.push(`UPPER(b.codigo) = ANY($${fallbackIdx})`);
+  if (!assessableBanks.length) {
+    console.log('[fondoAdvisor] Sin bancos evaluables para límites mensuales.');
+    return [];
   }
 
-  const patternBanks = withPatterns.map(([bank]) => bank);
-  params.push(patternBanks);
-  const patternIdx = params.length;
-  fallbackParts.push(`NOT (UPPER(b.codigo) = ANY($${patternIdx}))`);
-  fallbackParts.push('mv.descripcion IS NULL');
+  const sql = `
+    SELECT t.id,
+           t.numero,
+           UPPER(b.codigo) AS banco,
+           UPPER(m.codigo) AS moneda,
+           COALESCE(SUM(CASE WHEN mv.importe < 0 THEN -mv.importe ELSE 0 END), 0) AS used_out
+      FROM tarjeta t
+      JOIN banco b   ON b.id = t.banco_id
+      JOIN moneda m  ON m.id = t.moneda_id
+      LEFT JOIN movimiento mv
+        ON mv.tarjeta_id = t.id
+       AND mv.creado_en >= date_trunc('month', (now() at time zone 'America/Havana'))
+       AND mv.creado_en <  (date_trunc('month', (now() at time zone 'America/Havana')) + interval '1 month')
+     WHERE UPPER(m.codigo) = 'CUP'
+       AND UPPER(b.codigo) = ANY( string_to_array(UPPER($1), ',') )
+     GROUP BY t.id, t.numero, b.codigo, m.codigo;
+  `;
 
-  const segments = [];
-  if (clauses.length) segments.push(`(${clauses.join(' OR ')})`);
-  if (fallbackParts.length) segments.push(`(${fallbackParts.join(' OR ')})`);
-  const clause = segments.length ? segments.join(' OR ') : 'TRUE';
+  const params = [assessableBanks.join(',')];
+  const res = await query(sql, params);
+  const allowedBanks = new Set(assessableBanks);
 
-  return { clause, params };
+  return (res.rows || [])
+    .map((row) => ({
+      id: row.id,
+      numero: row.numero,
+      banco: (row.banco || '').toUpperCase(),
+      moneda: (row.moneda || '').toUpperCase(),
+      used_out: Math.round(Number(row.used_out) || 0),
+    }))
+    .filter((row) => row.moneda === 'CUP' && allowedBanks.has(row.banco));
 }
 
 function classifyMonthlyUsage(rows = [], config = {}) {
@@ -207,27 +177,9 @@ function sortCardsByPreference(cards = [], bankOrder = []) {
   });
 }
 
-async function loadMonthlyUsage({ transferOutPatterns, ...config }) {
-  const { clause, params } = buildUsageCondition(transferOutPatterns || {});
-  const sql = `
-    SELECT t.id,
-           COALESCE(t.numero,'SIN NUMERO') AS numero,
-           UPPER(COALESCE(b.codigo,'SIN BANCO')) AS banco,
-           SUM(
-             CASE WHEN mv.importe < 0 AND (${clause}) THEN -mv.importe ELSE 0 END
-           ) AS used_out
-      FROM tarjeta t
-      JOIN banco b ON b.id = t.banco_id
-      JOIN moneda m ON m.id = t.moneda_id
-      LEFT JOIN movimiento mv ON mv.tarjeta_id = t.id
-       AND mv.creado_en >= date_trunc('month', (now() at time zone 'America/Havana'))
-       AND mv.creado_en <  date_trunc('month', (now() at time zone 'America/Havana')) + interval '1 month'
-     WHERE UPPER(m.codigo) = 'CUP'
-     GROUP BY t.id, numero, banco
-     ORDER BY banco, numero;
-  `;
-  const res = await query(sql, params);
-  return classifyMonthlyUsage(res.rows || [], config);
+async function loadMonthlyUsage(config = {}) {
+  const rows = await getMonthlyOutflowsByCard(config);
+  return classifyMonthlyUsage(rows, config);
 }
 
 function computeCupDistribution(amount, cards = [], bankOrder = []) {
@@ -282,13 +234,20 @@ function computeCupDistribution(amount, cards = [], bankOrder = []) {
 
 function describeLimitStatus(status) {
   if (status === 'BLOCKED') return '⛔️ No recibir CUP';
-  if (status === 'EXTENDABLE') return '🟡 Límite alcanzado, ampliable Multibanca 24h';
+  if (status === 'EXTENDABLE') return '🟡 Límite alcanzado, ampliable';
   return '';
 }
 
 function describeAllocationStatus(status) {
-  if (status === 'EXTENDABLE') return '🟡 ampliable (Multibanca 24h)';
+  if (status === 'EXTENDABLE') return '🟡 ampliable';
   return '';
+}
+
+function formatInteger(value) {
+  return Math.round(Number(value) || 0).toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
 }
 
 function fmtCup(value) {
@@ -576,59 +535,69 @@ function renderAdvice(result) {
   blocks.push(venta.join('\n'));
 
   const limitsData = monthlyLimits || { cards: [] };
-  const limitsLines = ['────────────────────────────────', '🚦 <b>Límite mensual por tarjeta</b>'];
   const orderedCards = sortCardsByPreference(limitsData.cards || [], config.allocationBankOrder || []);
+  const limitPreLines = [];
   if (!orderedCards.length) {
-    limitsLines.push('• —');
+    limitPreLines.push('—');
   } else {
     orderedCards.forEach((card) => {
+      const bank = (card.bank || '').toUpperCase();
+      const mask = card.mask || maskCardNumber(card.numero);
+      const usedStr = formatInteger(card.usedOut).padStart(10);
+      const limitStr = formatInteger(card.limit).padStart(10);
+      const remainingStr = formatInteger(card.remaining).padStart(10);
       const statusText = describeLimitStatus(card.status);
-      const suffix = statusText ? ` ${escapeHtml(statusText)}` : '';
-      limitsLines.push(
-        `• ${escapeHtml(card.bank)} / ${escapeHtml(card.mask)} → usado ${fmtCup(card.usedOut)} / ${fmtCup(
-          card.limit
-        )} CUP  ⇢ disponible ${fmtCup(card.remaining)} CUP${suffix}`
-      );
+      const flag = statusText ? ` ${statusText}` : '';
+      const line = `${bank.padEnd(10)} ${mask.padEnd(8)} usado ${usedStr}/${limitStr} disp ${remainingStr}${flag}`;
+      limitPreLines.push(line);
     });
   }
 
-  const suggestionLines = ['📍 <b>Sugerencia de destino del CUP</b>'];
   const distNow = distributionNow || { assignments: [], leftover: 0, totalAssigned: 0 };
   const distTarget = distributionTarget || { assignments: [], leftover: 0, totalAssigned: 0 };
+  const suggestionPreLines = [];
 
   const appendScenario = (label, amount, distribution) => {
     if (!amount || amount <= 0) return;
-    suggestionLines.push(`• ${escapeHtml(label)}: ${fmtCup(amount)} CUP`);
+    suggestionPreLines.push(`${label}: ${formatInteger(amount)} CUP`);
     if (!distribution.assignments.length) {
-      suggestionLines.push('  • Sin capacidad disponible');
+      suggestionPreLines.push('  Sin capacidad disponible');
     } else {
       distribution.assignments.forEach((item) => {
+        const bank = (item.bank || '').toUpperCase();
+        const mask = item.mask || maskCardNumber(item.numero);
+        const assignStr = formatInteger(item.assignCup).padStart(10);
+        const beforeStr = formatInteger(item.remainingAntes).padStart(10);
+        const afterStr = formatInteger(item.remainingDespues).padStart(10);
         const flag = describeAllocationStatus(item.status);
-        const flagText = flag ? ` ${escapeHtml(flag)}` : '';
-        suggestionLines.push(
-          `  • ${escapeHtml(item.bank)}/${escapeHtml(item.mask)} asignar ${fmtCup(
-            item.assignCup
-          )} CUP  (capacidad → ${fmtCup(item.remainingAntes)} ⇢ ${fmtCup(item.remainingDespues)})${flagText}`
-        );
+        const flagText = flag ? ` ${flag}` : '';
+        const line = `  -> ${bank.padEnd(10)} ${mask.padEnd(8)} asignar ${assignStr} CUP (cap ${beforeStr}→${afterStr})${flagText}`;
+        suggestionPreLines.push(line);
       });
     }
     if (distribution.leftover > 0) {
-      suggestionLines.push(`  • ⚠️ CUP sin destino: ${fmtCup(distribution.leftover)} CUP`);
+      suggestionPreLines.push(`  ⚠️ CUP sin destino: ${formatInteger(distribution.leftover)} CUP`);
     }
   };
 
   appendScenario('Venta AHORA', plan.sellNow.cupIn, distNow);
   if (plan.remainingCup > 0 && plan.sellTarget.cupIn > 0) {
-    appendScenario('Distribución sugerida (objetivo)', plan.sellTarget.cupIn, distTarget);
+    appendScenario('Objetivo total', plan.sellTarget.cupIn, distTarget);
   }
 
-  if (suggestionLines.length === 1) {
-    suggestionLines.push('• —');
+  if (!suggestionPreLines.length) {
+    suggestionPreLines.push('—');
   }
 
-  limitsLines.push(...suggestionLines);
-  limitsLines.push('────────────────────────────────');
-  blocks.push(limitsLines.join('\n'));
+  const limitsBlock = [
+    '────────────────────────────────',
+    '🚦 <b>Límite mensual por tarjeta</b>',
+    `<pre>${limitPreLines.map((line) => escapeHtml(line)).join('\n')}</pre>`,
+    '📍 <b>Sugerencia de destino del CUP</b>',
+    `<pre>${suggestionPreLines.map((line) => escapeHtml(line)).join('\n')}</pre>`,
+    '────────────────────────────────',
+  ];
+  blocks.push(limitsBlock.join('\n'));
 
   const proyeccion = [
     '🧾 <b>Proyección post-venta</b>',
@@ -750,7 +719,7 @@ async function runFondo(ctx, opts = {}) {
       limitMonthlyDefaultCup: config.limitMonthlyDefaultCup,
       limitMonthlyBpaCup: config.limitMonthlyBpaCup,
       extendableBanks: config.extendableBanks,
-      transferOutPatterns: config.transferOutPatterns,
+      assessableBanks: config.assessableBanks,
     });
     console.log(
       `[fondoAdvisor] Tarjetas CUP analizadas => ${monthlyLimits.cards.length} (bloqueadas=${monthlyLimits.totals.blocked} extendibles=${monthlyLimits.totals.extendable})`
@@ -853,9 +822,9 @@ module.exports = {
   loadMonthlyUsage,
   classifyMonthlyUsage,
   computeCupDistribution,
-  buildUsageCondition,
   sortCardsByPreference,
   describeLimitStatus,
   describeAllocationStatus,
   maskCardNumber,
+  getMonthlyOutflowsByCard,
 };
