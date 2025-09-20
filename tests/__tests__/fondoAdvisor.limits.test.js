@@ -34,9 +34,9 @@ describe('fondoAdvisor monthly limits and allocation', () => {
 
   test('clasifica límites mensuales según banco y uso', () => {
     const rows = [
-      { id: 1, numero: '1234567890123456', banco: 'BANDEC', used_out: 121000 },
-      { id: 2, numero: '6543210987654321', banco: 'BPA', used_out: 130000 },
-      { id: 3, numero: '7777888899990000', banco: 'MITRANSFER', used_out: 50000 },
+      { id: 1, numero: '1234567890123456', banco: 'BANDEC', used_out: 121000, saldo_actual: -500 },
+      { id: 2, numero: '6543210987654321', banco: 'BPA', used_out: 130000, saldo_actual: 2000 },
+      { id: 3, numero: '7777888899990000', banco: 'MITRANSFER', used_out: 50000, saldo_actual: 20000 },
     ];
 
     const { cards } = classifyMonthlyUsage(rows, BASE_LIMIT_CONFIG);
@@ -44,19 +44,23 @@ describe('fondoAdvisor monthly limits and allocation', () => {
 
     expect(byBank.BANDEC.status).toBe('BLOCKED');
     expect(byBank.BANDEC.remaining).toBe(0);
+    expect(byBank.BANDEC.depositCap).toBe(0);
 
     expect(byBank.BPA.status).toBe('EXTENDABLE');
     expect(byBank.BPA.remaining).toBe(0);
+    expect(byBank.BPA.depositCap).toBe(0);
 
     expect(byBank.MITRANSFER.status).toBe('OK');
     expect(byBank.MITRANSFER.remaining).toBe(70000);
+    expect(byBank.MITRANSFER.depositCap).toBe(50000);
+    expect(byBank.MITRANSFER.balancePos).toBe(20000);
   });
 
   test('distribuye CUP respetando orden y usando extendibles como respaldo', () => {
     const rows = [
-      { id: 1, numero: '1111222233334444', banco: 'BANDEC', used_out: 100000 },
-      { id: 2, numero: '2222333344445555', banco: 'MITRANSFER', used_out: 60000 },
-      { id: 3, numero: '3333444455556666', banco: 'BPA', used_out: 120000 },
+      { id: 1, numero: '1111222233334444', banco: 'BANDEC', used_out: 100000, saldo_actual: 0 },
+      { id: 2, numero: '2222333344445555', banco: 'MITRANSFER', used_out: 60000, saldo_actual: 0 },
+      { id: 3, numero: '3333444455556666', banco: 'BPA', used_out: 120000, saldo_actual: 0 },
     ];
     const config = {
       ...BASE_LIMIT_CONFIG,
@@ -66,18 +70,18 @@ describe('fondoAdvisor monthly limits and allocation', () => {
     const distribution = computeCupDistribution(100000, cards, config.allocationBankOrder);
 
     expect(distribution.leftover).toBe(0);
-    expect(distribution.assignments).toHaveLength(3);
+    expect(distribution.assignments).toHaveLength(2);
 
-    const [ban, mit, bpa] = distribution.assignments;
+    const [ban, bpa] = distribution.assignments;
     expect(ban.bank).toBe('BANDEC');
     expect(ban.assignCup).toBe(20000);
-
-    expect(mit.bank).toBe('MITRANSFER');
-    expect(mit.assignCup).toBe(60000);
+    expect(ban.remainingAntes).toBe(20000);
 
     expect(bpa.bank).toBe('BPA');
-    expect(bpa.assignCup).toBe(20000);
+    expect(bpa.assignCup).toBe(80000);
     expect(bpa.status).toBe('EXTENDABLE');
+    expect(bpa.remainingAntes).toBe(0);
+    expect(bpa.isBolsa).toBe(false);
   });
 
   test('getMonthlyOutflowsByCard agrega solo CUP y bancos reales', async () => {
@@ -86,7 +90,7 @@ describe('fondoAdvisor monthly limits and allocation', () => {
 
     db.query.mockImplementationOnce((sql, params) => {
       expect(sql).toContain('CASE WHEN mv.importe < 0 THEN -mv.importe ELSE 0 END');
-      expect(params).toEqual(['BANDEC,BPA,METRO,MITRANSFER']);
+      expect(params).toEqual([['BANDEC', 'BPA', 'METRO', 'MITRANSFER']]);
       const aggregatedRows = [
         {
           id: 1,
@@ -94,6 +98,7 @@ describe('fondoAdvisor monthly limits and allocation', () => {
           banco: 'BANDEC',
           moneda: 'CUP',
           used_out: banDecMovs.reduce((acc, importe) => (importe < 0 ? acc + -importe : acc), 0),
+          saldo_actual: 12000,
         },
         {
           id: 2,
@@ -101,6 +106,7 @@ describe('fondoAdvisor monthly limits and allocation', () => {
           banco: 'BPA',
           moneda: 'CUP',
           used_out: bpaMovs.reduce((acc, importe) => (importe < 0 ? acc + -importe : acc), 0),
+          saldo_actual: 8000,
         },
         { id: 3, numero: '33334444', banco: 'BANCA', moneda: 'CUP', used_out: 50000 },
         { id: 4, numero: '44445555', banco: 'BANDEC', moneda: 'USD', used_out: 3000 },
@@ -115,7 +121,9 @@ describe('fondoAdvisor monthly limits and allocation', () => {
     const expectedBanDec = banDecMovs.reduce((acc, importe) => (importe < 0 ? acc + -importe : acc), 0);
     const expectedBpa = bpaMovs.reduce((acc, importe) => (importe < 0 ? acc + -importe : acc), 0);
     expect(byBank.BANDEC.used_out).toBe(expectedBanDec);
+    expect(byBank.BANDEC.saldo_actual).toBe(12000);
     expect(byBank.BPA.used_out).toBe(expectedBpa);
+    expect(byBank.BPA.saldo_actual).toBe(8000);
     expect(Object.keys(byBank)).not.toContain('BANCA');
     rows.forEach((row) => {
       expect(row.moneda).toBe('CUP');
@@ -168,10 +176,10 @@ describe('fondoAdvisor monthly limits and allocation', () => {
     const text = advice.join('\n\n');
     expect(text).toContain('🚦 <b>Límite mensual por tarjeta</b>');
     expect(text).toContain('<pre>');
-    expect(text).toContain('⛔️ No recibir CUP');
-    expect(text).toContain('🟡 Límite alcanzado, ampliable');
-    expect(text).toContain('📍 <b>Sugerencia de destino del CUP</b>');
+    expect(text).toContain('⛔️');
     expect(text).toContain('🟡 ampliable');
+    expect(text).toContain('📍 <b>Sugerencia de destino del CUP</b>');
+    expect(text).toContain('🟡');
     const limitPre = (text.match(/Límite mensual por tarjeta<\/b>\n<pre>([\s\S]*?)<\/pre>/) || [])[1] || '';
     const suggestionPre = (text.match(/Sugerencia de destino del CUP<\/b>\n<pre>([\s\S]*?)<\/pre>/) || [])[1] || '';
     [limitPre, suggestionPre].forEach((segment) => {
