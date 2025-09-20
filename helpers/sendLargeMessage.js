@@ -11,9 +11,11 @@
 //   2. Si un bloque supera el límite, se corta en saltos de línea o
 //      espacios cuidando de no romper etiquetas HTML.
 //   3. Enviar las partes numeradas (1/N) solo cuando N > 1.
-//   4. Fallback sin parse_mode si Telegram rechaza el HTML.
+//   4. Fallback sin parse_mode (texto plano) si Telegram rechaza el HTML.
 //
 // También registra por consola cuántas partes se enviaron y su tamaño.
+
+const { safeReply } = require('./telegram');
 
 const MAX_CHARS = 4000; // margen respecto al límite de 4096
 
@@ -116,11 +118,7 @@ async function sendLargeMessage(ctx, blocks = [], opts = {}) {
   for (let i = 0; i < total; i++) {
     const prefix = total > 1 ? `(${i + 1}/${total})\n` : '';
     const msg = sanitizeUtf8(prefix + chunks[i]);
-    try {
-      await ctx.reply(msg, { parse_mode: 'HTML', ...opts });
-    } catch (err) {
-      await ctx.reply(msg, opts); // fallback sin parse_mode
-    }
+    await safeReply(ctx, msg, { parse_mode: 'HTML', ...opts });
     sizes.push(msg.length);
     await new Promise((r) => setTimeout(r, 300));
   }

@@ -661,11 +661,14 @@ function renderAdvice(result) {
   const limitDefaultFmt = formatInteger(config.limitMonthlyDefaultCup ?? DEFAULT_CONFIG.limitMonthlyDefaultCup);
   const limitBpaFmt = formatInteger(config.limitMonthlyBpaCup ?? config.limitMonthlyDefaultCup ?? DEFAULT_CONFIG.limitMonthlyBpaCup);
   const limitInfoLine = `ℹ️ Límite mensual: Estándar ${limitDefaultFmt} CUP • BPA ${limitBpaFmt} CUP (ampliable)`;
+  const bankWidth = 6;
+  const cardWidth = 12;
+  const valueWidth = 9;
   const limitPreLines = [];
   if (!orderedCards.length) {
     limitPreLines.push('—');
   } else {
-    const hdr = `${'Banco'.padEnd(8)} ${'Tarjeta'.padEnd(13)} ${'SAL'.padStart(10)} ${'SALDO'.padStart(10)} ${'LIBRE'.padStart(10)} ${'CAP'.padStart(10)}  Estado`;
+    const hdr = `${'Banco'.padEnd(bankWidth)} ${'Tarjeta'.padEnd(cardWidth)} ${'SAL'.padStart(valueWidth)} ${'SALDO'.padStart(valueWidth)} ${'LIBRE'.padStart(valueWidth)} ${'CAP'.padStart(valueWidth)} Estado`;
     const dash = '─'.repeat(hdr.length);
     limitPreLines.push(hdr, dash);
     let totalSal = 0;
@@ -683,20 +686,20 @@ function renderAdvice(result) {
       totalSaldo += saldo;
       totalLibre += libre;
       totalCap += cap;
-      const salStr = formatInteger(sal).padStart(10);
-      const saldoStr = formatInteger(saldo).padStart(10);
-      const remainingStr = formatInteger(libre).padStart(10);
-      const capStr = formatInteger(cap).padStart(10);
+      const salStr = formatInteger(sal).padStart(valueWidth);
+      const saldoStr = formatInteger(saldo).padStart(valueWidth);
+      const remainingStr = formatInteger(libre).padStart(valueWidth);
+      const capStr = formatInteger(cap).padStart(valueWidth);
       const statusText = describeLimitStatus(card.status);
-      const line = `${bank.padEnd(8)} ${mask.padEnd(13)} ${salStr} ${saldoStr} ${remainingStr} ${capStr}  ${statusText}`;
+      const line = `${bank.padEnd(bankWidth)} ${mask.padEnd(cardWidth)} ${salStr} ${saldoStr} ${remainingStr} ${capStr} ${statusText}`;
       limitPreLines.push(line);
     });
-    const salTotStr = formatInteger(totalSal).padStart(10);
-    const saldoTotStr = formatInteger(totalSaldo).padStart(10);
-    const libreTotStr = formatInteger(totalLibre).padStart(10);
-    const capTotStr = formatInteger(totalCap).padStart(10);
+    const salTotStr = formatInteger(totalSal).padStart(valueWidth);
+    const saldoTotStr = formatInteger(totalSaldo).padStart(valueWidth);
+    const libreTotStr = formatInteger(totalLibre).padStart(valueWidth);
+    const capTotStr = formatInteger(totalCap).padStart(valueWidth);
     limitPreLines.push(dash);
-    limitPreLines.push(`${'TOTAL'.padEnd(8)} ${''.padEnd(13)} ${salTotStr} ${saldoTotStr} ${libreTotStr} ${capTotStr}`);
+    limitPreLines.push(`${'TOTAL'.padEnd(bankWidth)} ${''.padEnd(cardWidth)} ${salTotStr} ${saldoTotStr} ${libreTotStr} ${capTotStr}`);
   }
 
   const distNow = distributionNow || { assignments: [], leftover: 0, totalAssigned: 0 };
@@ -711,20 +714,22 @@ function renderAdvice(result) {
       suggestionPreLines.push('  Sin capacidad disponible');
     } else {
       // Encabezado de columnas para filas compactas
-      const hdr  = `  ${'Banco'.padEnd(8)} ${'Tarjeta'.padEnd(13)} ${'↦ CUP'.padStart(10)}   ${'cap antes→desp'.padEnd(21)} Estado`;
+      const assignWidth = 8;
+      const capWidth = valueWidth * 2 + 1;
+      const hdr  = `  ${'Banco'.padEnd(bankWidth)} ${'Tarjeta'.padEnd(cardWidth)} ${'↦ CUP'.padStart(assignWidth)} ${'cap antes→desp'.padEnd(capWidth)} Estado`;
       const dash = '  ' + '─'.repeat(hdr.trimStart().length);
       suggestionPreLines.push(hdr, dash);
       distribution.assignments.forEach((item) => {
         const bank = (item.bank || '').toUpperCase();
         const mask = item.mask || maskCardNumber(item.numero);
-        const assignStr = formatInteger(item.assignCup).padStart(9);
-        const beforeStr = formatInteger(item.remainingAntes).padStart(10);
-        const afterStr  = formatInteger(item.remainingDespues).padStart(10);
+        const assignStr = formatInteger(item.assignCup).padStart(assignWidth);
+        const beforeStr = formatInteger(item.remainingAntes).padStart(valueWidth);
+        const afterStr  = formatInteger(item.remainingDespues).padStart(valueWidth);
         const flag      = describeAllocationStatus(item.status);
         const bolsaTag  = item.isBolsa ? ' 🧳 fallback' : '';
         if (item.isBolsa) usedBolsaInDistribution = true;
-        const cap = `${beforeStr}→${afterStr}`.padEnd(21);
-        const line = `  ${bank.padEnd(8)} ${mask.padEnd(13)} ${assignStr}   ${cap} ${flag}${bolsaTag}`;
+        const cap = `${beforeStr}→${afterStr}`.padEnd(capWidth);
+        const line = `  ${bank.padEnd(bankWidth)} ${mask.padEnd(cardWidth)} ${assignStr} ${cap} ${flag}${bolsaTag}`;
         suggestionPreLines.push(line);
       });
     }

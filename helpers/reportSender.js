@@ -10,6 +10,7 @@
 
 const { statsChatId, comercialesGroupId, ownerIds } = require('../config');
 const { escapeHtml } = require('./format');
+const { safeReply, safeSendMessage } = require('./telegram');
 
 /* -------------------------------------------------------------------------- */
 /* Owners                                                                     */
@@ -17,7 +18,7 @@ const { escapeHtml } = require('./format');
 async function notifyOwners(ctx, html, extra = {}) {
   for (const id of ownerIds) {
     try {
-      await ctx.telegram.sendMessage(id, html, {
+      await safeSendMessage(ctx.telegram, id, html, {
         parse_mode: 'HTML',
         disable_web_page_preview: true,
         ...extra,
@@ -45,7 +46,7 @@ async function sendAndLog(ctx, html, extra = {}) {
       disable_web_page_preview: true,
       ...extra, // reply_markup o lo que venga del caller
     };
-    message = await ctx.reply(safe, opts);
+    message = await safeReply(ctx, safe, opts);
   } catch (err) {
     console.error('[reportSender] error ctx.reply', err);
     await notifyOwners(
@@ -60,7 +61,7 @@ async function sendAndLog(ctx, html, extra = {}) {
   /* 2⃣  Reenvío al grupo de estadísticas */
   if (statsChatId) {
     try {
-      await ctx.telegram.sendMessage(statsChatId, safe, {
+      await safeSendMessage(ctx.telegram, statsChatId, safe, {
         parse_mode: 'HTML',
         disable_web_page_preview: true,
       });
@@ -76,7 +77,7 @@ async function sendAndLog(ctx, html, extra = {}) {
   /* 3⃣  Reenvío al grupo de comerciales (si existe) */
   if (comercialesGroupId) {
     try {
-      await ctx.telegram.sendMessage(comercialesGroupId, safe, {
+      await safeSendMessage(ctx.telegram, comercialesGroupId, safe, {
         parse_mode: 'HTML',
         disable_web_page_preview: true,
       });
