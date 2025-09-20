@@ -52,15 +52,21 @@ async function showMain(ctx) {
     `Periodo: <b>${escapeHtml(f.fecha || f.mes || f.period)}</b>\n` +
     `Moneda: <b>${escapeHtml(f.monedaNombre || 'Todas')}</b>\n` +
     `Agente: <b>${escapeHtml(f.agenteNombre || 'Todos')}</b>\n` +
-    `Banco: <b>${escapeHtml(f.bancoNombre || 'Todos')}</b>\n\n` +
+    `Banco: <b>${escapeHtml(f.bancoNombre || 'Todos')}</b>\n` +
+    `Equivalencia: <b>${escapeHtml(f.equiv === 'cup' ? 'CUP' : '—')}</b>\n\n` +
     'Selecciona un filtro o ejecuta el reporte:';
   const buttons = [
     Markup.button.callback('📆 Periodo', 'PERIOD'),
     Markup.button.callback('💱 Moneda', 'CURR'),
     Markup.button.callback('👤 Agente', 'AGENT'),
     Markup.button.callback('🏦 Banco', 'BANK'),
-    Markup.button.callback('🔍 Consultar', 'RUN'),
   ];
+  buttons.push(
+    f.equiv === 'cup'
+      ? Markup.button.callback('➖ Ocultar equivalente en CUP', 'EQ_OFF')
+      : Markup.button.callback('➕ Mostrar equivalente en CUP', 'EQ_ON')
+  );
+  buttons.push(Markup.button.callback('🔍 Consultar', 'RUN'));
   if (ctx.chat.type !== 'private') {
     buttons.push(Markup.button.callback('💬 Ver en privado', 'PRIVATE'));
   }
@@ -214,6 +220,7 @@ const monitorAssist = new Scenes.WizardScene(
       monedaNombre: 'Todas',
       fecha: null,
       mes: null,
+      equiv: null,
     };
     await showMain(ctx);
     return ctx.wizard.next();
@@ -230,6 +237,14 @@ const monitorAssist = new Scenes.WizardScene(
         if (data === 'CURR') return showCurrMenu(ctx);
         if (data === 'AGENT') return showAgentMenu(ctx);
         if (data === 'BANK') return showBankMenu(ctx);
+        if (data === 'EQ_ON') {
+          ctx.wizard.state.filters.equiv = 'cup';
+          return showMain(ctx);
+        }
+        if (data === 'EQ_OFF') {
+          ctx.wizard.state.filters.equiv = null;
+          return showMain(ctx);
+        }
         if (data === 'RUN') {
           const f = ctx.wizard.state.filters;
           let cmd = `/monitor ${f.period}`;
@@ -238,6 +253,7 @@ const monitorAssist = new Scenes.WizardScene(
           if (f.monedaId) cmd += ` --moneda=${f.monedaNombre}`;
           if (f.fecha) cmd += ` --fecha=${f.fecha}`;
           if (f.mes) cmd += ` --mes=${f.mes}`;
+          if (f.equiv === 'cup') cmd += ' --equiv=cup';
           await editIfChanged(ctx, 'Generando reporte...', { parse_mode: 'HTML' });
           const msgs = await runMonitor(ctx, cmd);
           ctx.wizard.state.lastReport = msgs;
