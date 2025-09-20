@@ -23,7 +23,7 @@ describe('fondoAdvisor calculations', () => {
   });
 
   describe('computePlan', () => {
-    it('covers need selling USD inventory only', () => {
+    it('cubre la necesidad vendiendo solo inventario USD', () => {
       const plan = computePlan({
         needCup: 50000,
         usdInventory: 200,
@@ -32,12 +32,14 @@ describe('fondoAdvisor calculations', () => {
         minSellUsd: 40,
         liquidityByBank: {},
       });
-      expect(plan.status).toBe('NEED_ACTION');
-      expect(plan.sellUsdFirst).toMatchObject({ usdToSell: 111, cupOut: 50172, covers: true });
-      expect(plan.arbitrage).toBeUndefined();
+      expect(plan.sellTarget.usd).toBe(111);
+      expect(plan.sellNow.usd).toBe(111);
+      expect(plan.sellNow.cupIn).toBe(50172);
+      expect(plan.remainingCup).toBe(0);
+      expect(plan.urgency).toBe('🟢 NORMAL');
     });
 
-    it('uses arbitrage when no USD inventory', () => {
+    it('usa ciclos cuando no hay inventario USD', () => {
       const plan = computePlan({
         needCup: 80000,
         usdInventory: 0,
@@ -46,19 +48,16 @@ describe('fondoAdvisor calculations', () => {
         minSellUsd: 40,
         liquidityByBank: { BANDEC: 800000 },
       });
-      expect(plan.status).toBe('NEED_ACTION');
-      expect(plan.sellUsdFirst).toBeUndefined();
-      expect(plan.arbitrage).toMatchObject({
-        usdToCycle: 1539,
-        cupToCommit: 615600,
-        cupBack: 695628,
-        profit: 80028,
-        covers: true,
-      });
-      expect(plan.arbitrage.cycles).toBeGreaterThanOrEqual(1);
+      expect(plan.sellTarget.usd).toBe(177);
+      expect(plan.sellNow.usd).toBe(0);
+      expect(plan.remainingCup).toBe(80000);
+      expect(plan.optionalCycle.usdPerCycle).toBe(2000);
+      expect(plan.optionalCycle.profitPerCycle).toBe(104000);
+      expect(plan.optionalCycle.cyclesNeeded).toBe(1);
+      expect(plan.urgency).toBe('🟢 NORMAL');
     });
 
-    it('combines USD sale and arbitrage when necessary', () => {
+    it('combina venta inmediata y ciclos para cubrir el faltante', () => {
       const plan = computePlan({
         needCup: 120000,
         usdInventory: 100,
@@ -67,12 +66,16 @@ describe('fondoAdvisor calculations', () => {
         minSellUsd: 40,
         liquidityByBank: { BANDEC: 600000 },
       });
-      expect(plan.sellUsdFirst).toMatchObject({ cupOut: 45200 });
-      expect(plan.arbitrage.usdToCycle).toBeGreaterThan(0);
-      expect(plan.arbitrage.covers).toBe(true);
+      expect(plan.sellNow.usd).toBe(100);
+      expect(plan.sellNow.cupIn).toBe(45200);
+      expect(plan.remainingCup).toBe(74800);
+      expect(plan.optionalCycle.usdPerCycle).toBe(1500);
+      expect(plan.optionalCycle.profitPerCycle).toBe(78000);
+      expect(plan.optionalCycle.cyclesNeeded).toBe(1);
+      expect(plan.urgency).toBe('🟢 NORMAL');
     });
 
-    it('flags liquidity shortfall when quick banks lack funds', () => {
+    it('marca urgencia cuando la liquidez rápida no alcanza', () => {
       const plan = computePlan({
         needCup: 90000,
         usdInventory: 0,
@@ -81,15 +84,18 @@ describe('fondoAdvisor calculations', () => {
         minSellUsd: 40,
         liquidityByBank: { BANDEC: 20000 },
       });
-      expect(plan.arbitrage.limitedByLiquidity).toBe(true);
-      expect(plan.arbitrage.usdToCycle).toBe(50);
-      expect(plan.arbitrage.profit).toBe(2600);
-      expect(plan.arbitrage.covers).toBe(false);
+      expect(plan.optionalCycle.usdPerCycle).toBe(50);
+      expect(plan.optionalCycle.profitPerCycle).toBe(2600);
+      expect(plan.optionalCycle.cyclesNeeded).toBe(35);
+      expect(plan.remainingCup).toBe(90000);
+      expect(plan.urgency).toBe('🔴 URGENTE');
     });
 
-    it('marks plan as OK when no extra need', () => {
+    it('reporta normalidad cuando no hay necesidad adicional', () => {
       const plan = computePlan({ needCup: 0, usdInventory: 0, sellRate: 452, buyRate: 400 });
-      expect(plan.status).toBe('OK');
+      expect(plan.sellTarget.usd).toBe(0);
+      expect(plan.remainingCup).toBe(0);
+      expect(plan.urgency).toBe('🟢 NORMAL');
     });
   });
 });
