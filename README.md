@@ -88,8 +88,10 @@ Estas utilidades facilitan la creación de asistentes consistentes:
 
 ## 🧮 Asesor de Fondo
 
-El middleware `middlewares/fondoAdvisor.js` genera un informe financiero cada vez que se cierran los asistentes de saldo,
-tarjetas, monitor o extracto (hook en el evento `leave`) y también mediante el comando `/fondo`. El análisis:
+El middleware `middlewares/fondoAdvisor.js` genera un informe financiero cada vez que se cierran los asistentes de tarjetas,
+monitor o extracto (hook en el evento `leave`). El asistente de `/saldo` dispara el análisis desde su propio
+`leaveMiddleware` para garantizar que, incluso si no se registra el middleware global, se envíe el reporte al finalizar. Además
+puede ejecutarse manualmente mediante el comando `/fondo`. El análisis:
 
 - Calcula la necesidad en CUP con `necesidad = |deudas| + colchón − activos` y exige un colchón mínimo de 150 000 CUP.
 - Lee la tasa SELL desde la tabla `moneda` (código `CUP`) y usa las variables `ADVISOR_*` como fallback.

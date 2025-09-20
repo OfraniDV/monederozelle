@@ -38,13 +38,13 @@ describe('fondoAdvisor wiring', () => {
       },
     });
 
-    expect(saldoScene.on).toHaveBeenCalledWith('leave', expect.any(Function));
+    expect(saldoScene.on).not.toHaveBeenCalled();
     expect(tarjetasScene.on).toHaveBeenCalledWith('leave', expect.any(Function));
     expect(monitorScene.on).toHaveBeenCalledWith('leave', expect.any(Function));
     expect(extractoScene.on).toHaveBeenCalledWith('leave', expect.any(Function));
 
     const ctx = { session: {}, reply: jest.fn() };
-    await saldoScene.emit('leave', ctx);
+    await tarjetasScene.emit('leave', ctx);
     await new Promise((resolve) => setImmediate(resolve));
     expect(runSpy).toHaveBeenCalledWith(ctx);
 

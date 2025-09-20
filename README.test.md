@@ -30,6 +30,8 @@ teclado de una sola fila.
 - `tests/commands/assistantsUX.test.js`: verifica que los asistentes
   terminen con el mensaje `Reporte generado.` seguido por los botones
   `💾 Salvar` y `❌ Salir`.
+- `tests/commands/saldo.leave.test.js`: asegura que el asistente de
+  saldo ejecute el asesor de fondo al salir.
 
 ## Flujo local (desarrollo)
 
