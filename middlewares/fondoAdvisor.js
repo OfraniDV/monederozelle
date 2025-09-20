@@ -314,6 +314,32 @@ function formatInteger(value) {
   });
 }
 
+// ——— Severidad del encabezado (según necesidad en CUP y cobertura con USD) ———
+function sumNonBolsaDepositCap(monthlyLimits) {
+  const cards = (monthlyLimits?.cards || []).filter((c) => !c.isBolsa && c.bank !== 'MITRANSFER');
+  return cards.reduce((acc, c) => acc + Math.max(0, Math.round(c.depositCap || 0)), 0);
+}
+
+function computeHeadlineSeverity({ needCup, sellNowCupIn, invUsableUsd, minSellUsd, capSum }) {
+  // Regla:
+  // - NORMAL (🟢): no hay necesidad (needCup <= 0)
+  // - URGENTE (🔴): hay necesidad y la cobertura inmediata es insuficiente (sellNow < need)
+  // - PRIORITARIO (🟠): hay necesidad y la cobertura inmediata alcanza (sellNow >= need),
+  //                     pero requiere acción (venta/colocación); si invUsable < minSell → ATENCIÓN (🟡)
+  if (needCup <= 0) return { icon: '🟢', label: 'NORMAL' };
+  const coverage = sellNowCupIn > 0 ? sellNowCupIn / needCup : 0;
+  if (coverage < 1) {
+    return { icon: '🔴', label: 'URGENTE' };
+  }
+  // Cobertura >= 1 ⇒ podemos cubrir, pero NO es "normal": requiere acción
+  if (invUsableUsd < (minSellUsd || 0)) {
+    return { icon: '🟡', label: 'ATENCIÓN' };
+  }
+  // Si no hay capacidad para colocar todo lo vendido, mantenemos PRIORITARIO igualmente
+  // (capSum solo se usa para matizar decisiones; no cambiamos el color en este parche)
+  return { icon: '🟠', label: 'PRIORITARIO' };
+}
+
 function fmtCup(value) {
   const rounded = Math.round(value || 0);
   return escapeHtml(
@@ -562,8 +588,22 @@ function renderAdvice(result) {
 
   const blocks = [];
   blocks.push('🧮 <b>Asesor de Fondo</b>');
+
+  // Calcular severidad del encabezado según necesidad y cobertura
+  const invTotalUsd   = Math.max(0, Math.floor(result.usdInventory || 0));
+  const invReserveUsd = Math.max(0, Math.round(config.minKeepUsd || 0));
+  const invUsableUsd  = Math.max(0, invTotalUsd - invReserveUsd);
+  const sellNowCupIn  = Math.max(0, Math.round((plan?.sellNow?.cupIn) || (plan?.sellTarget?.cupIn && plan?.sellTarget?.cupIn <= invUsableUsd * (config.sellRate || 0) ? plan.sellTarget.cupIn : 0) || 0));
+  const capSum        = sumNonBolsaDepositCap(monthlyLimits);
+  const sev = computeHeadlineSeverity({
+    needCup: Math.max(0, Math.round(needCup || 0)),
+    sellNowCupIn,
+    invUsableUsd,
+    minSellUsd: Math.round(config.minSellUsd || 0),
+    capSum,
+  });
+  blocks.push(`${sev.icon} ${sev.label}`);
   blocks.push('━━━━━━━━━━━━━━━━━━');
-  blocks.push(urgency || '🟢 NORMAL');
 
   const estado = [
     '📊 <b>Estado actual CUP</b>',
@@ -948,4 +988,6 @@ module.exports = {
   describeAllocationStatus,
   maskCardNumber,
   getMonthlyOutflowsByCard,
+  sumNonBolsaDepositCap,
+  computeHeadlineSeverity,
 };
