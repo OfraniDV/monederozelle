@@ -7,95 +7,63 @@ const {
 
 describe('fondoAdvisor calculations', () => {
   describe('computeNeeds', () => {
-    it('returns zero need when cushion is satisfied', () => {
-      const result = computeNeeds({ activosCup: 200000, deudasCup: -50000, cushionTarget: 150000 });
-      expect(result.needCup).toBe(0);
-      expect(result.cushionTarget).toBe(150000);
-      expect(Math.round(result.disponibles)).toBe(150000);
+    it('respeta el colchón objetivo al sumar deudas y activos', () => {
+      const result = computeNeeds({ activosCup: 131654, deudasCup: -168764, cushionTarget: 100000 });
+      expect(result.needCup).toBe(137110);
+      expect(result.disponibles).toBe(-37110); // activos - |deudas|
+      expect(result.cushionTarget).toBe(100000);
+      expect(result.deudaAbs).toBe(168764);
     });
 
-    it('calculates additional need when cushion is not met', () => {
-      const result = computeNeeds({ activosCup: 120000, deudasCup: -30000, cushionTarget: 150000 });
-      expect(result.needCup).toBe(60000);
-      expect(result.cushionTarget).toBe(150000);
-      expect(Math.round(result.disponibles)).toBe(90000);
+    it('permite colchón cero y calcula necesidad mínima', () => {
+      const result = computeNeeds({ activosCup: 131654, deudasCup: -168764, cushionTarget: 0 });
+      expect(result.needCup).toBe(37110);
+      expect(result.disponibles).toBe(-37110);
+      expect(result.deudaAbs).toBe(168764);
     });
   });
 
-  describe('computePlan', () => {
-    it('cubre la necesidad vendiendo solo inventario USD', () => {
-      const plan = computePlan({
-        needCup: 50000,
-        usdInventory: 200,
-        sellRate: 452,
-        buyRate: 400,
-        minSellUsd: 40,
-        liquidityByBank: {},
-      });
-      expect(plan.sellTarget.usd).toBe(111);
-      expect(plan.sellNow.usd).toBe(111);
-      expect(plan.sellNow.cupIn).toBe(50172);
-      expect(plan.remainingCup).toBe(0);
-      expect(plan.urgency).toBe('🟢 NORMAL');
-    });
+  describe('computePlan con SELL 452 y mínimo 40 USD', () => {
+    const baseConfig = {
+      sellRate: 452,
+      minSellUsd: 40,
+    };
 
-    it('usa ciclos cuando no hay inventario USD', () => {
-      const plan = computePlan({
-        needCup: 80000,
-        usdInventory: 0,
-        sellRate: 452,
-        buyRate: 400,
-        minSellUsd: 40,
-        liquidityByBank: { BANDEC: 800000 },
-      });
-      expect(plan.sellTarget.usd).toBe(177);
+    it('case A: sin inventario disponible marca todo como faltante', () => {
+      const plan = computePlan({ needCup: 137110, usdInventory: 0, ...baseConfig });
+      expect(plan.status).toBe('NEED_ACTION');
+      expect(plan.sellTarget).toEqual({ usd: 304, cupIn: 137408 });
       expect(plan.sellNow.usd).toBe(0);
-      expect(plan.remainingCup).toBe(80000);
-      expect(plan.optionalCycle.usdPerCycle).toBe(2000);
-      expect(plan.optionalCycle.profitPerCycle).toBe(104000);
-      expect(plan.optionalCycle.cyclesNeeded).toBe(1);
-      expect(plan.urgency).toBe('🟢 NORMAL');
+      expect(plan.sellNow.minWarning).toBe(true);
+      expect(plan.remainingCup).toBe(137110);
+      expect(plan.remainingUsd).toBe(304);
     });
 
-    it('combina venta inmediata y ciclos para cubrir el faltante', () => {
-      const plan = computePlan({
-        needCup: 120000,
-        usdInventory: 100,
-        sellRate: 452,
-        buyRate: 400,
-        minSellUsd: 40,
-        liquidityByBank: { BANDEC: 600000 },
-      });
-      expect(plan.sellNow.usd).toBe(100);
-      expect(plan.sellNow.cupIn).toBe(45200);
-      expect(plan.remainingCup).toBe(74800);
-      expect(plan.optionalCycle.usdPerCycle).toBe(1500);
-      expect(plan.optionalCycle.profitPerCycle).toBe(78000);
-      expect(plan.optionalCycle.cyclesNeeded).toBe(1);
-      expect(plan.urgency).toBe('🟢 NORMAL');
-    });
-
-    it('marca urgencia cuando la liquidez rápida no alcanza', () => {
-      const plan = computePlan({
-        needCup: 90000,
-        usdInventory: 0,
-        sellRate: 452,
-        buyRate: 400,
-        minSellUsd: 40,
-        liquidityByBank: { BANDEC: 20000 },
-      });
-      expect(plan.optionalCycle.usdPerCycle).toBe(50);
-      expect(plan.optionalCycle.profitPerCycle).toBe(2600);
-      expect(plan.optionalCycle.cyclesNeeded).toBe(35);
-      expect(plan.remainingCup).toBe(90000);
-      expect(plan.urgency).toBe('🔴 URGENTE');
-    });
-
-    it('reporta normalidad cuando no hay necesidad adicional', () => {
-      const plan = computePlan({ needCup: 0, usdInventory: 0, sellRate: 452, buyRate: 400 });
-      expect(plan.sellTarget.usd).toBe(0);
+    it('case B: inventario suficiente cubre la necesidad completa', () => {
+      const plan = computePlan({ needCup: 37110, usdInventory: 200, ...baseConfig });
+      expect(plan.sellTarget).toEqual({ usd: 83, cupIn: 37516 });
+      expect(plan.sellNow.usd).toBe(83);
+      expect(plan.sellNow.cupIn).toBe(37516);
       expect(plan.remainingCup).toBe(0);
-      expect(plan.urgency).toBe('🟢 NORMAL');
+      expect(plan.remainingUsd).toBe(0);
+    });
+
+    it('case C: inventario menor al mínimo detiene la venta inmediata', () => {
+      const plan = computePlan({ needCup: 37110, usdInventory: 20, ...baseConfig });
+      expect(plan.sellTarget.usd).toBe(83);
+      expect(plan.sellNow.usd).toBe(0);
+      expect(plan.sellNow.minWarning).toBe(true);
+      expect(plan.remainingCup).toBe(37110);
+      expect(plan.remainingUsd).toBe(83);
+    });
+
+    it('sin necesidad devuelve estado OK y montos en cero', () => {
+      const plan = computePlan({ needCup: 0, usdInventory: 500, ...baseConfig });
+      expect(plan.status).toBe('OK');
+      expect(plan.sellTarget.usd).toBe(0);
+      expect(plan.sellNow.usd).toBe(0);
+      expect(plan.remainingCup).toBe(0);
+      expect(plan.remainingUsd).toBe(0);
     });
   });
 });

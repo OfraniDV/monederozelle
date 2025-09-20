@@ -8,3 +8,5 @@
 
 - Definir alertas automáticas cuando la urgencia 🔴 se repita en días consecutivos.
 - Evaluar ajustes del mínimo USD por operación según disponibilidad real de inventario.
+- Investigar recordatorios cuando exista faltante en CUP tras la venta inmediata.
+- Analizar UI para permitir modificar el colchón objetivo directamente desde el comando `/fondo`.

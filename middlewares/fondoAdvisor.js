@@ -43,7 +43,7 @@ function loadConfig(env = process.env) {
     cushion: Math.round(parseNumber(env.ADVISOR_CUSHION_CUP, DEFAULT_CONFIG.cushion)),
     buyRate: parseNumber(env.ADVISOR_BUY_RATE_CUP_PER_USD, DEFAULT_CONFIG.buyRate),
     sellRate: parseNumber(env.ADVISOR_SELL_RATE_CUP_PER_USD, DEFAULT_CONFIG.sellRate),
-    minSellUsd: parseNumber(env.ADVISOR_MIN_SELL_USD, DEFAULT_CONFIG.minSellUsd),
+    minSellUsd: Math.ceil(parseNumber(env.ADVISOR_MIN_SELL_USD, DEFAULT_CONFIG.minSellUsd)),
     liquidityBanks: parseList(env.ADVISOR_BANKS_LIQUIDOS, DEFAULT_CONFIG.liquidityBanks),
   };
 }
@@ -139,7 +139,8 @@ function aggregateBalances(rows = [], liquidityBanks = []) {
     }
 
     if (USD_CODES.has(moneda) && saldoRaw > 0) {
-      const usd = saldoRaw * (tasaUsd || 1);
+      const tasa = tasaUsd > 0 ? tasaUsd : 1;
+      const usd = saldoRaw / tasa;
       if (usd > 0) usdInventory += usd;
     }
   });
@@ -176,113 +177,67 @@ function computePlan({
   needCup = 0,
   usdInventory = 0,
   sellRate = DEFAULT_CONFIG.sellRate,
-  buyRate = DEFAULT_CONFIG.buyRate,
   minSellUsd = DEFAULT_CONFIG.minSellUsd,
-  liquidityByBank = {},
 }) {
-  const safeSellRate = sellRate > 0 ? sellRate : 0;
-  const safeBuyRate = buyRate > 0 ? buyRate : 0;
-  const totalLiquidity = Object.values(liquidityByBank).reduce(
-    (acc, v) => acc + (v && v > 0 ? v : 0),
-    0
+  const normalizedNeed = Math.max(0, Math.round(needCup || 0));
+  const safeSellRate = sellRate > 0 ? Math.round(sellRate) : 0;
+  const normalizedInventory = usdInventory > 0 ? Math.floor(usdInventory) : 0;
+  const minUsd = minSellUsd > 0 ? Math.ceil(minSellUsd) : 0;
+
+  console.log(
+    `[fondoAdvisor] computePlan => needCup=${normalizedNeed} sellRate=${safeSellRate} inventoryUSD=${normalizedInventory} minUSD=${minUsd}`
   );
 
-  console.log(`[fondoAdvisor] Liquidez rápida total detectada => ${Math.round(totalLiquidity)}`);
+  if (normalizedNeed === 0 || safeSellRate === 0) {
+    return {
+      status: 'OK',
+      sellTarget: { usd: 0, cupIn: 0 },
+      sellNow: { usd: 0, cupIn: 0 },
+      remainingCup: 0,
+      remainingUsd: 0,
+    };
+  }
 
-  const plan = {
-    sellTarget: { usd: 0, cupIn: 0 },
-    sellNow: { usd: 0, cupIn: 0, minWarning: false },
-    remainingCup: Math.max(0, Math.round(needCup || 0)),
-    optionalCycle: {
-      usdPerCycle: 0,
-      profitPerUsd: safeSellRate - safeBuyRate,
-      profitPerCycle: 0,
-      cyclesNeeded: 0,
-      liquidityAvailable: Math.round(totalLiquidity),
-      cupPerCycle: 0,
-      belowMin: false,
-    },
-    liquidityTotal: Math.round(totalLiquidity),
-    urgency: '🟢 NORMAL',
+  const targetUsd = Math.ceil(normalizedNeed / safeSellRate);
+  const targetCup = targetUsd * safeSellRate;
+  console.log(`[fondoAdvisor] Venta objetivo => usd=${targetUsd} cup=${targetCup}`);
+
+  let sellNowUsd = 0;
+  let minWarning = false;
+  if (normalizedInventory >= minUsd) {
+    sellNowUsd = Math.min(normalizedInventory, targetUsd);
+  } else if (targetUsd > 0 && minUsd > 0) {
+    minWarning = true;
+  }
+  const sellNowCup = sellNowUsd * safeSellRate;
+  const remainingCup = Math.max(0, normalizedNeed - sellNowCup);
+  const remainingUsd = safeSellRate > 0 ? Math.ceil(remainingCup / safeSellRate) : 0;
+
+  console.log(
+    `[fondoAdvisor] Venta inmediata => usd=${sellNowUsd} cup=${sellNowCup} remainingCup=${remainingCup} remainingUsd=${remainingUsd}`
+  );
+  if (minWarning) {
+    console.log('[fondoAdvisor] Inventario USD por debajo del mínimo configurado.');
+  }
+
+  const sellNow = minWarning
+    ? { usd: sellNowUsd, cupIn: sellNowCup, minWarning: true }
+    : { usd: sellNowUsd, cupIn: sellNowCup };
+
+  return {
+    status: targetUsd > 0 ? 'NEED_ACTION' : 'OK',
+    sellTarget: { usd: targetUsd, cupIn: targetCup },
+    sellNow,
+    remainingCup,
+    remainingUsd,
   };
+}
 
-  if (needCup <= 0 || safeSellRate <= 0) {
-    console.log('[fondoAdvisor] No se requiere acción de venta inmediata.');
-    return plan;
-  }
-
-  const targetUsd = Math.ceil((needCup || 0) / safeSellRate);
-  const targetCup = Math.round(targetUsd * safeSellRate);
-  plan.sellTarget = { usd: targetUsd, cupIn: targetCup };
-  console.log(
-    `[fondoAdvisor] Venta objetivo => usd=${targetUsd} cup=${targetCup} con SELL=${safeSellRate}`
-  );
-
-  const availableUsd = Math.floor(usdInventory || 0);
-  let sellNowUsd = Math.min(availableUsd, targetUsd);
-  const belowMin = sellNowUsd > 0 && sellNowUsd < minSellUsd;
-  const sellNowCup = Math.round(sellNowUsd * safeSellRate);
-  plan.sellNow = { usd: sellNowUsd, cupIn: sellNowCup, minWarning: belowMin };
-  plan.remainingCup = Math.max(0, Math.round((needCup || 0) - sellNowCup));
-  console.log(
-    `[fondoAdvisor] Venta inmediata => usd=${sellNowUsd} cup=${sellNowCup} remaining=${plan.remainingCup}`
-  );
-
-  if (plan.remainingCup <= 0) {
-    plan.urgency = '🟢 NORMAL';
-    return plan;
-  }
-
-  if (safeBuyRate <= 0 || safeSellRate <= safeBuyRate) {
-    console.log('[fondoAdvisor] Tasas inválidas para operar ciclos.');
-    plan.optionalCycle = {
-      usdPerCycle: 0,
-      profitPerUsd: safeSellRate - safeBuyRate,
-      profitPerCycle: 0,
-      cyclesNeeded: 0,
-      liquidityAvailable: Math.round(totalLiquidity),
-      cupPerCycle: 0,
-      belowMin: true,
-    };
-  } else {
-    const usdPerCycle = Math.floor(totalLiquidity / safeBuyRate);
-    const profitPerUsd = safeSellRate - safeBuyRate;
-    const cupPerCycle = Math.round(usdPerCycle * safeBuyRate);
-    const profitPerCycle = Math.round(usdPerCycle * profitPerUsd);
-    const cyclesNeeded = profitPerCycle > 0 ? Math.ceil(plan.remainingCup / profitPerCycle) : 0;
-    const belowCycleMin = usdPerCycle > 0 && usdPerCycle < minSellUsd;
-    plan.optionalCycle = {
-      usdPerCycle,
-      profitPerUsd,
-      profitPerCycle,
-      cyclesNeeded: plan.remainingCup > 0 && profitPerCycle > 0 ? cyclesNeeded : 0,
-      liquidityAvailable: Math.round(totalLiquidity),
-      cupPerCycle,
-      belowMin: belowCycleMin || usdPerCycle === 0,
-    };
-    console.log(
-      `[fondoAdvisor] Ciclo opcional => usdPerCycle=${usdPerCycle} profitPerCycle=${profitPerCycle} cycles=${plan.optionalCycle.cyclesNeeded}`
-    );
-  }
-
-  const cyclesNeeded = plan.optionalCycle.cyclesNeeded || 0;
-  const usdPerCycle = plan.optionalCycle.usdPerCycle || 0;
-  const bothBelowMin = plan.sellNow.usd < minSellUsd && usdPerCycle < minSellUsd;
-
-  if (
-    needCup > 0 &&
-    (bothBelowMin || (plan.remainingCup > 0 && cyclesNeeded >= 5))
-  ) {
-    plan.urgency = '🔴 URGENTE';
-  } else if (needCup > 0 && plan.remainingCup > 0 && cyclesNeeded >= 2 && cyclesNeeded <= 4) {
-    plan.urgency = '🟠 PRIORITARIO';
-  } else if (plan.remainingCup === 0) {
-    plan.urgency = '🟢 NORMAL';
-  } else {
-    plan.urgency = '🟢 NORMAL';
-  }
-  console.log(`[fondoAdvisor] Urgencia => ${plan.urgency}`);
-  return plan;
+function computeUrgency({ needCup = 0, sellNowUsd = 0, remainingCup = 0 }) {
+  if (needCup > 0 && sellNowUsd === 0) return '🔴 URGENTE';
+  if (needCup > 0 && sellNowUsd > 0 && remainingCup > 0) return '🟠 PRIORITARIO';
+  if (remainingCup === 0) return '🟢 NORMAL';
+  return '🟢 NORMAL';
 }
 
 function renderAdvice(result) {
@@ -297,12 +252,13 @@ function renderAdvice(result) {
     liquidityByBank,
     config,
     deudaAbs,
+    urgency,
   } = result;
 
   const blocks = [];
   blocks.push('🧮 <b>Asesor de Fondo</b>');
   blocks.push('━━━━━━━━━━━━━━━━━━');
-  blocks.push(plan.urgency || '🟢 NORMAL');
+  blocks.push(urgency || '🟢 NORMAL');
 
   const estado = [
     '📊 <b>Estado actual CUP</b>',
@@ -321,34 +277,19 @@ function renderAdvice(result) {
   blocks.push(objetivo.join('\n'));
 
   const venta = [
-    '💸 <b>Venta requerida</b>',
+    '💸 <b>Venta requerida (Zelle)</b>',
     `• Objetivo: vender ${fmtUsd(plan.sellTarget.usd)} USD a ${fmtCup(config.sellRate)} ⇒ +${fmtCup(plan.sellTarget.cupIn)} CUP`,
-    `• Vende ahora: ${fmtUsd(plan.sellNow.usd)} USD ⇒ +${fmtCup(plan.sellNow.cupIn)} CUP`,
   ];
-  if (plan.sellNow.usd > 0 && plan.sellNow.usd < config.minSellUsd) {
-    venta.push(`  ⚠️ Inventario menor al mínimo de ${fmtUsd(config.minSellUsd)} USD`);
+  const sellNowLine = `• Vende ahora: ${fmtUsd(plan.sellNow.usd)} USD ⇒ +${fmtCup(plan.sellNow.cupIn)} CUP`;
+  if (plan.sellNow.usd === 0 && plan.sellNow.minWarning) {
+    venta.push(`${sellNowLine} (⚠️ inventario menor al mínimo de ${fmtUsd(config.minSellUsd)} USD)`);
+  } else {
+    venta.push(sellNowLine);
   }
-  venta.push(`• Faltante tras venta: ${fmtCup(plan.remainingCup)} CUP`);
+  venta.push(
+    `• Faltante tras venta: ${fmtCup(plan.remainingCup)} CUP (≈ ${fmtUsd(plan.remainingUsd)} USD)`
+  );
   blocks.push(venta.join('\n'));
-
-  if (plan.remainingCup > 0) {
-    const cycle = [
-      '🛒 <b>Compra por ciclos (opcional)</b>',
-      `• Por ciclo: compra ${fmtUsd(plan.optionalCycle.usdPerCycle)} USD a ${fmtCup(config.buyRate)} (= ${fmtCup(plan.optionalCycle.cupPerCycle)} CUP) y véndelos a ${fmtCup(config.sellRate)} → utilidad ${fmtCup(plan.optionalCycle.profitPerCycle)} CUP`,
-      `• Ciclos estimados: ${plan.optionalCycle.cyclesNeeded} • Liquidez rápida: ${fmtCup(plan.optionalCycle.liquidityAvailable)} CUP`,
-    ];
-    if (plan.optionalCycle.usdPerCycle < config.minSellUsd) {
-      cycle.push(`⚠️ La liquidez rápida no alcanza el mínimo de ${fmtUsd(config.minSellUsd)} USD por ciclo`);
-    }
-    blocks.push(cycle.join('\n'));
-  }
-
-  const explicacion = [
-    '📐 <b>Explicación</b>',
-    `• Fórmula: necesidad = |deudas| + colchón − activos = ${fmtCup(deudaAbs)} + ${fmtCup(cushionTarget)} − ${fmtCup(activosCup)} = ${fmtCup(needCup)} CUP`,
-    `• Objetivo USD = ceil(necesidad / SELL) = ceil(${fmtCup(needCup)} / ${fmtCup(config.sellRate)}) = ${fmtUsd(plan.sellTarget.usd)} USD`,
-  ];
-  blocks.push(explicacion.join('\n'));
 
   const liquidityEntries = (config.liquidityBanks || [])
     .map((bank) => {
@@ -368,10 +309,17 @@ function renderAdvice(result) {
   }
   blocks.push(liquidityBlock.join('\n'));
 
+  const explicacion = [
+    '📐 <b>Explicación</b>',
+    `• Fórmula: necesidad = |deudas| + colchón − activos = ${fmtCup(deudaAbs)} + ${fmtCup(cushionTarget)} − ${fmtCup(activosCup)} = ${fmtCup(needCup)} CUP`,
+    `• Objetivo USD = ceil(necesidad / SELL) = ceil(${fmtCup(needCup)} / ${fmtCup(config.sellRate)}) = ${fmtUsd(plan.sellTarget.usd)} USD`,
+  ];
+  blocks.push(explicacion.join('\n'));
+
   const parametros = [
     '📝 <b>Parámetros</b>',
     `• Mínimo por operación: ${fmtUsd(config.minSellUsd)} USD`,
-    `• Tasas: BUY=${fmtCup(config.buyRate)} / SELL=${fmtCup(config.sellRate)}`,
+    `• Tasa SELL: ${fmtCup(config.sellRate)}`,
   ];
   blocks.push(parametros.join('\n'));
 
@@ -415,6 +363,11 @@ async function runFondo(ctx, opts = {}) {
       )} neto=${Math.round(totals.netoCup)} inventarioUSD=${Math.floor(totals.usdInventory)}`
     );
     console.log('[fondoAdvisor] Liquidez por banco =>', JSON.stringify(totals.liquidityByBank));
+    const liquidityTotal = Object.values(totals.liquidityByBank || {}).reduce(
+      (acc, v) => acc + (v > 0 ? v : 0),
+      0
+    );
+    console.log(`[fondoAdvisor] Liquidez rápida total => ${Math.round(liquidityTotal)}`);
     const needs = computeNeeds({
       activosCup: totals.activosCup,
       deudasCup: totals.deudasCup,
@@ -424,16 +377,22 @@ async function runFondo(ctx, opts = {}) {
       needCup: needs.needCup,
       usdInventory: totals.usdInventory,
       sellRate: config.sellRate,
-      buyRate: config.buyRate,
       minSellUsd: config.minSellUsd,
-      liquidityByBank: totals.liquidityByBank,
     });
+
+    const urgency = computeUrgency({
+      needCup: needs.needCup,
+      sellNowUsd: plan.sellNow.usd,
+      remainingCup: plan.remainingCup,
+    });
+    console.log(`[fondoAdvisor] Urgencia calculada => ${urgency}`);
 
     const result = {
       ...totals,
       ...needs,
       plan,
       config,
+      urgency,
     };
 
     const blocks = renderAdvice(result);
