@@ -92,29 +92,47 @@ async function getMonthlyOutflowsByCard(config = {}) {
     return [];
   }
 
-  const sql = `
+  const buildSql = (withSchema = false) => {
+    const prefix = withSchema ? 'chema.' : '';
+    return `
     SELECT t.id,
            t.numero,
            UPPER(b.codigo) AS banco,
            UPPER(m.codigo) AS moneda,
            UPPER(a.nombre) AS agente,
-           COALESCE(SUM(CASE WHEN mv.importe < 0 THEN -mv.importe ELSE 0 END), 0) AS used_out
-      FROM tarjeta t
-      JOIN banco b   ON b.id = t.banco_id
-      JOIN moneda m  ON m.id = t.moneda_id
-     LEFT JOIN agente a ON a.id = t.agente_id
-      LEFT JOIN movimiento mv
+           COALESCE(SUM(CASE WHEN mv.importe < 0 THEN -mv.importe ELSE 0 END), 0) AS used_out,
+           COALESCE(lastmv.saldo_nuevo, 0) AS saldo_actual
+      FROM ${prefix}tarjeta t
+      JOIN ${prefix}banco  b ON b.id = t.banco_id
+      JOIN ${prefix}moneda m ON m.id = t.moneda_id
+     LEFT JOIN ${prefix}agente a ON a.id = t.agente_id
+     LEFT JOIN ${prefix}movimiento mv
         ON mv.tarjeta_id = t.id
        AND mv.creado_en >= date_trunc('month', (now() at time zone 'America/Havana'))
        AND mv.creado_en <  (date_trunc('month', (now() at time zone 'America/Havana')) + interval '1 month')
+     LEFT JOIN LATERAL (
+        SELECT saldo_nuevo
+          FROM ${prefix}movimiento
+         WHERE tarjeta_id = t.id
+         ORDER BY creado_en DESC
+         LIMIT 1
+     ) lastmv ON TRUE
      WHERE UPPER(m.codigo) = 'CUP'
-       AND UPPER(b.codigo) = ANY( string_to_array(UPPER($1), ',') )
-     GROUP BY t.id, t.numero, b.codigo, m.codigo
-            , a.nombre
+       AND UPPER(b.codigo) = ANY($1::text[])
+     GROUP BY t.id, t.numero, b.codigo, m.codigo, a.nombre, lastmv.saldo_nuevo
   `;
+  };
 
-  const params = [assessableBanks.join(',')];
-  const res = await query(sql, params);
+  const params = [assessableBanks];
+  let res;
+  try {
+    res = await query(buildSql(true), params);
+  } catch (err) {
+    const isMissingSchema = err?.code === '42P01' || /chema\./i.test(err?.message || '');
+    if (!isMissingSchema) throw err;
+    console.warn('[fondoAdvisor] Fallback consulta límites sin esquema (chema ausente).');
+    res = await query(buildSql(false), params);
+  }
   const allowedBanks = new Set(assessableBanks);
 
   return (res.rows || [])
@@ -125,6 +143,7 @@ async function getMonthlyOutflowsByCard(config = {}) {
       moneda: (row.moneda || '').toUpperCase(),
       agente: (row.agente || '').toUpperCase(),
       used_out: Math.round(Number(row.used_out) || 0),
+      saldo_actual: Math.round(Number(row.saldo_actual) || 0),
     }))
     .filter((row) => row.moneda === 'CUP' && allowedBanks.has(row.banco));
 }
@@ -137,9 +156,13 @@ function classifyMonthlyUsage(rows = [], config = {}) {
   const cards = rows.map((row) => {
     const bank = (row.banco || 'SIN BANCO').toUpperCase();
     const usedOut = Math.round(Number(row.used_out) || 0);
+    const saldoActualRaw = Math.round(Number(row.saldo_actual) || 0);
     const limit = bank === 'BPA' ? bpaLimit : defaultLimit;
     const remainingRaw = limit - usedOut;
     const remaining = remainingRaw > 0 ? remainingRaw : 0;
+    const balancePos = saldoActualRaw > 0 ? saldoActualRaw : 0;
+    const depositCapRaw = remaining - balancePos;
+    const depositCap = depositCapRaw > 0 ? depositCapRaw : 0;
     // Detectar BOLSA:
     //  • Todo MITRANSFER se considera BOLSA
     //  • Además, si agente o número contienen "BOLSA"
@@ -162,6 +185,9 @@ function classifyMonthlyUsage(rows = [], config = {}) {
       status,
       extendable: status === 'EXTENDABLE',
       isBolsa,
+      saldoActual: saldoActualRaw,
+      balancePos,
+      depositCap,
     };
   });
 
@@ -188,6 +214,9 @@ function sortCardsByPreference(cards = [], bankOrder = []) {
     const orderA = orderMap.has(a.bank) ? orderMap.get(a.bank) : maxOrder;
     const orderB = orderMap.has(b.bank) ? orderMap.get(b.bank) : maxOrder;
     if (orderA !== orderB) return orderA - orderB;
+    const capA = Math.round(a.depositCap || 0);
+    const capB = Math.round(b.depositCap || 0);
+    if (capA !== capB) return capB - capA;
     if (a.remaining !== b.remaining) return b.remaining - a.remaining;
     return (a.mask || '').localeCompare(b.mask || '');
   });
@@ -208,18 +237,19 @@ function computeCupDistribution(amount, cards = [], bankOrder = []) {
   const assignments = [];
   const ordered = sortCardsByPreference(cards, bankOrder);
 
-  const nonBolsaOK  = ordered.filter((c) => c.status === 'OK' && !c.isBolsa);
+  const nonBolsaOK = ordered.filter((c) => c.status === 'OK' && !c.isBolsa);
   const nonBolsaExt = ordered.filter((c) => c.status === 'EXTENDABLE' && !c.isBolsa);
   const bolsaAny    = ordered.filter((c) => c.isBolsa); // fallback
 
   const pushAssign = (card, before, assign) => {
-    const after = before - assign;
+    const beforeSafe = Math.max(0, Math.round(before || 0));
+    const after = Math.max(0, beforeSafe - Math.round(assign || 0));
     assignments.push({
       bank: card.bank,
       mask: card.mask,
       numero: card.numero,
       assignCup: assign,
-      remainingAntes: before,
+      remainingAntes: beforeSafe,
       remainingDespues: after,
       status: card.status,
       extendable: card.extendable,
@@ -230,7 +260,8 @@ function computeCupDistribution(amount, cards = [], bankOrder = []) {
   const allocate = (candidates, allowExtendable = false) => {
     candidates.forEach((card) => {
       if (remainingAmount <= 0) return;
-      const before = Math.round(card.remaining || 0);
+      const before = Math.round(card.depositCap || 0);
+      if (!allowExtendable && before <= 0) return;
       let capacity = before;
       if (allowExtendable) {
         capacity = Math.max(before, remainingAmount);
@@ -250,7 +281,7 @@ function computeCupDistribution(amount, cards = [], bankOrder = []) {
   if (remainingAmount > 0 && bolsaAny.length) {
     bolsaAny.forEach((card) => {
       if (remainingAmount <= 0) return;
-      const before = Math.round(card.remaining || 0);
+      const before = Math.round(card.depositCap || card.remaining || 0);
       const assign = remainingAmount; // sin límite → absorber todo
       pushAssign(card, before, assign);
       remainingAmount = 0;
@@ -265,14 +296,15 @@ function computeCupDistribution(amount, cards = [], bankOrder = []) {
 }
 
 function describeLimitStatus(status) {
-  if (status === 'BLOCKED') return '⛔️ No recibir CUP';
-  if (status === 'EXTENDABLE') return '🟡 Límite alcanzado, ampliable';
-  return '';
+  if (status === 'BLOCKED') return '⛔️';
+  if (status === 'EXTENDABLE') return '🟡 ampliable';
+  return '🟢';
 }
 
 function describeAllocationStatus(status) {
-  if (status === 'EXTENDABLE') return '🟡 ampliable';
-  return '';
+  if (status === 'EXTENDABLE') return '🟡';
+  if (status === 'BLOCKED') return '⛔️';
+  return '🟢';
 }
 
 function formatInteger(value) {
@@ -590,21 +622,20 @@ function renderAdvice(result) {
   if (!orderedCards.length) {
     limitPreLines.push('—');
   } else {
-    // Encabezado compacto
-    const hdr  = `${'Banco'.padEnd(8)} ${'Tarjeta'.padEnd(7)} ${'SAL/LIM'.padStart(19)} ${'LIBRE'.padStart(10)}  Estado`;
+    const hdr = `${'Banco'.padEnd(8)} ${'Tarjeta'.padEnd(13)} ${'SAL/LIM'.padStart(17)} ${'SALDO'.padStart(10)} ${'LIBRE'.padStart(10)} ${'CAP'.padStart(10)}  Estado`;
     const dash = '─'.repeat(hdr.length);
     limitPreLines.push(hdr, dash);
     orderedCards.forEach((card) => {
       const bank = (card.bank || '').toUpperCase();
       const mask = card.mask || maskCardNumber(card.numero);
-      const usedStr = formatInteger(card.usedOut).padStart(9);
-      const limitStr = formatInteger(card.limit).padStart(9);
+      const usedStr = formatInteger(card.usedOut).padStart(8);
+      const limitStr = formatInteger(card.limit).padStart(8);
+      const saldoStr = formatInteger(card.balancePos).padStart(10);
       const remainingStr = formatInteger(card.remaining).padStart(10);
+      const capStr = formatInteger(card.depositCap).padStart(10);
       const statusText = describeLimitStatus(card.status);
-      const flag = statusText ? ` ${statusText}` : '';
-      const salLim = `${usedStr}/${limitStr}`.padStart(19);
-      const libre  = `${remainingStr}`.padStart(10);
-      const line = `${bank.padEnd(8)} ${mask.padEnd(7)} ${salLim} ${libre}${flag}`;
+      const salLim = `${usedStr}/${limitStr}`.padStart(17);
+      const line = `${bank.padEnd(8)} ${mask.padEnd(13)} ${salLim} ${saldoStr} ${remainingStr} ${capStr}  ${statusText}`;
       limitPreLines.push(line);
     });
   }
@@ -621,20 +652,20 @@ function renderAdvice(result) {
       suggestionPreLines.push('  Sin capacidad disponible');
     } else {
       // Encabezado de columnas para filas compactas
-      const hdr  = `  ${'Banco'.padEnd(8)} ${'Tarjeta'.padEnd(7)} ${'↦ CUP'.padStart(10)}   ${'cap antes→desp'.padEnd(20)}  Estado`;
+      const hdr  = `  ${'Banco'.padEnd(8)} ${'Tarjeta'.padEnd(13)} ${'↦ CUP'.padStart(10)}   ${'cap antes→desp'.padEnd(21)} Estado`;
       const dash = '  ' + '─'.repeat(hdr.trimStart().length);
       suggestionPreLines.push(hdr, dash);
       distribution.assignments.forEach((item) => {
         const bank = (item.bank || '').toUpperCase();
         const mask = item.mask || maskCardNumber(item.numero);
         const assignStr = formatInteger(item.assignCup).padStart(9);
-        const beforeStr = formatInteger(item.remainingAntes).padStart(9);
-        const afterStr  = formatInteger(item.remainingDespues).padStart(9);
+        const beforeStr = formatInteger(item.remainingAntes).padStart(10);
+        const afterStr  = formatInteger(item.remainingDespues).padStart(10);
         const flag      = describeAllocationStatus(item.status);
         const bolsaTag  = item.isBolsa ? ' 🧳 fallback' : '';
         if (item.isBolsa) usedBolsaInDistribution = true;
-        const cap = `${beforeStr}→${afterStr}`.padEnd(20);
-        const line = `  ${bank.padEnd(8)} ${mask.padEnd(7)} ${assignStr}   ${cap}${flag}${bolsaTag}`;
+        const cap = `${beforeStr}→${afterStr}`.padEnd(21);
+        const line = `  ${bank.padEnd(8)} ${mask.padEnd(13)} ${assignStr}   ${cap} ${flag}${bolsaTag}`;
         suggestionPreLines.push(line);
       });
     }
@@ -654,8 +685,9 @@ function renderAdvice(result) {
   // Nota de fees si se usó BOLSA en la distribución
   if (usedBolsaInDistribution) {
     suggestionPreLines.push('');
-    suggestionPreLines.push(`  • Nota: BOLSA usada como recurso 2º plano. Entre bolsas: -${BOLSA_TO_BOLSA_FEE_CUP} CUP por movimiento;`);
-    suggestionPreLines.push(`           BOLSA → tarjeta banco: neto ≈ asignado × ${(1 - BOLSA_TO_BANK_FEE_PCT).toFixed(2)} (−${(BOLSA_TO_BANK_FEE_PCT * 100) | 0}%)`);
+    suggestionPreLines.push(
+      `  • Nota: BOLSA usada como 2º plano. Entre bolsas: -${BOLSA_TO_BOLSA_FEE_CUP} CUP; Bolsa→Banco: neto ≈ asignado × ${(1 - BOLSA_TO_BANK_FEE_PCT).toFixed(2)}`
+    );
   }
 
   const limitsBlock = [
@@ -670,7 +702,7 @@ function renderAdvice(result) {
 
   const proyeccion = [
     '🧾 <b>Proyección post-venta</b>',
-    '• Negativos: 0 CUP (proyectado)',
+    `• Negativos: ${fmtCup(projection.negativosPost)} CUP`,
     `• Colchón proyectado: ${fmtCup(projection.colchonPost)} CUP ${
       projection.colchonPost >= cushionTarget ? '≥' : '<'
     } ${fmtCup(cushionTarget)}`,
