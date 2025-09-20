@@ -17,6 +17,7 @@ const { Scenes, Markup } = require('telegraf');
 const { escapeHtml, fmtMoney, boldHeader } = require('../helpers/format');
 const { sendAndLog } = require('../helpers/reportSender');
 const { recordChange, flushOnExit } = require('../helpers/sessionSummary');
+const { runFondo } = require('../middlewares/fondoAdvisor');
 const pool = require('../psql/db.js');
 const moment = require('moment-timezone');
 
@@ -384,9 +385,18 @@ const saldoWizard = new Scenes.WizardScene(
   }
 );
 
-saldoWizard.leave(async ctx => {
+async function handleSaldoLeave(ctx) {
   ctx.wizard.state = {};
-});
+
+  try {
+    await runFondo(ctx);
+  } catch (err) {
+    console.error('[SALDO_WIZ] error al generar análisis de fondo:', err);
+  }
+}
+
+saldoWizard.leave(handleSaldoLeave);
+saldoWizard.handleSaldoLeave = handleSaldoLeave;
 
 module.exports = saldoWizard;
 

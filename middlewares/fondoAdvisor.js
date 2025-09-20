@@ -455,7 +455,6 @@ async function runFondo(ctx, opts = {}) {
 
 function registerFondoAdvisor({ scenes = {} } = {}) {
   const targets = [
-    scenes.saldoWizard,
     scenes.tarjetasAssist,
     scenes.monitorAssist,
     scenes.extractoAssist,
