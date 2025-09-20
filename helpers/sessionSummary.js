@@ -1,5 +1,6 @@
 const { notifyOwners } = require('./reportSender');
 const { fmtMoney, escapeHtml } = require('./format');
+const { safeSendMessage } = require('./telegram');
 const { ownerIds, statsChatId, comercialesGroupId } = require('../config');
 const db = require('../psql/db.js');
 const { query } = db;
@@ -30,7 +31,7 @@ function formatDate(d) {
 async function broadcast(ctx, recipients, html) {
   for (const id of recipients) {
     try {
-      await ctx.telegram.sendMessage(id, html, { parse_mode: 'HTML' });
+      await safeSendMessage(ctx.telegram, id, html, { parse_mode: 'HTML' });
     } catch (err) {
       console.error('[sessionSummary] error enviando a', id, err.message);
     }
