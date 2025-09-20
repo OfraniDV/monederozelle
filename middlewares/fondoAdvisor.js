@@ -4,6 +4,10 @@ const path = require('path');
 const { escapeHtml } = require('../helpers/format');
 const { sendLargeMessage } = require('../helpers/sendLargeMessage');
 
+// Fees constantes de BOLSA (no vienen de .env)
+const BOLSA_TO_BOLSA_FEE_CUP = 1;     // mover de bolsa a bolsa
+const BOLSA_TO_BANK_FEE_PCT  = 0.05;  // mover de bolsa a tarjeta banco
+
 let db;
 try {
   db = require(path.join(__dirname, '..', 'psql', 'db.js'));
@@ -72,9 +76,10 @@ function loadConfig(env = process.env) {
 }
 
 function maskCardNumber(numero) {
+  // Compacto y sin “****”: solo últimos 4 como #1234
   const raw = typeof numero === 'string' ? numero.replace(/\s+/g, '') : `${numero || ''}`;
-  const last4 = raw.slice(-4) || '????';
-  return `****${last4}`;
+  const last4 = raw.slice(-4);
+  return `#${last4 || '—'}`;
 }
 
 async function getMonthlyOutflowsByCard(config = {}) {
@@ -92,17 +97,20 @@ async function getMonthlyOutflowsByCard(config = {}) {
            t.numero,
            UPPER(b.codigo) AS banco,
            UPPER(m.codigo) AS moneda,
+           UPPER(a.nombre) AS agente,
            COALESCE(SUM(CASE WHEN mv.importe < 0 THEN -mv.importe ELSE 0 END), 0) AS used_out
       FROM tarjeta t
       JOIN banco b   ON b.id = t.banco_id
       JOIN moneda m  ON m.id = t.moneda_id
+     LEFT JOIN agente a ON a.id = t.agente_id
       LEFT JOIN movimiento mv
         ON mv.tarjeta_id = t.id
        AND mv.creado_en >= date_trunc('month', (now() at time zone 'America/Havana'))
        AND mv.creado_en <  (date_trunc('month', (now() at time zone 'America/Havana')) + interval '1 month')
      WHERE UPPER(m.codigo) = 'CUP'
        AND UPPER(b.codigo) = ANY( string_to_array(UPPER($1), ',') )
-     GROUP BY t.id, t.numero, b.codigo, m.codigo;
+     GROUP BY t.id, t.numero, b.codigo, m.codigo
+            , a.nombre
   `;
 
   const params = [assessableBanks.join(',')];
@@ -115,6 +123,7 @@ async function getMonthlyOutflowsByCard(config = {}) {
       numero: row.numero,
       banco: (row.banco || '').toUpperCase(),
       moneda: (row.moneda || '').toUpperCase(),
+      agente: (row.agente || '').toUpperCase(),
       used_out: Math.round(Number(row.used_out) || 0),
     }))
     .filter((row) => row.moneda === 'CUP' && allowedBanks.has(row.banco));
@@ -131,6 +140,8 @@ function classifyMonthlyUsage(rows = [], config = {}) {
     const limit = bank === 'BPA' ? bpaLimit : defaultLimit;
     const remainingRaw = limit - usedOut;
     const remaining = remainingRaw > 0 ? remainingRaw : 0;
+    // Detectar BOLSA: banco MITRANSFER + agente contiene "BOLSA"
+    const isBolsa = bank === 'MITRANSFER' && /BOLSA/.test(row.agente || '');
     const status = remaining === 0
       ? extendableSet.has(bank)
         ? 'EXTENDABLE'
@@ -146,6 +157,7 @@ function classifyMonthlyUsage(rows = [], config = {}) {
       remaining,
       status,
       extendable: status === 'EXTENDABLE',
+      isBolsa,
     };
   });
 
@@ -192,6 +204,25 @@ function computeCupDistribution(amount, cards = [], bankOrder = []) {
   const assignments = [];
   const ordered = sortCardsByPreference(cards, bankOrder);
 
+  const nonBolsaOK  = ordered.filter((c) => c.status === 'OK' && !c.isBolsa);
+  const nonBolsaExt = ordered.filter((c) => c.status === 'EXTENDABLE' && !c.isBolsa);
+  const bolsaAny    = ordered.filter((c) => c.isBolsa); // fallback
+
+  const pushAssign = (card, before, assign) => {
+    const after = before - assign;
+    assignments.push({
+      bank: card.bank,
+      mask: card.mask,
+      numero: card.numero,
+      assignCup: assign,
+      remainingAntes: before,
+      remainingDespues: after,
+      status: card.status,
+      extendable: card.extendable,
+      isBolsa: !!card.isBolsa,
+    });
+  };
+
   const allocate = (candidates, allowExtendable = false) => {
     candidates.forEach((card) => {
       if (remainingAmount <= 0) return;
@@ -202,27 +233,24 @@ function computeCupDistribution(amount, cards = [], bankOrder = []) {
       }
       const assign = Math.min(Math.round(capacity || 0), remainingAmount);
       if (assign <= 0) return;
-      const after = before - assign;
-      assignments.push({
-        bank: card.bank,
-        mask: card.mask,
-        numero: card.numero,
-        assignCup: assign,
-        remainingAntes: before,
-        remainingDespues: after,
-        status: card.status,
-        extendable: card.extendable,
-      });
+      pushAssign(card, before, assign);
       remainingAmount -= assign;
     });
   };
 
-  allocate(ordered.filter((card) => card.status === 'OK'));
-  if (remainingAmount > 0) {
-    allocate(
-      ordered.filter((card) => card.status === 'EXTENDABLE'),
-      true
-    );
+  // 1) Bancos normales con capacidad
+  allocate(nonBolsaOK);
+  // 2) EXTENDABLE (p.ej. BPA con Multibanca)
+  if (remainingAmount > 0) allocate(nonBolsaExt, true);
+  // 3) Fallback: BOLSA (sin límite práctico)
+  if (remainingAmount > 0 && bolsaAny.length) {
+    bolsaAny.forEach((card) => {
+      if (remainingAmount <= 0) return;
+      const before = Math.round(card.remaining || 0);
+      const assign = remainingAmount; // sin límite → absorber todo
+      pushAssign(card, before, assign);
+      remainingAmount = 0;
+    });
   }
 
   return {
@@ -506,7 +534,7 @@ function renderAdvice(result) {
     `• Activos: ${fmtCup(activosCup)} CUP`,
     `• Deudas: ${fmtCup(deudasCup)} CUP`,
     `• Neto: ${fmtCup(netoCup)} CUP`,
-    `• Disponible tras deudas: ${fmtCup(disponibles)} CUP`,
+    `• Libre tras deudas: ${fmtCup(disponibles)} CUP`,
   ];
   blocks.push(estado.join('\n'));
 
@@ -535,20 +563,28 @@ function renderAdvice(result) {
   blocks.push(venta.join('\n'));
 
   const limitsData = monthlyLimits || { cards: [] };
-  const orderedCards = sortCardsByPreference(limitsData.cards || [], config.allocationBankOrder || []);
+  const orderedCards = sortCardsByPreference(limitsData.cards || [], config.allocationBankOrder || [])
+    // No mostrar BOLSA en el bloque de límites
+    .filter((c) => !c.isBolsa);
   const limitPreLines = [];
   if (!orderedCards.length) {
     limitPreLines.push('—');
   } else {
+    // Encabezado compacto
+    const hdr  = `${'Banco'.padEnd(8)} ${'Tarjeta'.padEnd(7)} ${'SAL/LIM'.padStart(19)} ${'LIBRE'.padStart(10)}  Estado`;
+    const dash = '─'.repeat(hdr.length);
+    limitPreLines.push(hdr, dash);
     orderedCards.forEach((card) => {
       const bank = (card.bank || '').toUpperCase();
       const mask = card.mask || maskCardNumber(card.numero);
-      const usedStr = formatInteger(card.usedOut).padStart(10);
-      const limitStr = formatInteger(card.limit).padStart(10);
+      const usedStr = formatInteger(card.usedOut).padStart(9);
+      const limitStr = formatInteger(card.limit).padStart(9);
       const remainingStr = formatInteger(card.remaining).padStart(10);
       const statusText = describeLimitStatus(card.status);
       const flag = statusText ? ` ${statusText}` : '';
-      const line = `${bank.padEnd(10)} ${mask.padEnd(8)} usado ${usedStr}/${limitStr} disp ${remainingStr}${flag}`;
+      const salLim = `${usedStr}/${limitStr}`.padStart(19);
+      const libre  = `${remainingStr}`.padStart(10);
+      const line = `${bank.padEnd(8)} ${mask.padEnd(7)} ${salLim} ${libre}${flag}`;
       limitPreLines.push(line);
     });
   }
@@ -556,6 +592,7 @@ function renderAdvice(result) {
   const distNow = distributionNow || { assignments: [], leftover: 0, totalAssigned: 0 };
   const distTarget = distributionTarget || { assignments: [], leftover: 0, totalAssigned: 0 };
   const suggestionPreLines = [];
+  let usedBolsaInDistribution = false;
 
   const appendScenario = (label, amount, distribution) => {
     if (!amount || amount <= 0) return;
@@ -563,15 +600,21 @@ function renderAdvice(result) {
     if (!distribution.assignments.length) {
       suggestionPreLines.push('  Sin capacidad disponible');
     } else {
+      // Encabezado de columnas para filas compactas
+      const hdr  = `  ${'Banco'.padEnd(8)} ${'Tarjeta'.padEnd(7)} ${'↦ CUP'.padStart(10)}   ${'cap antes→desp'.padEnd(20)}  Estado`;
+      const dash = '  ' + '─'.repeat(hdr.trimStart().length);
+      suggestionPreLines.push(hdr, dash);
       distribution.assignments.forEach((item) => {
         const bank = (item.bank || '').toUpperCase();
         const mask = item.mask || maskCardNumber(item.numero);
-        const assignStr = formatInteger(item.assignCup).padStart(10);
-        const beforeStr = formatInteger(item.remainingAntes).padStart(10);
-        const afterStr = formatInteger(item.remainingDespues).padStart(10);
-        const flag = describeAllocationStatus(item.status);
-        const flagText = flag ? ` ${flag}` : '';
-        const line = `  -> ${bank.padEnd(10)} ${mask.padEnd(8)} asignar ${assignStr} CUP (cap ${beforeStr}→${afterStr})${flagText}`;
+        const assignStr = formatInteger(item.assignCup).padStart(9);
+        const beforeStr = formatInteger(item.remainingAntes).padStart(9);
+        const afterStr  = formatInteger(item.remainingDespues).padStart(9);
+        const flag      = describeAllocationStatus(item.status);
+        const bolsaTag  = item.isBolsa ? ' 🧳 fallback' : '';
+        if (item.isBolsa) usedBolsaInDistribution = true;
+        const cap = `${beforeStr}→${afterStr}`.padEnd(20);
+        const line = `  ${bank.padEnd(8)} ${mask.padEnd(7)} ${assignStr}   ${cap}${flag}${bolsaTag}`;
         suggestionPreLines.push(line);
       });
     }
@@ -587,6 +630,12 @@ function renderAdvice(result) {
 
   if (!suggestionPreLines.length) {
     suggestionPreLines.push('—');
+  }
+  // Nota de fees si se usó BOLSA en la distribución
+  if (usedBolsaInDistribution) {
+    suggestionPreLines.push('');
+    suggestionPreLines.push(`  • Nota: BOLSA usada como recurso 2º plano. Entre bolsas: -${BOLSA_TO_BOLSA_FEE_CUP} CUP por movimiento;`);
+    suggestionPreLines.push(`           BOLSA → tarjeta banco: neto ≈ asignado × ${(1 - BOLSA_TO_BANK_FEE_PCT).toFixed(2)} (−${(BOLSA_TO_BANK_FEE_PCT * 100) | 0}%)`);
   }
 
   const limitsBlock = [
