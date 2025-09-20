@@ -72,10 +72,10 @@ describe('fondoAdvisor wiring', () => {
     expect(send).toHaveBeenCalledTimes(1);
     const message = send.mock.calls[0][0];
     expect(message).toContain('Asesor de Fondo');
-    expect(message).toContain('Venta requerida');
-    expect(message).toContain('Compra por ciclos');
+    expect(message).toContain('Venta requerida (Zelle)');
+    expect(message).toContain('Faltante tras venta');
     expect(message).toContain('Liquidez rápida disponible');
     expect(result.plan.remainingCup).toBeGreaterThan(0);
-    expect(result.plan.urgency).toBe('🟠 PRIORITARIO');
+    expect(result.urgency).toBe('🟠 PRIORITARIO');
   });
 });
