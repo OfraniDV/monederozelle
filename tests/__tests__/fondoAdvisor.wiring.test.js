@@ -45,6 +45,7 @@ describe('fondoAdvisor wiring', () => {
 
     const ctx = { session: {}, reply: jest.fn() };
     await saldoScene.emit('leave', ctx);
+    await new Promise((resolve) => setImmediate(resolve));
     expect(runSpy).toHaveBeenCalledWith(ctx);
 
     runSpy.mockRestore();
@@ -71,9 +72,10 @@ describe('fondoAdvisor wiring', () => {
     expect(send).toHaveBeenCalledTimes(1);
     const message = send.mock.calls[0][0];
     expect(message).toContain('Asesor de Fondo');
-    expect(message).toContain('Vende');
-    expect(message).toContain('Arbitraje');
+    expect(message).toContain('Venta requerida');
+    expect(message).toContain('Compra por ciclos');
     expect(message).toContain('Liquidez rápida disponible');
-    expect(result.plan.status).toBe('NEED_ACTION');
+    expect(result.plan.remainingCup).toBeGreaterThan(0);
+    expect(result.plan.urgency).toBe('🟠 PRIORITARIO');
   });
 });

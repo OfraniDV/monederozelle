@@ -151,11 +151,6 @@ bot.command('acceso',   ownerOnly((ctx) => ctx.scene.enter('ACCESO_ASSIST')));
 bot.command('extracto', (ctx) => ctx.scene.enter('EXTRACTO_ASSIST'));
 bot.command('fondo',    safe(require('./commands/fondo')));
 
-saldoWizard.on('leave', (ctx) => runFondo(ctx).catch(() => {}));
-tarjetasAssist.on('leave', (ctx) => runFondo(ctx).catch(() => {}));
-monitorAssist.on('leave', (ctx) => runFondo(ctx).catch(() => {}));
-extractoAssist.on('leave', (ctx) => runFondo(ctx).catch(() => {}));
-
 /* ───────── 13. Gestión de accesos (solo OWNER) ───────── */
 
 /* ───────── arranque robusto y cierre limpio ───────── */

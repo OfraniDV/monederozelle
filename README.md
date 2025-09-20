@@ -86,6 +86,19 @@ Estas utilidades facilitan la creación de asistentes consistentes:
 - `buildSaveExitRow()`: crea una fila única con botones 💾 Salvar / ❌ Salir.
 - `sendReportWithKb(ctx, pages, kb)`: envía páginas largas y añade al final un teclado Save/Exit.
 
+## 🧮 Asesor de Fondo
+
+El middleware `middlewares/fondoAdvisor.js` genera un informe financiero cada vez que se cierran los asistentes de saldo,
+tarjetas, monitor o extracto (hook en el evento `leave`) y también mediante el comando `/fondo`. El análisis:
+
+- Calcula la necesidad en CUP con `necesidad = |deudas| + colchón − activos` y exige un colchón mínimo de 150 000 CUP.
+- Lee la tasa SELL desde la tabla `moneda` (código `CUP`) y usa las variables `ADVISOR_*` como fallback.
+- Ignora como liquidez las cuentas por cobrar cuyo banco/agente/número contenga “debe/deuda/deudor”.
+- Resume inventario USD, venta inmediata, faltante y estrategia opcional de compra por ciclos con BUY/SELL y mínimo USD.
+- Clasifica la urgencia en 🔴/🟠/🟢 y explica la fórmula en un mensaje HTML sin `<br>` ni `<ul>` usando `sendLargeMessage`.
+- Emite logs con prefijo `[fondoAdvisor]` para config, tasas, totales, necesidad, ventas y ciclos para facilitar auditorías.
+- Está cubierto por pruebas en `tests/__tests__/fondoAdvisor.test.js` con una cobertura superior al 95 % en la lógica pura.
+
 ## UX de teclados
 
 Para mejorar la experiencia, los reportes extensos se envían en varias páginas
