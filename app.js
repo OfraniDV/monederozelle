@@ -44,6 +44,7 @@ const tarjetasAssist  = require('./commands/tarjetas_assist');
 const monitorAssist   = require('./commands/monitor_assist');
 const accesoAssist    = require('./commands/acceso_assist');
 const extractoAssist  = require('./commands/extracto_assist');
+const { registerFondoAdvisor, runFondo } = require('./middlewares/fondoAdvisor');
 
 /* ───────── 6. Inicializar BD (idempotente) ───────── */
 async function initDatabase() {
@@ -67,6 +68,12 @@ stage.hears(/^(salir)$/i, async (ctx) => {
 });
 bot.use(session());
 bot.use(stage.middleware());
+
+registerFondoAdvisor({
+  bot,
+  stage,
+  scenes: { saldoWizard, tarjetasAssist, monitorAssist, extractoAssist },
+});
 
 /* Wizards que se auto-registran en el stage */
 registerMoneda(bot, stage);
@@ -142,6 +149,12 @@ bot.command('tarjetas', (ctx) => ctx.scene.enter('TARJETAS_ASSIST'));
 bot.command('monitor',  (ctx) => ctx.scene.enter('MONITOR_ASSIST'));
 bot.command('acceso',   ownerOnly((ctx) => ctx.scene.enter('ACCESO_ASSIST')));
 bot.command('extracto', (ctx) => ctx.scene.enter('EXTRACTO_ASSIST'));
+bot.command('fondo',    safe(require('./commands/fondo')));
+
+saldoWizard.on('leave', (ctx) => runFondo(ctx).catch(() => {}));
+tarjetasAssist.on('leave', (ctx) => runFondo(ctx).catch(() => {}));
+monitorAssist.on('leave', (ctx) => runFondo(ctx).catch(() => {}));
+extractoAssist.on('leave', (ctx) => runFondo(ctx).catch(() => {}));
 
 /* ───────── 13. Gestión de accesos (solo OWNER) ───────── */
 
