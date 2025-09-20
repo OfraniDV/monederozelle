@@ -1,23 +1,31 @@
 'use strict';
 
+jest.mock('../../psql/db.js', () => ({
+  query: jest.fn(),
+}));
+
+const db = require('../../psql/db.js');
+
 const {
   classifyMonthlyUsage,
   computeCupDistribution,
-  buildUsageCondition,
   renderAdvice,
   sortCardsByPreference,
+  getMonthlyOutflowsByCard,
 } = require('../../middlewares/fondoAdvisor');
 
 const BASE_LIMIT_CONFIG = {
   limitMonthlyDefaultCup: 120000,
   limitMonthlyBpaCup: 120000,
   extendableBanks: ['BPA'],
+  assessableBanks: ['BANDEC', 'BPA', 'METRO', 'MITRANSFER'],
 };
 
 describe('fondoAdvisor monthly limits and allocation', () => {
   beforeEach(() => {
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'error').mockImplementation(() => {});
+    db.query.mockReset();
   });
 
   afterEach(() => {
@@ -72,11 +80,46 @@ describe('fondoAdvisor monthly limits and allocation', () => {
     expect(bpa.status).toBe('EXTENDABLE');
   });
 
-  test('buildUsageCondition sin patrones usa fallback de importe negativo', () => {
-    const { clause, params } = buildUsageCondition({});
-    expect(clause).toContain('NOT (UPPER(b.codigo) = ANY(');
-    expect(clause).toContain('mv.descripcion IS NULL');
-    expect(params).toEqual([[]]);
+  test('getMonthlyOutflowsByCard agrega solo CUP y bancos reales', async () => {
+    const banDecMovs = [-5000, 2000, -1500];
+    const bpaMovs = [-80000, -40000, 5000];
+
+    db.query.mockImplementationOnce((sql, params) => {
+      expect(sql).toContain('CASE WHEN mv.importe < 0 THEN -mv.importe ELSE 0 END');
+      expect(params).toEqual(['BANDEC,BPA,METRO,MITRANSFER']);
+      const aggregatedRows = [
+        {
+          id: 1,
+          numero: '11112222',
+          banco: 'BANDEC',
+          moneda: 'CUP',
+          used_out: banDecMovs.reduce((acc, importe) => (importe < 0 ? acc + -importe : acc), 0),
+        },
+        {
+          id: 2,
+          numero: '22223333',
+          banco: 'BPA',
+          moneda: 'CUP',
+          used_out: bpaMovs.reduce((acc, importe) => (importe < 0 ? acc + -importe : acc), 0),
+        },
+        { id: 3, numero: '33334444', banco: 'BANCA', moneda: 'CUP', used_out: 50000 },
+        { id: 4, numero: '44445555', banco: 'BANDEC', moneda: 'USD', used_out: 3000 },
+      ];
+      return Promise.resolve({ rows: aggregatedRows });
+    });
+
+    const rows = await getMonthlyOutflowsByCard(BASE_LIMIT_CONFIG);
+    expect(rows).toHaveLength(2);
+
+    const byBank = Object.fromEntries(rows.map((row) => [row.banco, row]));
+    const expectedBanDec = banDecMovs.reduce((acc, importe) => (importe < 0 ? acc + -importe : acc), 0);
+    const expectedBpa = bpaMovs.reduce((acc, importe) => (importe < 0 ? acc + -importe : acc), 0);
+    expect(byBank.BANDEC.used_out).toBe(expectedBanDec);
+    expect(byBank.BPA.used_out).toBe(expectedBpa);
+    expect(Object.keys(byBank)).not.toContain('BANCA');
+    rows.forEach((row) => {
+      expect(row.moneda).toBe('CUP');
+    });
   });
 
   test('renderAdvice incluye bloques de límites y sugerencias con banderas', () => {
@@ -124,10 +167,19 @@ describe('fondoAdvisor monthly limits and allocation', () => {
 
     const text = advice.join('\n\n');
     expect(text).toContain('🚦 <b>Límite mensual por tarjeta</b>');
+    expect(text).toContain('<pre>');
     expect(text).toContain('⛔️ No recibir CUP');
-    expect(text).toContain('🟡 Límite alcanzado, ampliable Multibanca 24h');
+    expect(text).toContain('🟡 Límite alcanzado, ampliable');
     expect(text).toContain('📍 <b>Sugerencia de destino del CUP</b>');
-    expect(text).toContain('🟡 ampliable (Multibanca 24h)');
+    expect(text).toContain('🟡 ampliable');
+    const limitPre = (text.match(/Límite mensual por tarjeta<\/b>\n<pre>([\s\S]*?)<\/pre>/) || [])[1] || '';
+    const suggestionPre = (text.match(/Sugerencia de destino del CUP<\/b>\n<pre>([\s\S]*?)<\/pre>/) || [])[1] || '';
+    [limitPre, suggestionPre].forEach((segment) => {
+      expect(segment).not.toContain('BANCA');
+      expect(segment).not.toContain('WESTERU');
+      expect(segment).not.toContain('USD');
+      expect(segment).not.toContain('MLC');
+    });
   });
 
   test('ordenamiento respeta ADVISOR_ALLOCATION_BANK_ORDER', () => {
