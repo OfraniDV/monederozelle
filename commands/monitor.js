@@ -44,6 +44,7 @@ function parseArgs(raw = '') {
     orden: 'delta',
     fecha: null,
     mes: null,
+    equiv: null,
   };
 
   tokens.forEach((t) => {
@@ -90,12 +91,56 @@ function parseArgs(raw = '') {
           const ord = normalize(val);
           if (['delta', 'vol', 'movs'].includes(ord)) opts.orden = ord;
           break;
+        case '--equiv':
+        case '--to':
+          if (normalize(val) === 'cup') opts.equiv = 'cup';
+          break;
         default:
           break;
       }
     }
   });
   return opts;
+}
+
+function parseNumber(value, fallback) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function clamp01(value) {
+  const num = Number.isFinite(value) ? value : 0;
+  if (num < 0) return 0;
+  if (num > 1) return 1;
+  return num;
+}
+
+async function getSellRate() {
+  const fallbackSell = parseNumber(process.env.ADVISOR_SELL_RATE_CUP_PER_USD, 452);
+  const feePct = clamp01(parseNumber(process.env.ADVISOR_SELL_FEE_PCT, 0));
+  const marginPct = clamp01(parseNumber(process.env.ADVISOR_FX_MARGIN_PCT, 0));
+  let sellRate = fallbackSell;
+  let source = 'env';
+  try {
+    const { rows } = await query(
+      "SELECT tasa_usd FROM moneda WHERE UPPER(codigo)='CUP' ORDER BY id DESC LIMIT 1"
+    );
+    if (rows && rows.length) {
+      const tasaUsd = Number(rows[0].tasa_usd);
+      if (tasaUsd > 0) {
+        sellRate = Math.round(1 / tasaUsd);
+        source = 'db';
+      }
+    }
+  } catch (err) {
+    console.error('[monitor] Error leyendo tasa SELL de DB:', err.message);
+  }
+  let sellNet = Math.floor(sellRate * (1 - feePct));
+  if (!Number.isFinite(sellNet) || sellNet <= 0) sellNet = sellRate;
+  if (marginPct > 0) {
+    sellNet = Math.round(sellNet * (1 + marginPct));
+  }
+  return { sellRate, sellNet, sellFeePct: feePct, fxMarginPct: marginPct, source };
 }
 
 function calcRanges(period, tz, fecha, mes) {
@@ -162,12 +207,21 @@ function resumenPor(rows, campo) {
   const mapa = new Map();
   rows.forEach((r) => {
     const key = r[campo] || '—';
-    const obj = mapa.get(key) || { ini: 0, fin: 0 };
+    const obj = mapa.get(key) || { ini: 0, fin: 0, iniUsd: 0, finUsd: 0 };
     obj.ini += r.saldo_ini;
     obj.fin += r.saldo_fin;
+    obj.iniUsd += r.saldo_ini_usd;
+    obj.finUsd += r.saldo_fin_usd;
     mapa.set(key, obj);
   });
   return mapa;
+}
+
+function fmtCup(value) {
+  const rounded = Math.round(value || 0);
+  return escapeHtml(
+    rounded.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+  );
 }
 
 /* ───────── SQL base v2 (saldos del período + globales) ───────── */
@@ -250,6 +304,10 @@ function buildMessage(moneda, rows, opts, range, historiales) {
     totalFinPer = 0,
     totalIniTot = 0,
     totalFinTot = 0,
+    totalIniPerUsd = 0,
+    totalFinPerUsd = 0,
+    totalIniTotUsd = 0,
+    totalFinTotUsd = 0,
     totalUsd = 0,
     up = 0,
     down = 0,
@@ -257,12 +315,22 @@ function buildMessage(moneda, rows, opts, range, historiales) {
     totalPos = 0,
     totalNeg = 0,
     totalPosUsd = 0,
-    totalNegUsd = 0;
+    totalNegUsd = 0,
+    totalPosCupEq = 0,
+    totalNegCupEq = 0;
+  const monedaUpper = (moneda || '').toUpperCase();
+  const needEquivCup = opts.equiv === 'cup' && ['USD', 'MLC'].includes(monedaUpper);
+  const sellInfo = needEquivCup ? opts.sellInfo || {} : {};
+  const sellNet = needEquivCup ? sellInfo.sellNet || sellInfo.sellRate || 0 : 0;
   rows.forEach((r) => {
     totalIniPer += r.saldo_ini;
     totalFinPer += r.saldo_fin;
     totalIniTot += r.saldo_ini_total;
     totalFinTot += r.saldo_fin_total;
+    totalIniPerUsd += r.saldo_ini_usd;
+    totalFinPerUsd += r.saldo_fin_usd;
+    totalIniTotUsd += r.saldo_ini_total_usd;
+    totalFinTotUsd += r.saldo_fin_total_usd;
     totalUsd += r.delta_usd;
     if (r.delta > 0) up++;
     else if (r.delta < 0) down++;
@@ -270,9 +338,12 @@ function buildMessage(moneda, rows, opts, range, historiales) {
     if (r.saldo_fin > 0) {
       totalPos += r.saldo_fin;
       totalPosUsd += r.saldo_fin_usd;
+      if (needEquivCup) totalPosCupEq += Math.round(r.saldo_fin_usd * sellNet);
     } else if (r.saldo_fin < 0) {
       totalNeg += Math.abs(r.saldo_fin);
       totalNegUsd += Math.abs(r.saldo_fin_usd);
+      if (needEquivCup)
+        totalNegCupEq += Math.round(Math.abs(r.saldo_fin_usd) * sellNet);
     }
   });
 
@@ -281,6 +352,7 @@ function buildMessage(moneda, rows, opts, range, historiales) {
   if (opts.banco) filtros.push(`banco=${escapeHtml(opts.banco)}`);
   if (opts.moneda) filtros.push(`moneda=${escapeHtml(opts.moneda)}`);
   if (opts.soloCambio) filtros.push('solo-cambio');
+  if (opts.equiv === 'cup') filtros.push('equiv=CUP');
   const filtStr = filtros.length ? `Filtros: ${filtros.join(', ')}\n` : '';
 
   let msg =
@@ -293,11 +365,25 @@ function buildMessage(moneda, rows, opts, range, historiales) {
   const emojiPer   = deltaPer > 0 ? '📈' : deltaPer < 0 ? '📉' : '➖';
   msg +=
     `Saldo inicio (período): <code>${fmtMoney(totalIniPer)}</code> → Saldo fin (período): <code>${fmtMoney(totalFinPer)}</code> (Δ <code>${(deltaPer >= 0 ? '+' : '') + fmtMoney(deltaPer)}</code>) ${emojiPer}\n`;
+  if (needEquivCup) {
+    const totalFinPerCupEq = Math.round(totalFinPerUsd * sellNet);
+    msg += `Equiv. CUP (SELL=${fmtCup(sellNet)}): <code>${fmtCup(totalFinPerCupEq)}</code>\n`;
+  }
 
   const deltaTot   = totalFinTot - totalIniTot;
   const emojiTot   = deltaTot > 0 ? '📈' : deltaTot < 0 ? '📉' : '➖';
-  msg +=
-    `Saldo inicio (histórico): <code>${fmtMoney(totalIniTot)}</code> → Saldo actual: <code>${fmtMoney(totalFinTot)}</code> (Δ <code>${(deltaTot >= 0 ? '+' : '') + fmtMoney(deltaTot)}</code>) ${emojiTot} (equiv. <code>${fmtMoney(totalUsd)}</code> USD)\n`;
+  let histLine =
+    `Saldo inicio (histórico): <code>${fmtMoney(totalIniTot)}</code> → Saldo actual: <code>${fmtMoney(totalFinTot)}</code> (Δ <code>${(deltaTot >= 0 ? '+' : '') + fmtMoney(deltaTot)}</code>) ${emojiTot} (equiv. <code>${fmtMoney(totalUsd)}</code> USD)`;
+  if (needEquivCup) {
+    const totalUsdCupEq = Math.round(totalUsd * sellNet);
+    histLine += ` • Equiv. CUP: <code>${fmtCup(totalUsdCupEq)}</code>`;
+  }
+  histLine += '\n';
+  msg += histLine;
+  if (needEquivCup) {
+    const totalFinTotCupEq = Math.round(totalFinTotUsd * sellNet);
+    msg += `Equiv. CUP (SELL=${fmtCup(sellNet)}): <code>${fmtCup(totalFinTotCupEq)}</code>\n`;
+  }
   msg += `Tarjetas: 📈 ${up}  📉 ${down}  ➖ ${same}\n\n`;
 
   // Tabla principal
@@ -315,19 +401,22 @@ function buildMessage(moneda, rows, opts, range, historiales) {
   agentOrder.forEach((ag) => {
     lines.push(`———— Agente: ${ag} ————`);
     agentMap.get(ag).forEach((r) => {
-      lines.push(
+      const baseLine =
         pad(r.tarjeta, 12) +
-          pad(r.agente, 12) +
-          pad(r.banco, 8) +
-          pad(fmtMoney(r.saldo_ini), 12, true) +
-          pad(fmtMoney(r.saldo_fin), 12, true) +
-          pad((r.delta >= 0 ? '+' : '') + fmtMoney(r.delta), 12, true) +
-          pad((r.delta_usd >= 0 ? '+' : '') + fmtMoney(r.delta_usd), 10, true) +
-          pad(fmtPct(r.pct), 7, true) +
-          pad(r.movs, 6, true) +
-          pad(fmtMoney(r.vol), 8, true) +
-          pad(r.estado, 8)
-      );
+        pad(r.agente, 12) +
+        pad(r.banco, 8) +
+        pad(fmtMoney(r.saldo_ini), 12, true) +
+        pad(fmtMoney(r.saldo_fin), 12, true) +
+        pad((r.delta >= 0 ? '+' : '') + fmtMoney(r.delta), 12, true) +
+        pad((r.delta_usd >= 0 ? '+' : '') + fmtMoney(r.delta_usd), 10, true) +
+        pad(fmtPct(r.pct), 7, true) +
+        pad(r.movs, 6, true) +
+        pad(fmtMoney(r.vol), 8, true) +
+        pad(r.estado, 8);
+      const extra = needEquivCup
+        ? ` • Equiv. CUP: ${fmtCup(Math.round(r.saldo_fin_usd * sellNet))}`
+        : '';
+      lines.push(baseLine + extra);
     });
     lines.push('');
   });
@@ -346,9 +435,22 @@ function buildMessage(moneda, rows, opts, range, historiales) {
   /* ─── Saldos totales ────────────────────────────── */
   const neto = totalPos - totalNeg;
   const netoUsd = totalPosUsd - totalNegUsd;
-  msg += `\n<b>Saldo positivo total:</b> <code>${fmtMoney(totalPos)}</code> (equiv. <code>${fmtMoney(totalPosUsd)}</code> USD)`;
-  msg += `\n<b>Saldo negativo total:</b> <code>${fmtMoney(totalNeg)}</code> (equiv. <code>${fmtMoney(totalNegUsd)}</code> USD)`;
-  msg += `\n<b>Diferencia:</b> <code>${(neto >= 0 ? '+' : '') + fmtMoney(neto)}</code> (equiv. <code>${(netoUsd >= 0 ? '+' : '') + fmtMoney(netoUsd)}</code> USD)\n`;
+  let posLine = `<b>Saldo positivo total:</b> <code>${fmtMoney(totalPos)}</code> (equiv. <code>${fmtMoney(totalPosUsd)}</code> USD)`;
+  let negLine = `<b>Saldo negativo total:</b> <code>${fmtMoney(totalNeg)}</code> (equiv. <code>${fmtMoney(totalNegUsd)}</code> USD)`;
+  let diffLine = `<b>Diferencia:</b> <code>${(neto >= 0 ? '+' : '') + fmtMoney(neto)}</code> (equiv. <code>${(netoUsd >= 0 ? '+' : '') + fmtMoney(netoUsd)}</code> USD)`;
+  if (needEquivCup) {
+    posLine += ` • Equiv. CUP: <code>${fmtCup(totalPosCupEq)}</code>`;
+    negLine += ` • Equiv. CUP: <code>${fmtCup(totalNegCupEq)}</code>`;
+    const netoCupEq = totalPosCupEq - totalNegCupEq;
+    diffLine += ` • Equiv. CUP: <code>${fmtCup(netoCupEq)}</code>`;
+  }
+  msg += `\n${posLine}`;
+  msg += `\n${negLine}`;
+  msg += `\n${diffLine}\n`;
+  if (needEquivCup) {
+    msg += `<b>Saldo positivo total (CUP eq.):</b> <code>${fmtCup(totalPosCupEq)}</code>\n`;
+    msg += `<b>Saldo negativo total (CUP eq.):</b> <code>${fmtCup(totalNegCupEq)}</code>\n`;
+  }
 
 
   // Resumenes por agente y banco
@@ -359,6 +461,10 @@ function buildMessage(moneda, rows, opts, range, historiales) {
     const delta = val.fin - val.ini;
     const em = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
     msg += `${pad(key, 15)}${pad(fmtMoney(val.ini), 12, true)}${pad(fmtMoney(val.fin), 12, true)}${pad((delta >= 0 ? '+' : '') + fmtMoney(delta), 12, true)} ${em}\n`;
+    if (needEquivCup) {
+      const finCupEq = Math.round(val.finUsd * sellNet);
+      msg += `${pad('', 15)}Equiv. CUP: ${fmtCup(finCupEq)}\n`;
+    }
   });
   msg += `</pre>`;
   msg += `\n<b>Resumen por banco</b>\n<pre>`;
@@ -366,6 +472,10 @@ function buildMessage(moneda, rows, opts, range, historiales) {
     const delta = val.fin - val.ini;
     const em = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
     msg += `${pad(key, 15)}${pad(fmtMoney(val.ini), 12, true)}${pad(fmtMoney(val.fin), 12, true)}${pad((delta >= 0 ? '+' : '') + fmtMoney(delta), 12, true)} ${em}\n`;
+    if (needEquivCup) {
+      const finCupEq = Math.round(val.finUsd * sellNet);
+      msg += `${pad('', 15)}Equiv. CUP: ${fmtCup(finCupEq)}\n`;
+    }
   });
   msg += `</pre>`;
 
@@ -394,6 +504,13 @@ async function runMonitor(ctx, rawText) {
   try {
     const opts = parseArgs(rawText || '');
     console.log('[monitor] opciones', opts);
+    if (opts.equiv === 'cup') {
+      opts.sellInfo = await getSellRate();
+      const info = opts.sellInfo || {};
+      console.log(
+        `[monitor] SELL rate => SELL=${info.sellRate} sellNet=${info.sellNet} fee=${info.sellFeePct} margin=${info.fxMarginPct} source=${info.source}`
+      );
+    }
     const rango = calcRanges(opts.period, opts.tz, opts.fecha, opts.mes);
 
     const params = [rango.start.toDate(), rango.end.toDate()];
@@ -417,14 +534,18 @@ async function runMonitor(ctx, rawText) {
 
     const { rows } = await query(sql, params);
     let datos = rows.map((r) => {
-      const saldo_ini  = parseFloat(r.saldo_ini_period) || 0;   // período
-      const saldo_fin  = parseFloat(r.saldo_fin_period) || saldo_ini;
-      const delta      = saldo_fin - saldo_ini;                 // Δ período
-      const delta_total = (parseFloat(r.saldo_fin_total)||0) -
-                          (parseFloat(r.saldo_ini_total)||0);   // Δ histórico
+      const saldo_ini = parseFloat(r.saldo_ini_period) || 0; // período
+      const saldo_fin = parseFloat(r.saldo_fin_period) || saldo_ini;
+      const saldo_ini_total = parseFloat(r.saldo_ini_total) || 0;
+      const saldo_fin_total = parseFloat(r.saldo_fin_total) || 0;
+      const delta = saldo_fin - saldo_ini; // Δ período
+      const delta_total = saldo_fin_total - saldo_ini_total; // Δ histórico
       const tasa = parseFloat(r.tasa_usd) || 1;
       const delta_usd = delta * tasa;
+      const saldo_ini_usd = saldo_ini * tasa;
       const saldo_fin_usd = saldo_fin * tasa;
+      const saldo_ini_total_usd = saldo_ini_total * tasa;
+      const saldo_fin_total_usd = saldo_fin_total * tasa;
       const pct = saldo_ini !== 0 ? (delta / saldo_ini) * 100 : null;
       return {
         id: r.id,
@@ -434,12 +555,16 @@ async function runMonitor(ctx, rawText) {
         moneda: r.moneda || '—',
         saldo_ini,
         saldo_fin,
-        saldo_ini_total: parseFloat(r.saldo_ini_total) || 0,
-        saldo_fin_total: parseFloat(r.saldo_fin_total) || 0,
+        saldo_ini_total,
+        saldo_fin_total,
         delta,             // período
         delta_total,       // histórico
         delta_usd,
+        saldo_ini_usd,
         saldo_fin_usd,
+        saldo_ini_total_usd,
+        saldo_fin_total_usd,
+        tasa_usd: tasa,
         pct,
         movs: parseFloat(r.movs || 0),
         n_up: parseFloat(r.n_up || 0),
