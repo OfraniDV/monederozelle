@@ -310,9 +310,12 @@ async function showMonBankDetail(ctx, monCode, bankCode) {
 
 function buildAllBlocks(data) {
   let text = '💳 <b>Todas las tarjetas</b>';
+  const monTotals = [];
   Object.values(data.byMon)
     .sort((a, b) => a.code.localeCompare(b.code))
     .forEach((mon) => {
+      let monPos = 0;
+      let monNeg = 0;
       Object.values(mon.banks)
         .sort((a, b) => a.code.localeCompare(b.code))
         .forEach((bank) => {
@@ -326,13 +329,38 @@ function buildAllBlocks(data) {
               text += `• ${escapeHtml(t.numero)} – ${agTxt} ⇒ ${fmt(t.saldo)}\n`;
             });
           const total = bank.pos + bank.neg;
+          monPos += bank.pos;
+          monNeg += bank.neg;
           text += `<b>Total activo:</b> ${fmt(bank.pos)} ${escapeHtml(mon.code)}\n`;
           if (bank.neg)
             text += `<b>Total deuda:</b> ${fmt(bank.neg)} ${escapeHtml(mon.code)}\n`;
           text += `<b>Neto:</b> ${fmt(total)} ${escapeHtml(mon.code)}\n`;
           text += `<b>Equiv. neto USD:</b> ${fmt(total * mon.rate)}\n`;
         });
+      const monTotal = monPos + monNeg;
+      monTotals.push({
+        code: mon.code,
+        emoji: mon.emoji,
+        rate: mon.rate,
+        pos: monPos,
+        neg: monNeg,
+        total: monTotal,
+      });
     });
+  if (monTotals.some((m) => m.pos !== 0 || m.neg !== 0)) {
+    text += '\n\n<b>Totales por moneda</b>';
+    monTotals
+      .filter((m) => m.pos !== 0 || m.neg !== 0)
+      .sort((a, b) => a.code.localeCompare(b.code))
+      .forEach((m) => {
+        text += `\n${m.emoji} <b>${escapeHtml(m.code)}</b>\n`;
+        text += `<b>Total activo:</b> ${fmt(m.pos)} ${escapeHtml(m.code)}\n`;
+        if (m.neg)
+          text += `<b>Total deuda:</b> ${fmt(m.neg)} ${escapeHtml(m.code)}\n`;
+        text += `<b>Neto:</b> ${fmt(m.total)} ${escapeHtml(m.code)}\n`;
+        text += `<b>Equiv. neto USD:</b> ${fmt(m.total * m.rate)}\n`;
+      });
+  }
   return text.trim() ? [text] : ['No hay datos.'];
 }
 
