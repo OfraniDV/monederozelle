@@ -23,6 +23,16 @@ const DEFAULT_CONFIG = {
   fxMarginPct: 0,
   sellRoundToUsd: 1,
   minKeepUsd: 0,
+  limitMonthlyDefaultCup: 120000,
+  limitMonthlyBpaCup: 120000,
+  extendableBanks: ['BPA'],
+  allocationBankOrder: ['BANDEC', 'MITRANSFER', 'METRO', 'BPA'],
+  transferOutPatterns: {
+    BANDEC: ['%transfer%', '%transf%', '%envio%', '%enviar%', '%pago movil%'],
+    METRO: ['%transfer%', '%movil%', '%envio%'],
+    MITRANSFER: ['%transfer%', '%envio%', '%wallet%'],
+    BPA: ['%transfer%', '%multibanca%', '%envio%', '%pago%'],
+  },
 };
 
 const USD_CODES = new Set(['USD', 'MLC']);
@@ -41,6 +51,30 @@ function parseList(value, fallback) {
     .filter(Boolean);
 }
 
+function parsePatternJson(value, fallback) {
+  if (!value) return { ...fallback };
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object') return { ...fallback };
+    const result = {};
+    Object.entries(parsed).forEach(([bank, patterns]) => {
+      const key = (bank || '').toUpperCase();
+      if (!key) return;
+      if (!Array.isArray(patterns)) {
+        result[key] = [];
+        return;
+      }
+      result[key] = patterns
+        .map((p) => (typeof p === 'string' ? p.trim() : ''))
+        .filter(Boolean);
+    });
+    return result;
+  } catch (err) {
+    console.error('[fondoAdvisor] Error parseando TRANSFER_OUT_PATTERNS_JSON:', err.message);
+    return { ...fallback };
+  }
+}
+
 function loadConfig(env = process.env) {
   return {
     cushion: Math.round(parseNumber(env.ADVISOR_CUSHION_CUP, DEFAULT_CONFIG.cushion)),
@@ -51,7 +85,210 @@ function loadConfig(env = process.env) {
     fxMarginPct: parseNumber(env.ADVISOR_FX_MARGIN_PCT, DEFAULT_CONFIG.fxMarginPct),
     sellRoundToUsd: Math.max(1, Math.round(parseNumber(env.ADVISOR_SELL_ROUND_TO_USD, DEFAULT_CONFIG.sellRoundToUsd))),
     minKeepUsd: Math.max(0, Math.round(parseNumber(env.ADVISOR_MIN_KEEP_USD, DEFAULT_CONFIG.minKeepUsd))),
+    limitMonthlyDefaultCup: Math.round(
+      parseNumber(env.LIMIT_MONTHLY_DEFAULT_CUP, DEFAULT_CONFIG.limitMonthlyDefaultCup)
+    ),
+    limitMonthlyBpaCup: Math.round(
+      parseNumber(env.LIMIT_MONTHLY_BPA_CUP, DEFAULT_CONFIG.limitMonthlyBpaCup)
+    ),
+    extendableBanks: parseList(env.LIMIT_EXTENDABLE_BANKS, DEFAULT_CONFIG.extendableBanks),
+    allocationBankOrder: parseList(
+      env.ADVISOR_ALLOCATION_BANK_ORDER,
+      DEFAULT_CONFIG.allocationBankOrder
+    ),
+    transferOutPatterns: parsePatternJson(
+      env.TRANSFER_OUT_PATTERNS_JSON,
+      DEFAULT_CONFIG.transferOutPatterns
+    ),
   };
+}
+
+function maskCardNumber(numero) {
+  const raw = typeof numero === 'string' ? numero.replace(/\s+/g, '') : `${numero || ''}`;
+  const last4 = raw.slice(-4) || '????';
+  return `****${last4}`;
+}
+
+function buildUsageCondition(patternMap = {}) {
+  const entries = Object.entries(patternMap).map(([bank, patterns]) => [
+    (bank || '').toUpperCase(),
+    Array.isArray(patterns)
+      ? patterns.map((p) => (typeof p === 'string' ? p.trim() : '')).filter(Boolean)
+      : [],
+  ]);
+  const withPatterns = entries.filter(([, arr]) => arr.length);
+  const withoutPatterns = entries.filter(([, arr]) => !arr.length);
+  const params = [];
+  const clauses = [];
+
+  withPatterns.forEach(([bank, patterns]) => {
+    params.push(bank);
+    const bankIdx = params.length;
+    params.push(patterns);
+    const patternsIdx = params.length;
+    clauses.push(`(UPPER(b.codigo) = $${bankIdx} AND mv.descripcion ILIKE ANY($${patternsIdx}))`);
+  });
+
+  const fallbackParts = [];
+  if (withoutPatterns.length) {
+    params.push(withoutPatterns.map(([bank]) => bank));
+    const fallbackIdx = params.length;
+    fallbackParts.push(`UPPER(b.codigo) = ANY($${fallbackIdx})`);
+  }
+
+  const patternBanks = withPatterns.map(([bank]) => bank);
+  params.push(patternBanks);
+  const patternIdx = params.length;
+  fallbackParts.push(`NOT (UPPER(b.codigo) = ANY($${patternIdx}))`);
+  fallbackParts.push('mv.descripcion IS NULL');
+
+  const segments = [];
+  if (clauses.length) segments.push(`(${clauses.join(' OR ')})`);
+  if (fallbackParts.length) segments.push(`(${fallbackParts.join(' OR ')})`);
+  const clause = segments.length ? segments.join(' OR ') : 'TRUE';
+
+  return { clause, params };
+}
+
+function classifyMonthlyUsage(rows = [], config = {}) {
+  const defaultLimit = Math.max(0, Math.round(config.limitMonthlyDefaultCup || 0));
+  const bpaLimit = Math.max(0, Math.round(config.limitMonthlyBpaCup || defaultLimit));
+  const extendableSet = new Set((config.extendableBanks || []).map((b) => (b || '').toUpperCase()));
+
+  const cards = rows.map((row) => {
+    const bank = (row.banco || 'SIN BANCO').toUpperCase();
+    const usedOut = Math.round(Number(row.used_out) || 0);
+    const limit = bank === 'BPA' ? bpaLimit : defaultLimit;
+    const remainingRaw = limit - usedOut;
+    const remaining = remainingRaw > 0 ? remainingRaw : 0;
+    const status = remaining === 0
+      ? extendableSet.has(bank)
+        ? 'EXTENDABLE'
+        : 'BLOCKED'
+      : 'OK';
+    return {
+      id: row.id,
+      bank,
+      numero: row.numero || 'SIN NUMERO',
+      mask: maskCardNumber(row.numero || ''),
+      usedOut,
+      limit,
+      remaining,
+      status,
+      extendable: status === 'EXTENDABLE',
+    };
+  });
+
+  const totals = cards.reduce(
+    (acc, card) => {
+      acc.totalRemaining += card.remaining;
+      if (card.status === 'BLOCKED') acc.blocked += 1;
+      if (card.status === 'EXTENDABLE') acc.extendable += 1;
+      return acc;
+    },
+    { totalRemaining: 0, blocked: 0, extendable: 0 }
+  );
+
+  return { cards, totals };
+}
+
+function sortCardsByPreference(cards = [], bankOrder = []) {
+  const orderMap = new Map();
+  bankOrder.forEach((bank, idx) => {
+    orderMap.set((bank || '').toUpperCase(), idx);
+  });
+  const maxOrder = bankOrder.length + 1;
+  return [...cards].sort((a, b) => {
+    const orderA = orderMap.has(a.bank) ? orderMap.get(a.bank) : maxOrder;
+    const orderB = orderMap.has(b.bank) ? orderMap.get(b.bank) : maxOrder;
+    if (orderA !== orderB) return orderA - orderB;
+    if (a.remaining !== b.remaining) return b.remaining - a.remaining;
+    return (a.mask || '').localeCompare(b.mask || '');
+  });
+}
+
+async function loadMonthlyUsage({ transferOutPatterns, ...config }) {
+  const { clause, params } = buildUsageCondition(transferOutPatterns || {});
+  const sql = `
+    SELECT t.id,
+           COALESCE(t.numero,'SIN NUMERO') AS numero,
+           UPPER(COALESCE(b.codigo,'SIN BANCO')) AS banco,
+           SUM(
+             CASE WHEN mv.importe < 0 AND (${clause}) THEN -mv.importe ELSE 0 END
+           ) AS used_out
+      FROM tarjeta t
+      JOIN banco b ON b.id = t.banco_id
+      JOIN moneda m ON m.id = t.moneda_id
+      LEFT JOIN movimiento mv ON mv.tarjeta_id = t.id
+       AND mv.creado_en >= date_trunc('month', (now() at time zone 'America/Havana'))
+       AND mv.creado_en <  date_trunc('month', (now() at time zone 'America/Havana')) + interval '1 month'
+     WHERE UPPER(m.codigo) = 'CUP'
+     GROUP BY t.id, numero, banco
+     ORDER BY banco, numero;
+  `;
+  const res = await query(sql, params);
+  return classifyMonthlyUsage(res.rows || [], config);
+}
+
+function computeCupDistribution(amount, cards = [], bankOrder = []) {
+  const target = Math.round(Number(amount) || 0);
+  if (target <= 0) {
+    return { totalAssigned: 0, leftover: 0, assignments: [] };
+  }
+
+  let remainingAmount = target;
+  const assignments = [];
+  const ordered = sortCardsByPreference(cards, bankOrder);
+
+  const allocate = (candidates, allowExtendable = false) => {
+    candidates.forEach((card) => {
+      if (remainingAmount <= 0) return;
+      const before = Math.round(card.remaining || 0);
+      let capacity = before;
+      if (allowExtendable) {
+        capacity = Math.max(before, remainingAmount);
+      }
+      const assign = Math.min(Math.round(capacity || 0), remainingAmount);
+      if (assign <= 0) return;
+      const after = before - assign;
+      assignments.push({
+        bank: card.bank,
+        mask: card.mask,
+        numero: card.numero,
+        assignCup: assign,
+        remainingAntes: before,
+        remainingDespues: after,
+        status: card.status,
+        extendable: card.extendable,
+      });
+      remainingAmount -= assign;
+    });
+  };
+
+  allocate(ordered.filter((card) => card.status === 'OK'));
+  if (remainingAmount > 0) {
+    allocate(
+      ordered.filter((card) => card.status === 'EXTENDABLE'),
+      true
+    );
+  }
+
+  return {
+    totalAssigned: target - remainingAmount,
+    leftover: remainingAmount,
+    assignments,
+  };
+}
+
+function describeLimitStatus(status) {
+  if (status === 'BLOCKED') return '⛔️ No recibir CUP';
+  if (status === 'EXTENDABLE') return '🟡 Límite alcanzado, ampliable Multibanca 24h';
+  return '';
+}
+
+function describeAllocationStatus(status) {
+  if (status === 'EXTENDABLE') return '🟡 ampliable (Multibanca 24h)';
+  return '';
 }
 
 function fmtCup(value) {
@@ -295,6 +532,9 @@ function renderAdvice(result) {
     config,
     deudaAbs,
     urgency,
+    monthlyLimits,
+    distributionNow,
+    distributionTarget,
   } = result;
 
   const blocks = [];
@@ -334,6 +574,61 @@ function renderAdvice(result) {
     `• Faltante tras venta: ${fmtCup(plan.remainingCup)} CUP (≈ ${fmtUsd(plan.remainingUsd)} USD)`
   );
   blocks.push(venta.join('\n'));
+
+  const limitsData = monthlyLimits || { cards: [] };
+  const limitsLines = ['────────────────────────────────', '🚦 <b>Límite mensual por tarjeta</b>'];
+  const orderedCards = sortCardsByPreference(limitsData.cards || [], config.allocationBankOrder || []);
+  if (!orderedCards.length) {
+    limitsLines.push('• —');
+  } else {
+    orderedCards.forEach((card) => {
+      const statusText = describeLimitStatus(card.status);
+      const suffix = statusText ? ` ${escapeHtml(statusText)}` : '';
+      limitsLines.push(
+        `• ${escapeHtml(card.bank)} / ${escapeHtml(card.mask)} → usado ${fmtCup(card.usedOut)} / ${fmtCup(
+          card.limit
+        )} CUP  ⇢ disponible ${fmtCup(card.remaining)} CUP${suffix}`
+      );
+    });
+  }
+
+  const suggestionLines = ['📍 <b>Sugerencia de destino del CUP</b>'];
+  const distNow = distributionNow || { assignments: [], leftover: 0, totalAssigned: 0 };
+  const distTarget = distributionTarget || { assignments: [], leftover: 0, totalAssigned: 0 };
+
+  const appendScenario = (label, amount, distribution) => {
+    if (!amount || amount <= 0) return;
+    suggestionLines.push(`• ${escapeHtml(label)}: ${fmtCup(amount)} CUP`);
+    if (!distribution.assignments.length) {
+      suggestionLines.push('  • Sin capacidad disponible');
+    } else {
+      distribution.assignments.forEach((item) => {
+        const flag = describeAllocationStatus(item.status);
+        const flagText = flag ? ` ${escapeHtml(flag)}` : '';
+        suggestionLines.push(
+          `  • ${escapeHtml(item.bank)}/${escapeHtml(item.mask)} asignar ${fmtCup(
+            item.assignCup
+          )} CUP  (capacidad → ${fmtCup(item.remainingAntes)} ⇢ ${fmtCup(item.remainingDespues)})${flagText}`
+        );
+      });
+    }
+    if (distribution.leftover > 0) {
+      suggestionLines.push(`  • ⚠️ CUP sin destino: ${fmtCup(distribution.leftover)} CUP`);
+    }
+  };
+
+  appendScenario('Venta AHORA', plan.sellNow.cupIn, distNow);
+  if (plan.remainingCup > 0 && plan.sellTarget.cupIn > 0) {
+    appendScenario('Distribución sugerida (objetivo)', plan.sellTarget.cupIn, distTarget);
+  }
+
+  if (suggestionLines.length === 1) {
+    suggestionLines.push('• —');
+  }
+
+  limitsLines.push(...suggestionLines);
+  limitsLines.push('────────────────────────────────');
+  blocks.push(limitsLines.join('\n'));
 
   const proyeccion = [
     '🧾 <b>Proyección post-venta</b>',
@@ -451,6 +746,37 @@ async function runFondo(ctx, opts = {}) {
       sellRateSource: sellSource,
     });
 
+    const monthlyLimits = await loadMonthlyUsage({
+      limitMonthlyDefaultCup: config.limitMonthlyDefaultCup,
+      limitMonthlyBpaCup: config.limitMonthlyBpaCup,
+      extendableBanks: config.extendableBanks,
+      transferOutPatterns: config.transferOutPatterns,
+    });
+    console.log(
+      `[fondoAdvisor] Tarjetas CUP analizadas => ${monthlyLimits.cards.length} (bloqueadas=${monthlyLimits.totals.blocked} extendibles=${monthlyLimits.totals.extendable})`
+    );
+
+    const distributionNow = computeCupDistribution(
+      plan.sellNow.cupIn,
+      monthlyLimits.cards,
+      config.allocationBankOrder
+    );
+    console.log(
+      `[fondoAdvisor] Distribución venta AHORA => asignado=${distributionNow.totalAssigned} leftover=${distributionNow.leftover}`
+    );
+
+    let distributionTarget = null;
+    if (plan.remainingCup > 0 && plan.sellTarget.cupIn > 0) {
+      distributionTarget = computeCupDistribution(
+        plan.sellTarget.cupIn,
+        monthlyLimits.cards,
+        config.allocationBankOrder
+      );
+      console.log(
+        `[fondoAdvisor] Distribución objetivo => asignado=${distributionTarget.totalAssigned} leftover=${distributionTarget.leftover}`
+      );
+    }
+
     const projection = computeProjection(totals.activosCup, totals.deudasCup, plan.sellNow.cupIn);
     console.log(
       `[fondoAdvisor] Proyección => negativosPost=${projection.negativosPost} colchonPost=${projection.colchonPost}`
@@ -471,6 +797,9 @@ async function runFondo(ctx, opts = {}) {
       projection,
       config,
       urgency,
+      monthlyLimits,
+      distributionNow,
+      distributionTarget,
     };
 
     const blocks = renderAdvice(result);
@@ -521,4 +850,12 @@ module.exports = {
   aggregateBalances,
   renderAdvice,
   computeProjection,
+  loadMonthlyUsage,
+  classifyMonthlyUsage,
+  computeCupDistribution,
+  buildUsageCondition,
+  sortCardsByPreference,
+  describeLimitStatus,
+  describeAllocationStatus,
+  maskCardNumber,
 };
