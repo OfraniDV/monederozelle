@@ -4,6 +4,28 @@ const path = require('path');
 const { escapeHtml } = require('../helpers/format');
 const { sendLargeMessage } = require('../helpers/sendLargeMessage');
 
+// Escapa TODO texto dinámico para HTML
+function h(text = '') {
+  return escapeHtml(String(text));
+}
+
+// Envuelve líneas en <pre> escapando su contenido (para no romper parse_mode)
+function pre(lines = []) {
+  const safe = lines.map((l) => escapeHtml(String(l))).join('\n');
+  return `<pre>${safe}</pre>`;
+}
+
+// Reemplaza comparaciones que puedan meter '<' o '>' en texto fuera de <pre>
+function cmp(txt = '') {
+  return String(txt).replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+const BANK_W = 6; // Banco
+const CARD_W = 6; // Tarjeta (#1234)
+const VAL_W = 8;  // Números (SAL, SALDO, LIBRE, CAP)
+const ASSIGN_W = 7; // ↦ CUP en distribución
+const CAP_W = VAL_W * 2 + 1; // "antes→desp"
+
 // Fees constantes de BOLSA (no vienen de .env)
 const BOLSA_TO_BOLSA_FEE_CUP = 1;     // mover de bolsa a bolsa
 const BOLSA_TO_BANK_FEE_PCT  = 0.05;  // mover de bolsa a tarjeta banco
@@ -342,16 +364,12 @@ function computeHeadlineSeverity({ needCup, sellNowCupIn, invUsableUsd, minSellU
 
 function fmtCup(value) {
   const rounded = Math.round(value || 0);
-  return escapeHtml(
-    rounded.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-  );
+  return h(rounded.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }));
 }
 
 function fmtUsd(value) {
   const rounded = Math.round(value || 0);
-  return escapeHtml(
-    rounded.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-  );
+  return h(rounded.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }));
 }
 
 async function getLatestBalances() {
@@ -602,7 +620,7 @@ function renderAdvice(result) {
     minSellUsd: Math.round(config.minSellUsd || 0),
     capSum,
   });
-  blocks.push(`${sev.icon} ${sev.label}`);
+  blocks.push(`${h(sev.icon)} ${h(sev.label)}`);
   blocks.push('━━━━━━━━━━━━━━━━━━');
 
   const estado = [
@@ -658,19 +676,29 @@ function renderAdvice(result) {
   const orderedCards = sortCardsByPreference(limitsData.cards || [], config.allocationBankOrder || [])
     // No mostrar BOLSA (MITRANSFER y similares) en el bloque de límites
     .filter((c) => !c.isBolsa && c.bank !== 'MITRANSFER');
-  const limitDefaultFmt = formatInteger(config.limitMonthlyDefaultCup ?? DEFAULT_CONFIG.limitMonthlyDefaultCup);
-  const limitBpaFmt = formatInteger(config.limitMonthlyBpaCup ?? config.limitMonthlyDefaultCup ?? DEFAULT_CONFIG.limitMonthlyBpaCup);
-  const limitInfoLine = `ℹ️ Límite mensual: Estándar ${limitDefaultFmt} CUP • BPA ${limitBpaFmt} CUP (ampliable)`;
-  const bankWidth = 6;
-  const cardWidth = 12;
-  const valueWidth = 9;
+  const limitDefaultFmt = formatInteger(
+    config.limitMonthlyDefaultCup ?? DEFAULT_CONFIG.limitMonthlyDefaultCup
+  );
+  const limitBpaFmt = formatInteger(
+    config.limitMonthlyBpaCup ?? config.limitMonthlyDefaultCup ?? DEFAULT_CONFIG.limitMonthlyBpaCup
+  );
+  const limitInfoLine = `ℹ️ Límite mensual: Estándar ${h(limitDefaultFmt)} CUP • BPA ${h(limitBpaFmt)} CUP (ampliable)`;
   const limitPreLines = [];
   if (!orderedCards.length) {
     limitPreLines.push('—');
   } else {
-    const hdr = `${'Banco'.padEnd(bankWidth)} ${'Tarjeta'.padEnd(cardWidth)} ${'SAL'.padStart(valueWidth)} ${'SALDO'.padStart(valueWidth)} ${'LIBRE'.padStart(valueWidth)} ${'CAP'.padStart(valueWidth)} Estado`;
-    const dash = '─'.repeat(hdr.length);
-    limitPreLines.push(hdr, dash);
+    const headerCells = [
+      'Banco'.padEnd(BANK_W),
+      'Tarjeta'.padEnd(CARD_W),
+      'SAL'.padStart(VAL_W),
+      'SALDO'.padStart(VAL_W),
+      'LIBRE'.padStart(VAL_W),
+      'CAP'.padStart(VAL_W),
+      'Estado',
+    ];
+    const header = headerCells.join(' ').trimEnd();
+    const dash = '─'.repeat(header.length);
+    limitPreLines.push(header, dash);
     let totalSal = 0;
     let totalSaldo = 0;
     let totalLibre = 0;
@@ -686,20 +714,40 @@ function renderAdvice(result) {
       totalSaldo += saldo;
       totalLibre += libre;
       totalCap += cap;
-      const salStr = formatInteger(sal).padStart(valueWidth);
-      const saldoStr = formatInteger(saldo).padStart(valueWidth);
-      const remainingStr = formatInteger(libre).padStart(valueWidth);
-      const capStr = formatInteger(cap).padStart(valueWidth);
+      const salStr = formatInteger(sal).padStart(VAL_W);
+      const saldoStr = formatInteger(saldo).padStart(VAL_W);
+      const remainingStr = formatInteger(libre).padStart(VAL_W);
+      const capStr = formatInteger(cap).padStart(VAL_W);
       const statusText = describeLimitStatus(card.status);
-      const line = `${bank.padEnd(bankWidth)} ${mask.padEnd(cardWidth)} ${salStr} ${saldoStr} ${remainingStr} ${capStr} ${statusText}`;
+      const line = [
+        bank.padEnd(BANK_W),
+        mask.padEnd(CARD_W),
+        salStr,
+        saldoStr,
+        remainingStr,
+        capStr,
+        statusText,
+      ]
+        .join(' ')
+        .trimEnd();
       limitPreLines.push(line);
     });
-    const salTotStr = formatInteger(totalSal).padStart(valueWidth);
-    const saldoTotStr = formatInteger(totalSaldo).padStart(valueWidth);
-    const libreTotStr = formatInteger(totalLibre).padStart(valueWidth);
-    const capTotStr = formatInteger(totalCap).padStart(valueWidth);
+    const salTotStr = formatInteger(totalSal).padStart(VAL_W);
+    const saldoTotStr = formatInteger(totalSaldo).padStart(VAL_W);
+    const libreTotStr = formatInteger(totalLibre).padStart(VAL_W);
+    const capTotStr = formatInteger(totalCap).padStart(VAL_W);
     limitPreLines.push(dash);
-    limitPreLines.push(`${'TOTAL'.padEnd(bankWidth)} ${''.padEnd(cardWidth)} ${salTotStr} ${saldoTotStr} ${libreTotStr} ${capTotStr}`);
+    const totalLine = [
+      'TOTAL'.padEnd(BANK_W),
+      '—'.padEnd(CARD_W),
+      salTotStr,
+      saldoTotStr,
+      libreTotStr,
+      capTotStr,
+    ]
+      .join(' ')
+      .trimEnd();
+    limitPreLines.push(totalLine);
   }
 
   const distNow = distributionNow || { assignments: [], leftover: 0, totalAssigned: 0 };
@@ -714,22 +762,36 @@ function renderAdvice(result) {
       suggestionPreLines.push('  Sin capacidad disponible');
     } else {
       // Encabezado de columnas para filas compactas
-      const assignWidth = 8;
-      const capWidth = valueWidth * 2 + 1;
-      const hdr  = `  ${'Banco'.padEnd(bankWidth)} ${'Tarjeta'.padEnd(cardWidth)} ${'↦ CUP'.padStart(assignWidth)} ${'cap antes→desp'.padEnd(capWidth)} Estado`;
-      const dash = '  ' + '─'.repeat(hdr.trimStart().length);
+      const indent = '  ';
+      const headerCells = [
+        'Banco'.padEnd(BANK_W),
+        'Tarjeta'.padEnd(CARD_W),
+        '↦ CUP'.padStart(ASSIGN_W),
+        'cap antes→desp'.padEnd(CAP_W),
+        'Estado',
+      ];
+      const hdr = `${indent}${headerCells.join(' ')}`.trimEnd();
+      const dash = `${indent}${'─'.repeat(hdr.length - indent.length)}`;
       suggestionPreLines.push(hdr, dash);
       distribution.assignments.forEach((item) => {
         const bank = (item.bank || '').toUpperCase();
         const mask = item.mask || maskCardNumber(item.numero);
-        const assignStr = formatInteger(item.assignCup).padStart(assignWidth);
-        const beforeStr = formatInteger(item.remainingAntes).padStart(valueWidth);
-        const afterStr  = formatInteger(item.remainingDespues).padStart(valueWidth);
+        const assignStr = formatInteger(item.assignCup).padStart(ASSIGN_W);
+        const beforeStr = formatInteger(item.remainingAntes).padStart(VAL_W);
+        const afterStr  = formatInteger(item.remainingDespues).padStart(VAL_W);
         const flag      = describeAllocationStatus(item.status);
         const bolsaTag  = item.isBolsa ? ' 🧳 fallback' : '';
         if (item.isBolsa) usedBolsaInDistribution = true;
-        const cap = `${beforeStr}→${afterStr}`.padEnd(capWidth);
-        const line = `  ${bank.padEnd(bankWidth)} ${mask.padEnd(cardWidth)} ${assignStr} ${cap} ${flag}${bolsaTag}`;
+        const cap = `${beforeStr}→${afterStr}`.padEnd(CAP_W);
+        const line = `${indent}${[
+          bank.padEnd(BANK_W),
+          mask.padEnd(CARD_W),
+          assignStr,
+          cap,
+          `${flag}${bolsaTag}`.trimEnd(),
+        ]
+          .join(' ')
+          .trimEnd()}`;
         suggestionPreLines.push(line);
       });
     }
@@ -754,23 +816,19 @@ function renderAdvice(result) {
     );
   }
 
-  const limitsBlock = [
-    '────────────────────────────────',
-    '🚦 <b>Límite mensual por tarjeta</b>',
-    limitInfoLine,
-    `<pre>${limitPreLines.map((line) => escapeHtml(line)).join('\n')}</pre>`,
-    '📍 <b>Sugerencia de destino del CUP</b>',
-    `<pre>${suggestionPreLines.map((line) => escapeHtml(line)).join('\n')}</pre>`,
-    '────────────────────────────────',
-  ];
-  blocks.push(limitsBlock.join('\n'));
+  blocks.push('────────────────────────────────');
+  blocks.push('🚦 <b>Límite mensual por tarjeta</b>');
+  blocks.push(limitInfoLine);
+  blocks.push(pre(limitPreLines));
+  blocks.push('📍 <b>Sugerencia de destino del CUP</b>');
+  blocks.push(pre(suggestionPreLines));
+  blocks.push('────────────────────────────────');
 
+  const comparadorColchon = projection.colchonPost >= cushionTarget ? '≥' : '<';
   const proyeccion = [
     '🧾 <b>Proyección post-venta</b>',
     `• Negativos: ${fmtCup(projection.negativosPost)} CUP`,
-    `• Colchón proyectado: ${fmtCup(projection.colchonPost)} CUP ${
-      projection.colchonPost >= cushionTarget ? '≥' : '<'
-    } ${fmtCup(cushionTarget)}`,
+    `• Colchón proyectado: ${fmtCup(projection.colchonPost)} CUP ${cmp(comparadorColchon)} ${fmtCup(cushionTarget)}`,
   ];
   blocks.push(proyeccion.join('\n'));
 
@@ -787,7 +845,7 @@ function renderAdvice(result) {
     liquidityBlock.push('• —');
   } else {
     liquidityEntries.forEach((item) => {
-      liquidityBlock.push(`• ${escapeHtml(item.bank)}: ${fmtCup(item.amount)} CUP`);
+      liquidityBlock.push(`• ${h(item.bank)}: ${fmtCup(item.amount)} CUP`);
     });
   }
   blocks.push(liquidityBlock.join('\n'));
