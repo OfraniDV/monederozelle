@@ -628,17 +628,35 @@ function renderAdvice(result) {
     const hdr = `${'Banco'.padEnd(8)} ${'Tarjeta'.padEnd(13)} ${'SAL'.padStart(10)} ${'SALDO'.padStart(10)} ${'LIBRE'.padStart(10)} ${'CAP'.padStart(10)}  Estado`;
     const dash = '─'.repeat(hdr.length);
     limitPreLines.push(hdr, dash);
+    let totalSal = 0;
+    let totalSaldo = 0;
+    let totalLibre = 0;
+    let totalCap = 0;
     orderedCards.forEach((card) => {
       const bank = (card.bank || '').toUpperCase();
       const mask = card.mask || maskCardNumber(card.numero);
-      const salStr = formatInteger(card.usedOut).padStart(10);
-      const saldoStr = formatInteger(card.balancePos).padStart(10);
-      const remainingStr = formatInteger(card.remaining).padStart(10);
-      const capStr = formatInteger(card.depositCap).padStart(10);
+      const sal = Math.round(card.usedOut || 0);
+      const saldo = Math.max(0, Math.round(card.balancePos || 0));
+      const libre = Math.round(card.remaining || 0);
+      const cap = Math.round(card.depositCap || 0);
+      totalSal += sal;
+      totalSaldo += saldo;
+      totalLibre += libre;
+      totalCap += cap;
+      const salStr = formatInteger(sal).padStart(10);
+      const saldoStr = formatInteger(saldo).padStart(10);
+      const remainingStr = formatInteger(libre).padStart(10);
+      const capStr = formatInteger(cap).padStart(10);
       const statusText = describeLimitStatus(card.status);
       const line = `${bank.padEnd(8)} ${mask.padEnd(13)} ${salStr} ${saldoStr} ${remainingStr} ${capStr}  ${statusText}`;
       limitPreLines.push(line);
     });
+    const salTotStr = formatInteger(totalSal).padStart(10);
+    const saldoTotStr = formatInteger(totalSaldo).padStart(10);
+    const libreTotStr = formatInteger(totalLibre).padStart(10);
+    const capTotStr = formatInteger(totalCap).padStart(10);
+    limitPreLines.push(dash);
+    limitPreLines.push(`${'TOTAL'.padEnd(8)} ${''.padEnd(13)} ${salTotStr} ${saldoTotStr} ${libreTotStr} ${capTotStr}`);
   }
 
   const distNow = distributionNow || { assignments: [], leftover: 0, totalAssigned: 0 };
