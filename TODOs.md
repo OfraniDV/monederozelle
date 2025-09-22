@@ -11,3 +11,4 @@
 - Investigar recordatorios cuando exista faltante en CUP tras la venta inmediata.
 - Analizar UI para permitir modificar el colchón objetivo directamente desde el comando `/fondo`.
 - Revisar alertas cuando la capacidad real (`CAP`) llegue a cero en varias tarjetas seguidas.
+- ✅ Liquidez rápida disponible muestra equivalentes USD por banco usando la tasa de compra.

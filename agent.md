@@ -15,3 +15,4 @@
 - El análisis calcula necesidad = |deudas| + colchón − activos, determina la venta objetivo/instantánea a la tasa SELL y clasifica urgencia 🔴/🟠/🟢 según inventario disponible.
 - Cuando el inventario USD no alcanza el mínimo configurado se muestra la alerta “⚠️ inventario menor al mínimo…”, y se omite cualquier sugerencia de ciclos de compra.
 - El informe expone ahora la tasa de compra proveniente de `moneda.tasa_usd`, la tasa de venta configurada y las equivalencias en USD para Activos y Neto usando esa tasa de compra.
+- La sección 🏦 Liquidez rápida disponible añade el equivalente en USD por banco cuando hay tasa de compra válida; si no, conserva solo los montos en CUP.

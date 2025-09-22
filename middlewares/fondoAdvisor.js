@@ -653,18 +653,18 @@ function renderAdvice(result) {
   const activosUsdEquiv = hasBuyRate ? (activosCup || 0) / resolvedBuyRate : null;
   const netoUsdEquiv = hasBuyRate ? (netoCup || 0) / resolvedBuyRate : null;
 
+  console.log(
+    `[fondoAdvisor] renderAdvice => tasa de compra aplicada: ${hasBuyRate ? resolvedBuyRate : 'sin dato'} (fuente ${buySourceLabel})`
+  );
+
   const estado = [
     '📊 <b>Estado actual CUP</b>',
     hasBuyRate
-      ? `• Activos: ${fmtCup(activosCup)} CUP (≈ ${fmtUsdDetailed(activosUsdEquiv)} USD @ compra ${fmtCup(
-          resolvedBuyRate
-        )})`
+      ? `• Activos: ${fmtCup(activosCup)} CUP (≈ ${fmtUsdDetailed(activosUsdEquiv)} USD)`
       : `• Activos: ${fmtCup(activosCup)} CUP`,
     `• Deudas: ${fmtCup(deudasCup)} CUP`,
     hasBuyRate
-      ? `• Neto: ${fmtCup(netoCup)} CUP (≈ ${fmtUsdDetailed(netoUsdEquiv)} USD @ compra ${fmtCup(
-          resolvedBuyRate
-        )})`
+      ? `• Neto: ${fmtCup(netoCup)} CUP (≈ ${fmtUsdDetailed(netoUsdEquiv)} USD)`
       : `• Neto: ${fmtCup(netoCup)} CUP`,
     `• Libre tras deudas: ${fmtCup(disponibles)} CUP`,
   ];
@@ -676,16 +676,6 @@ function renderAdvice(result) {
     `• Necesidad adicional: ${fmtCup(needCup)} CUP`,
   ];
   blocks.push(objetivo.join('\n'));
-
-  const tasas = [
-    '💱 <b>Tasas de referencia</b>',
-    hasBuyRate
-      ? `• Compra (DB): ${fmtCup(resolvedBuyRate)} CUP/USD (fuente ${h(buySourceLabel)})`
-      : '• Compra (DB): —',
-    `• Venta (config): ${fmtCup(config.sellRate)} CUP/USD (fuente ${h(resolvedSellSource)})`,
-    `• Venta neta (fee+margen): ${fmtCup(plan.sellNet)} CUP/USD`,
-  ];
-  blocks.push(tasas.join('\n'));
 
   // Bloque de inventario USD/Zelle (1x1) — total y utilizable
   try {
@@ -912,7 +902,22 @@ function renderAdvice(result) {
     liquidityBlock.push('• —');
   } else {
     liquidityEntries.forEach((item) => {
-      liquidityBlock.push(`• ${h(item.bank)}: ${fmtCup(item.amount)} CUP`);
+      if (hasBuyRate) {
+        const usdEquiv = item.amount / resolvedBuyRate;
+        console.log(
+          `[fondoAdvisor] Liquidez banco ${item.bank} => ${Math.round(item.amount)} CUP ≈ ${(Math.round(
+            (Number(usdEquiv) || 0) * 100
+          ) / 100).toFixed(2)} USD`
+        );
+        liquidityBlock.push(
+          `• ${h(item.bank)}: ${fmtCup(item.amount)} CUP (≈ ${fmtUsdDetailed(usdEquiv)} USD)`
+        );
+      } else {
+        console.log(
+          `[fondoAdvisor] Liquidez banco ${item.bank} => ${Math.round(item.amount)} CUP (sin tasa de compra)`
+        );
+        liquidityBlock.push(`• ${h(item.bank)}: ${fmtCup(item.amount)} CUP`);
+      }
     });
   }
   blocks.push(liquidityBlock.join('\n'));
@@ -928,33 +933,6 @@ function renderAdvice(result) {
     )})  fee: ${(config.sellFeePct * 100).toFixed(2)}%`,
   ];
   blocks.push(explicacion.join('\n'));
-
-  if (hasBuyRate) {
-    const equivalencias = ['🔄 <b>Equivalencias de referencia</b>'];
-    const buyUsdPerCup = 1 / resolvedBuyRate;
-    equivalencias.push(
-      `• 1 USD ≈ ${fmtCup(resolvedBuyRate)} CUP (compra)`,
-      `• 1 CUP ≈ ${fmtUsdDetailed(buyUsdPerCup)} USD`
-    );
-    const sellRate = Number(config.sellRate) || 0;
-    if (sellRate > 0) {
-      const sellUsdPerCup = 1 / sellRate;
-      equivalencias.push(
-        `• 1 USD ≈ ${fmtCup(sellRate)} CUP (venta)`,
-        `• 1 CUP ≈ ${fmtUsdDetailed(sellUsdPerCup)} USD`
-      );
-    }
-    blocks.push(equivalencias.join('\n'));
-  }
-
-  const parametros = [
-    '📝 <b>Parámetros</b>',
-    `• Mínimo por operación: ${fmtUsd(config.minSellUsd)} USD`,
-    `• Fee venta: ${(config.sellFeePct * 100).toFixed(2)}%  • Margen FX: ${(config.fxMarginPct * 100).toFixed(
-      2
-    )}%  • Redondeo: ${fmtUsd(config.sellRoundToUsd)} USD`,
-  ];
-  blocks.push(parametros.join('\n'));
 
   return blocks;
 }

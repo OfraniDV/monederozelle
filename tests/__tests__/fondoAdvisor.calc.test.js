@@ -101,7 +101,7 @@ describe('fondoAdvisor pure calculations', () => {
       { moneda: 'CUP', banco: 'BANDEC', agente: 'Cliente Deudor', numero: 'Cuenta deuda', saldo: -5000, tasa_usd: 1 },
       { moneda: 'CUP', banco: 'BANDEC', agente: 'Pago debe', numero: 'Por cobrar', saldo: 10000, tasa_usd: 1 },
       { moneda: 'USD', banco: 'BANDEC', agente: 'Caja fuerte', numero: '1111', saldo: 900, tasa_usd: 1 },
-      { moneda: 'MLC', banco: 'BPA', agente: 'Caja fuerte', numero: '2222', saldo: 45200, tasa_usd: 452 },
+      { moneda: 'MLC', banco: 'BPA', agente: 'Caja fuerte', numero: '2222', saldo: 45200, tasa_usd: 1 / 452 },
     ];
 
     const totals = aggregateBalances(rows, ['BANDEC', 'BPA']);
