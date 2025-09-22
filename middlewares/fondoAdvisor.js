@@ -409,10 +409,16 @@ async function getBuyRateFromDb() {
       "SELECT tasa_usd FROM moneda WHERE UPPER(codigo) = 'CUP' ORDER BY id DESC LIMIT 1"
     );
     if (rows && rows.length) {
-      const tasaUsd = Number(rows[0].tasa_usd);
-      if (tasaUsd > 0) {
-        console.log(`[fondoAdvisor] BUY rate obtenido de DB => ${tasaUsd}`);
-        return tasaUsd;
+      const tasaUsdRaw = Number(rows[0].tasa_usd);
+      if (Number.isFinite(tasaUsdRaw) && tasaUsdRaw > 0) {
+        // La columna moneda.tasa_usd representa USD por unidad de la moneda.
+        // Para CUP, necesitamos CUP por USD (compra en CUP/USD) => invertir cuando < 1.
+        const cupPerUsd =
+          tasaUsdRaw < 1 ? (1 / tasaUsdRaw) : tasaUsdRaw;
+        console.log(
+          `[fondoAdvisor] BUY rate (CUP/USD) normalizado desde DB => ${cupPerUsd} (raw=${tasaUsdRaw})`
+        );
+        return cupPerUsd;
       }
     }
   } catch (err) {
@@ -456,8 +462,10 @@ function aggregateBalances(rows = [], liquidityBanks = []) {
     }
 
     if (USD_CODES.has(moneda) && saldoRaw > 0) {
-      const tasa = tasaUsd > 0 ? tasaUsd : 1;
-      const usd = saldoRaw / tasa;
+      // Interpretacion correcta: moneda.tasa_usd = USD por unidad de esa moneda.
+      // Para inventario en USD, multiplicamos saldo * tasa_usd.
+      const usdPerUnit = Number(r.tasa_usd) > 0 ? Number(r.tasa_usd) : 1;
+      const usd = saldoRaw * usdPerUnit;
       if (usd > 0) usdInventory += usd;
     }
   });
