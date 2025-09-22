@@ -372,6 +372,14 @@ function fmtUsd(value) {
   return h(rounded.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }));
 }
 
+function fmtUsdDetailed(value) {
+  const num = Number(value) || 0;
+  const rounded = Math.round(num * 100) / 100;
+  return h(
+    rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  );
+}
+
 async function getLatestBalances() {
   const sql = `
     SELECT COALESCE(m.codigo,'—')  AS moneda,
@@ -395,7 +403,7 @@ async function getLatestBalances() {
   return res.rows || [];
 }
 
-async function getSellRateFromDb() {
+async function getBuyRateFromDb() {
   try {
     const { rows } = await query(
       "SELECT tasa_usd FROM moneda WHERE UPPER(codigo) = 'CUP' ORDER BY id DESC LIMIT 1"
@@ -403,13 +411,12 @@ async function getSellRateFromDb() {
     if (rows && rows.length) {
       const tasaUsd = Number(rows[0].tasa_usd);
       if (tasaUsd > 0) {
-        const sell = Math.round(1 / tasaUsd);
-        console.log(`[fondoAdvisor] SELL rate obtenido de DB => ${sell}`);
-        return sell;
+        console.log(`[fondoAdvisor] BUY rate obtenido de DB => ${tasaUsd}`);
+        return tasaUsd;
       }
     }
   } catch (err) {
-    console.error('[fondoAdvisor] Error leyendo tasa SELL de DB:', err.message);
+    console.error('[fondoAdvisor] Error leyendo tasa BUY de DB:', err.message);
   }
   return null;
 }
@@ -602,6 +609,9 @@ function renderAdvice(result) {
     monthlyLimits,
     distributionNow,
     distributionTarget,
+    buyRateCup,
+    buyRateSource,
+    sellRateSource,
   } = result;
 
   const blocks = [];
@@ -623,11 +633,31 @@ function renderAdvice(result) {
   blocks.push(`${h(sev.icon)} ${h(sev.label)}`);
   blocks.push('━━━━━━━━━━━━━━━━━━');
 
+  const resolvedBuyRate = Number(buyRateCup || config.buyRateCup || 0);
+  const hasBuyRate = Number.isFinite(resolvedBuyRate) && resolvedBuyRate > 0;
+  const resolvedBuySource = (buyRateSource && buyRateSource !== 'none'
+    ? buyRateSource
+    : config.buyRateSource && config.buyRateSource !== 'none'
+      ? config.buyRateSource
+      : null) || null;
+  const resolvedSellSource = (sellRateSource || plan?.usedSellSource || 'env').toUpperCase();
+  const buySourceLabel = resolvedBuySource ? resolvedBuySource.toUpperCase() : 'N/D';
+  const activosUsdEquiv = hasBuyRate ? (activosCup || 0) / resolvedBuyRate : null;
+  const netoUsdEquiv = hasBuyRate ? (netoCup || 0) / resolvedBuyRate : null;
+
   const estado = [
     '📊 <b>Estado actual CUP</b>',
-    `• Activos: ${fmtCup(activosCup)} CUP`,
+    hasBuyRate
+      ? `• Activos: ${fmtCup(activosCup)} CUP (≈ ${fmtUsdDetailed(activosUsdEquiv)} USD @ compra ${fmtCup(
+          resolvedBuyRate
+        )})`
+      : `• Activos: ${fmtCup(activosCup)} CUP`,
     `• Deudas: ${fmtCup(deudasCup)} CUP`,
-    `• Neto: ${fmtCup(netoCup)} CUP`,
+    hasBuyRate
+      ? `• Neto: ${fmtCup(netoCup)} CUP (≈ ${fmtUsdDetailed(netoUsdEquiv)} USD @ compra ${fmtCup(
+          resolvedBuyRate
+        )})`
+      : `• Neto: ${fmtCup(netoCup)} CUP`,
     `• Libre tras deudas: ${fmtCup(disponibles)} CUP`,
   ];
   blocks.push(estado.join('\n'));
@@ -639,6 +669,16 @@ function renderAdvice(result) {
   ];
   blocks.push(objetivo.join('\n'));
 
+  const tasas = [
+    '💱 <b>Tasas de referencia</b>',
+    hasBuyRate
+      ? `• Compra (DB): ${fmtCup(resolvedBuyRate)} CUP/USD (fuente ${h(buySourceLabel)})`
+      : '• Compra (DB): —',
+    `• Venta (config): ${fmtCup(config.sellRate)} CUP/USD (fuente ${h(resolvedSellSource)})`,
+    `• Venta neta (fee+margen): ${fmtCup(plan.sellNet)} CUP/USD`,
+  ];
+  blocks.push(tasas.join('\n'));
+
   // Bloque de inventario USD/Zelle (1x1) — total y utilizable
   try {
     const invTotal = Math.max(0, Math.floor(result.usdInventory || 0));
@@ -647,8 +687,9 @@ function renderAdvice(result) {
     const invLines = [
       '💵 <b>Inventario USD/Zelle</b>',
       `• Total: ${fmtUsd(invTotal)} USD`,
-      `• Reservado: ${fmtUsd(invReserve)} USD`,
-      `• Usable ahora: ${fmtUsd(invUsable)} USD${invUsable < (config.minSellUsd || 0) ? ' (⚠️ por debajo del mínimo de venta)' : ''}`
+      `• Disponible ahora: ${fmtUsd(invUsable)} USD${
+        invUsable < (config.minSellUsd || 0) ? ' (⚠️ por debajo del mínimo de venta)' : ''
+      }`
     ];
     blocks.push(invLines.join('\n'));
   } catch (e) {
@@ -856,21 +897,18 @@ function renderAdvice(result) {
       cushionTarget
     )} − ${fmtCup(activosCup)} = ${fmtCup(needCup)} CUP`,
     `• Objetivo USD = ceil(necesidad / sellNet) (+ márgenes y redondeo)`,
-    `• sellNet = floor(SELL × (1 − fee)) ⇒ SELL: ${fmtCup(config.sellRate)} (fuente ${
-      plan.usedSellSource === 'db' ? 'DB' : 'ENV'
-    })  fee: ${(config.sellFeePct * 100).toFixed(2)}%`,
+    `• sellNet = floor(SELL × (1 − fee)) ⇒ SELL: ${fmtCup(config.sellRate)} (fuente ${h(
+      resolvedSellSource
+    )})  fee: ${(config.sellFeePct * 100).toFixed(2)}%`,
   ];
   blocks.push(explicacion.join('\n'));
 
   const parametros = [
     '📝 <b>Parámetros</b>',
     `• Mínimo por operación: ${fmtUsd(config.minSellUsd)} USD`,
-    `• SELL bruto: ${fmtCup(config.sellRate)}  • Fee: ${(config.sellFeePct * 100).toFixed(2)}%  • SELL neto: ${fmtCup(
-      plan.sellNet
-    )}`,
-    `• Margen FX: ${(config.fxMarginPct * 100).toFixed(2)}%  • Redondeo: ${fmtUsd(
-      config.sellRoundToUsd
-    )} USD  • USD reserva: ${fmtUsd(config.minKeepUsd)}`,
+    `• Fee venta: ${(config.sellFeePct * 100).toFixed(2)}%  • Margen FX: ${(config.fxMarginPct * 100).toFixed(
+      2
+    )}%  • Redondeo: ${fmtUsd(config.sellRoundToUsd)} USD`,
   ];
   blocks.push(parametros.join('\n'));
 
@@ -896,17 +934,34 @@ async function runFondo(ctx, opts = {}) {
     };
     console.log('[fondoAdvisor] Configuración efectiva =>', JSON.stringify(config));
 
-    let sellSource = 'env';
+    let sellSource = typeof override.sellRate === 'number' ? 'config' : 'env';
+    let buyRateCup = null;
+    let buyRateSource = 'none';
 
     if (!opts.skipSellRateFetch) {
-      const sellFromDb = await getSellRateFromDb();
-      if (sellFromDb) {
-        config.sellRate = sellFromDb;
-        sellSource = 'db';
+      const buyFromDb = await getBuyRateFromDb();
+      if (Number.isFinite(buyFromDb) && buyFromDb > 0) {
+        buyRateCup = buyFromDb;
+        buyRateSource = 'db';
       } else {
-        console.log(`[fondoAdvisor] SELL rate fallback (config/env) => ${config.sellRate}`);
+        console.log('[fondoAdvisor] BUY rate no disponible en DB, se usará override/config si existe.');
       }
     }
+
+    if (!buyRateCup) {
+      const overrideBuyRate = parseNumber(override.buyRate ?? override.buyRateCup, null);
+      if (overrideBuyRate && overrideBuyRate > 0) {
+        buyRateCup = overrideBuyRate;
+        buyRateSource = 'config';
+      }
+    }
+
+    config.buyRateCup = buyRateCup || null;
+    config.buyRateSource = buyRateSource;
+    config.sellRateSource = sellSource;
+    console.log(
+      `[fondoAdvisor] Tasas configuradas => BUY=${buyRateCup || '—'} (${buyRateSource}) SELL=${config.sellRate} (${sellSource})`
+    );
 
     const balances = opts.balances || (await getLatestBalances());
     console.log(`[fondoAdvisor] Registros de saldo obtenidos => ${balances.length}`);
@@ -993,6 +1048,9 @@ async function runFondo(ctx, opts = {}) {
       monthlyLimits,
       distributionNow,
       distributionTarget,
+      buyRateCup: buyRateCup || null,
+      buyRateSource,
+      sellRateSource: sellSource,
     };
 
     const blocks = renderAdvice(result);

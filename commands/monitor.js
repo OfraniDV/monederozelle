@@ -119,8 +119,10 @@ async function getSellRate() {
   const fallbackSell = parseNumber(process.env.ADVISOR_SELL_RATE_CUP_PER_USD, 452);
   const feePct = clamp01(parseNumber(process.env.ADVISOR_SELL_FEE_PCT, 0));
   const marginPct = clamp01(parseNumber(process.env.ADVISOR_FX_MARGIN_PCT, 0));
-  let sellRate = fallbackSell;
+  const sellRate = fallbackSell;
   let source = 'env';
+  let buyRate = null;
+  let buySource = 'none';
   try {
     const { rows } = await query(
       "SELECT tasa_usd FROM moneda WHERE UPPER(codigo)='CUP' ORDER BY id DESC LIMIT 1"
@@ -128,8 +130,8 @@ async function getSellRate() {
     if (rows && rows.length) {
       const tasaUsd = Number(rows[0].tasa_usd);
       if (tasaUsd > 0) {
-        sellRate = Math.round(1 / tasaUsd);
-        source = 'db';
+        buyRate = tasaUsd;
+        buySource = 'db';
       }
     }
   } catch (err) {
@@ -140,7 +142,15 @@ async function getSellRate() {
   if (marginPct > 0) {
     sellNet = Math.round(sellNet * (1 + marginPct));
   }
-  return { sellRate, sellNet, sellFeePct: feePct, fxMarginPct: marginPct, source };
+  return {
+    sellRate,
+    sellNet,
+    sellFeePct: feePct,
+    fxMarginPct: marginPct,
+    source,
+    buyRate,
+    buySource,
+  };
 }
 
 function calcRanges(period, tz, fecha, mes) {
@@ -507,8 +517,9 @@ async function runMonitor(ctx, rawText) {
     if (opts.equiv === 'cup') {
       opts.sellInfo = await getSellRate();
       const info = opts.sellInfo || {};
+      const buyLog = info.buyRate ? `${info.buyRate} (${info.buySource || 'db'})` : '—';
       console.log(
-        `[monitor] SELL rate => SELL=${info.sellRate} sellNet=${info.sellNet} fee=${info.sellFeePct} margin=${info.fxMarginPct} source=${info.source}`
+        `[monitor] Tasas => compra=${buyLog} • venta=${info.sellRate} (${info.source}) • neto=${info.sellNet} • fee=${info.sellFeePct} • margen=${info.fxMarginPct}`
       );
     }
     const rango = calcRanges(opts.period, opts.tz, opts.fecha, opts.mes);
@@ -642,7 +653,7 @@ async function runMonitor(ctx, rawText) {
   }
 }
 
-module.exports = { runMonitor, parseArgs, calcRanges };
+module.exports = { runMonitor, parseArgs, calcRanges, getSellRate };
 
 // Comentarios de modificaciones:
 // - Se implementó el comando /monitor con soporte de rangos (día, semana, mes, año).

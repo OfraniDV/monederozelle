@@ -75,7 +75,12 @@ describe('fondoAdvisor wiring', () => {
     expect(message).toContain('Venta requerida (Zelle)');
     expect(message).toContain('Faltante tras venta');
     expect(message).toContain('Liquidez rápida disponible');
+    expect(message).toContain('Compra (DB)');
+    expect(message).toContain('Venta (config)');
+    expect(message).toContain('Disponible ahora');
+    expect(message).not.toContain('Reservado');
     expect(result.plan.remainingCup).toBeGreaterThan(0);
     expect(result.urgency).toBe('🟠 PRIORITARIO');
+    expect(result.buyRateCup).toBe(400);
   });
 });

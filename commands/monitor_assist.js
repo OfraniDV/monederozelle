@@ -28,7 +28,7 @@ const {
   editIfChanged,
   buildBackExitRow,
   arrangeInlineButtons,
-  buildSaveExitRow,
+  buildSaveBackExitKeyboard,
   sendReportWithKb,
 } = require('../helpers/ui');
 const pool = require('../psql/db.js');
@@ -257,7 +257,7 @@ const monitorAssist = new Scenes.WizardScene(
           await editIfChanged(ctx, 'Generando reporte...', { parse_mode: 'HTML' });
           const msgs = await runMonitor(ctx, cmd);
           ctx.wizard.state.lastReport = msgs;
-          const kb = Markup.inlineKeyboard([buildSaveExitRow()]).reply_markup; // UX-2025
+          const kb = buildSaveBackExitKeyboard({ back: 'BACK_TO_MAIN' }); // UX-2025
           await sendReportWithKb(ctx, [], kb); // UX-2025
           ctx.wizard.state.route = 'AFTER_RUN';
           return;
@@ -355,6 +355,9 @@ const monitorAssist = new Scenes.WizardScene(
           });
           ctx.wizard.state.route = 'ASK_AGAIN';
           return;
+        }
+        if (data === 'BACK_TO_MAIN') {
+          return showMain(ctx);
         }
         break;
       case 'ASK_AGAIN':

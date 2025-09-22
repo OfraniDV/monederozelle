@@ -50,8 +50,11 @@ test('monitorAssist envía teclado y no edita después', async () => {
   const last = ctx.reply.mock.calls.at(-1);
   expect(last[0]).toMatch('Reporte generado.');
   const kb = last[1].reply_markup.inline_keyboard;
-  expect(kb).toHaveLength(1);
+  expect(kb).toHaveLength(2);
   expect(kb[0]).toHaveLength(2);
+  expect(kb[0][1].text).toMatch('Volver');
+  expect(kb[1]).toHaveLength(1);
+  expect(kb[1][0].text).toMatch('Salir');
   const editOrder = ctx.telegram.editMessageText.mock.invocationCallOrder[0];
   const replyOrder = ctx.reply.mock.invocationCallOrder.slice(-1)[0];
   expect(replyOrder).toBeGreaterThan(editOrder);
