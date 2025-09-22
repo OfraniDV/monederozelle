@@ -30,6 +30,7 @@ const {
   buildBackExitRow,
   arrangeInlineButtons,
   buildSaveExitRow,
+  buildSaveBackExitKeyboard,
   sendReportWithKb,
 } = require('../helpers/ui');
 const pool = require('../psql/db.js');
@@ -368,7 +369,7 @@ async function showAll(ctx) {
   const blocks = buildAllBlocks(ctx.wizard.state.data);
   ctx.wizard.state.lastReport = blocks; // UX-2025
   await sendLargeMessage(ctx, blocks); // UX-2025
-  const kb = Markup.inlineKeyboard([buildSaveExitRow()]).reply_markup; // UX-2025
+  const kb = buildSaveBackExitKeyboard({ back: 'BACK_TO_MENU' }); // UX-2025
   await sendReportWithKb(ctx, [], kb); // UX-2025
   ctx.wizard.state.lastRender = {};
   ctx.wizard.state.route = { view: 'AFTER_REPORT' }; // UX-2025
@@ -492,6 +493,9 @@ const tarjetasAssist = new Scenes.WizardScene(
             await sendAndLog(ctx, m);
           }
           return;
+        }
+        if (data === 'BACK_TO_MENU') {
+          return showMenu(ctx);
         }
         break; // UX-2025
       default:
