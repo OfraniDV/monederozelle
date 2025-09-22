@@ -1,0 +1,61 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`renderAdvice output formatting snapshot completo mantiene formato HTML de liquidez 1`] = `
+"🧮 <b>Asesor de Fondo</b>
+
+🔴 URGENTE
+
+━━━━━━━━━━━━━━━━━━
+
+📊 <b>Estado actual CUP</b>
+• Activos: 412,779 CUP (≈ 1,031.95 USD)
+• Deudas: -275,000 CUP
+• Neto: 137,779 CUP (≈ 344.45 USD)
+• Libre tras deudas: 137,779 CUP
+
+🎯 <b>Objetivo</b>
+• Colchón objetivo: 180,000 CUP
+• Necesidad adicional: 42,221 CUP
+
+💵 <b>Inventario USD/Zelle</b>
+• Total: 180 USD
+• Disponible ahora: 180 USD
+
+💸 <b>Venta requerida (Zelle)</b>
+• Objetivo: vender 94 USD a 452 ⇒ +42,488 CUP
+• Vende ahora: 80 USD ⇒ +36,160 CUP
+• Faltante tras venta: 6,061 CUP (≈ 14 USD)
+
+────────────────────────────────
+
+🚦 <b>Límite mensual por tarjeta</b>
+
+ℹ️ Límite mensual: Estándar 120,000 CUP • BPA 120,000 CUP (ampliable)
+
+<pre>—</pre>
+
+📍 <b>Sugerencia de destino del CUP</b>
+
+<pre>Venta AHORA: 36,160 CUP
+  Sin capacidad disponible
+Objetivo total: 42,488 CUP
+  Sin capacidad disponible
+  ⚠️ CUP sin destino: 6,061 CUP</pre>
+
+────────────────────────────────
+
+🧾 <b>Proyección post-venta</b>
+• Negativos: 0 CUP
+• Colchón proyectado: 173,939 CUP &lt; 180,000
+
+🏦 <b>Liquidez rápida disponible</b>
+• BANDEC: 322,491 CUP (≈ 806.23 USD)
+• MITRANSFER: 53,628 CUP (≈ 134.07 USD)
+• METRO: 23,295 CUP (≈ 58.24 USD)
+• BPA: 13,365 CUP (≈ 33.41 USD)
+
+📐 <b>Explicación</b>
+• Fórmula: necesidad = |deudas| + colchón − activos = 275,000 + 180,000 − 412,779 = 42,221 CUP
+• Objetivo USD = ceil(necesidad / sellNet) (+ márgenes y redondeo)
+• sellNet = floor(SELL × (1 − fee)) ⇒ SELL: 452 (fuente ENV)  fee: 0.00%"
+`;

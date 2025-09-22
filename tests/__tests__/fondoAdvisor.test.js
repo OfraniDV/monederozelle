@@ -61,7 +61,7 @@ describe('fondoAdvisor core calculations', () => {
         agente: 'Caja fuerte',
         numero: '2222',
         saldo: 45200,
-        tasa_usd: 452,
+        tasa_usd: 1 / 452,
       },
     ];
     const totals = aggregateBalances(rows, ['BANDEC', 'BPA']);
