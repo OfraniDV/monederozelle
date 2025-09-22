@@ -721,6 +721,24 @@ function renderAdvice(result) {
   );
   blocks.push(venta.join('\n'));
 
+  if (hasBuyRate) {
+    const excesoCupRaw = (activosCup || 0) - Math.abs(deudasCup || 0) - (cushionTarget || 0);
+    const excesoCup = Math.max(0, Math.round(excesoCupRaw));
+    if (excesoCup > 0) {
+      const objetivoUsd = Math.floor(excesoCup / resolvedBuyRate);
+      const objetivoCup = Math.round(objetivoUsd * resolvedBuyRate);
+      const compra = [
+        '💠 <b>Compra sugerida (USD)</b>',
+        `• Exceso sobre colchón/deudas: ${fmtCup(excesoCup)} CUP`,
+        `• Objetivo: comprar ${fmtUsd(objetivoUsd)} USD a ${fmtCup(resolvedBuyRate)} ⇒ −${fmtCup(objetivoCup)} CUP`,
+      ];
+      if (objetivoUsd > 0) {
+        compra.push(`• Compra ahora: ${fmtUsd(objetivoUsd)} USD ⇒ −${fmtCup(objetivoCup)} CUP`);
+      }
+      blocks.push(compra.join('\n'));
+    }
+  }
+
   const limitsData = monthlyLimits || { cards: [] };
   const orderedCards = sortCardsByPreference(limitsData.cards || [], config.allocationBankOrder || [])
     // No mostrar BOLSA (MITRANSFER y similares) en el bloque de límites
@@ -910,6 +928,24 @@ function renderAdvice(result) {
     )})  fee: ${(config.sellFeePct * 100).toFixed(2)}%`,
   ];
   blocks.push(explicacion.join('\n'));
+
+  if (hasBuyRate) {
+    const equivalencias = ['🔄 <b>Equivalencias de referencia</b>'];
+    const buyUsdPerCup = 1 / resolvedBuyRate;
+    equivalencias.push(
+      `• 1 USD ≈ ${fmtCup(resolvedBuyRate)} CUP (compra)`,
+      `• 1 CUP ≈ ${fmtUsdDetailed(buyUsdPerCup)} USD`
+    );
+    const sellRate = Number(config.sellRate) || 0;
+    if (sellRate > 0) {
+      const sellUsdPerCup = 1 / sellRate;
+      equivalencias.push(
+        `• 1 USD ≈ ${fmtCup(sellRate)} CUP (venta)`,
+        `• 1 CUP ≈ ${fmtUsdDetailed(sellUsdPerCup)} USD`
+      );
+    }
+    blocks.push(equivalencias.join('\n'));
+  }
 
   const parametros = [
     '📝 <b>Parámetros</b>',
