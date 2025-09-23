@@ -51,6 +51,42 @@ describe('fondoAdvisor wiring', () => {
     runSpy.mockRestore();
   });
 
+  it('intenta enviar el análisis por DM cuando el leave ocurre en un grupo', async () => {
+    const tarjetasScene = buildScene();
+    const runSpy = jest.spyOn(advisor, 'runFondo').mockImplementation(async (ctxArg, opts) => {
+      expect(opts).toEqual(expect.objectContaining({ send: expect.any(Function) }));
+      await opts.send('resumen');
+    });
+
+    advisor.registerFondoAdvisor({
+      scenes: {
+        tarjetasAssist: tarjetasScene,
+      },
+    });
+
+    const sendMessage = jest.fn().mockResolvedValue();
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const ctx = {
+      session: {},
+      chat: { type: 'group', id: -300 },
+      from: { id: 77 },
+      telegram: { sendMessage },
+    };
+
+    await tarjetasScene.emit('leave', ctx);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(runSpy).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({ send: expect.any(Function) })
+    );
+    expect(sendMessage).toHaveBeenCalledWith(77, 'resumen', { parse_mode: 'HTML' });
+    expect(logSpy).toHaveBeenCalledWith('[fondoAdvisor] leave en grupo; se intentará envío por DM.');
+
+    logSpy.mockRestore();
+    runSpy.mockRestore();
+  });
+
   it('runFondo builds summary message with provided balances', async () => {
     const ctx = { session: {}, reply: jest.fn() };
     const send = jest.fn().mockResolvedValue();

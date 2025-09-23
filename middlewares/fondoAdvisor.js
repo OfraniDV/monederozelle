@@ -1104,7 +1104,36 @@ function registerFondoAdvisor({ scenes = {} } = {}) {
         const runner = module.exports.runFondo || runFondo;
         setImmediate(() => {
           Promise.resolve()
-            .then(() => runner(ctx))
+            .then(() => {
+              const chatType = ctx?.chat?.type;
+              const isGroup = chatType === 'group' || chatType === 'supergroup';
+
+              if (isGroup) {
+                console.log('[fondoAdvisor] leave en grupo; se intentará envío por DM.');
+                return runner(ctx, {
+                  send: async (text) => {
+                    const userId = ctx?.from?.id;
+                    if (!userId) {
+                      console.log('[fondoAdvisor] No hay ctx.from.id; se omite envío en grupo.');
+                      return;
+                    }
+                    const telegram = ctx.telegram;
+                    if (!telegram?.sendMessage) {
+                      console.log('[fondoAdvisor] ctx.telegram.sendMessage no disponible; se omite envío en grupo.');
+                      return;
+                    }
+                    try {
+                      await telegram.sendMessage(userId, text, { parse_mode: 'HTML' });
+                      console.log('[fondoAdvisor] Análisis enviado por DM a', userId);
+                    } catch (err) {
+                      console.log('[fondoAdvisor] No se pudo enviar DM del fondoAdvisor:', err.message);
+                    }
+                  },
+                });
+              }
+
+              return runner(ctx);
+            })
             .catch((err) => {
               console.error('[fondoAdvisor] Error en leave handler:', err.message);
             });
