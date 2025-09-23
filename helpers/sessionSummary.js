@@ -1,6 +1,6 @@
 const { notifyOwners } = require('./reportSender');
 const { fmtMoney, escapeHtml } = require('./format');
-const { safeSendMessage } = require('./telegram');
+const { safeSendMessage, safeReply } = require('./telegram');
 const { ownerIds, statsChatId, comercialesGroupId } = require('../config');
 const db = require('../psql/db.js');
 const { query } = db;
@@ -59,6 +59,9 @@ async function flushOnExit(ctx) {
     const role = ownerIds.includes(actor.id) ? 'Owner' : 'Usuario regular';
 
     const chatId = ctx.chat?.id;
+    const isGroupChat = ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup';
+    const privateChatId = ctx.from?.id;
+
     let contexto = 'Otro grupo';
     if (ctx.chat?.type === 'private') {
       contexto = 'PV';
@@ -77,10 +80,18 @@ async function flushOnExit(ctx) {
       `• Contexto: ${contexto}`;
 
     const recipients = new Set();
-    if (chatId) recipients.add(chatId);
+    if (isGroupChat) {
+      if (privateChatId) recipients.add(privateChatId);
+    } else if (chatId) {
+      recipients.add(chatId);
+    }
     // Evitamos reenviar automáticamente al grupo de estadísticas para reducir el spam.
-    if (comercialesGroupId && comercialesGroupId !== chatId)
-      recipients.add(comercialesGroupId);
+    if (comercialesGroupId) {
+      const targetId = isGroupChat ? privateChatId : chatId;
+      if (comercialesGroupId !== targetId) {
+        recipients.add(comercialesGroupId);
+      }
+    }
 
     await broadcast(ctx, recipients, header);
 
@@ -176,10 +187,19 @@ async function flushOnExit(ctx) {
           `🕘 Última actualización – ${escapeHtml(agName)}\n` +
           'Tarjeta   Saldo anterior → Saldo nuevo   Δ\n' +
           linesUlt.join('\n');
-        await broadcast(ctx, recipients, agentUlt);
+      await broadcast(ctx, recipients, agentUlt);
       }
 
       agentSummaries.push({ agName, changed: cards.size, total: cardRes.rows.length });
+    }
+
+    if (isGroupChat && privateChatId) {
+      await safeReply(
+        ctx,
+        '📬 Resumen de cambios enviado por privado para evitar spam en el grupo.'
+      ).catch((err) => {
+        console.error('[sessionSummary] no se pudo notificar en grupo:', err?.message);
+      });
     }
 
     if (agentSummaries.length > 1) {
