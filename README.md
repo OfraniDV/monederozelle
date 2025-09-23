@@ -93,6 +93,9 @@ monitor o extracto (hook en el evento `leave`). El asistente de `/saldo` dispara
 `leaveMiddleware` para garantizar que, incluso si no se registra el middleware global, se envíe el reporte al finalizar. Además
 puede ejecutarse manualmente mediante el comando `/fondo`. El análisis:
 
+- En chats de grupo o supergrupo el análisis ya no se publica en el canal: se intenta enviarlo por mensaje directo a la persona
+  operadora; si no es posible, se omite sin mostrar errores en el grupo.
+
 - Calcula la necesidad en CUP con `necesidad = |deudas| + colchón - activos`, permite configurar el colchón objetivo y deriva la venta objetivo/instantánea en USD con redondeos enteros.
 - Lee la tasa SELL desde la tabla `moneda` (código `CUP`) y usa las variables `ADVISOR_*` como fallback.
 - Ignora como liquidez las cuentas por cobrar cuyo banco/agente/número contenga "debe/deuda/deudor".

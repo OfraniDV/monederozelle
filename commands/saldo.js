@@ -389,7 +389,32 @@ async function handleSaldoLeave(ctx) {
   ctx.wizard.state = {};
 
   try {
-    await runFondo(ctx);
+    const chatType = ctx.chat?.type;
+    const isGroup = chatType === 'group' || chatType === 'supergroup';
+
+    if (isGroup) {
+      await runFondo(ctx, {
+        send: async (text) => {
+          const userId = ctx.from?.id;
+          if (!userId) {
+            console.log('[SALDO_WIZ] No hay ctx.from.id; se omite envío en grupo.');
+            return;
+          }
+          if (!ctx.telegram?.sendMessage) {
+            console.log('[SALDO_WIZ] ctx.telegram.sendMessage no disponible; se omite envío en grupo.');
+            return;
+          }
+          try {
+            await ctx.telegram.sendMessage(userId, text, { parse_mode: 'HTML' });
+            console.log('[SALDO_WIZ] fondoAdvisor enviado por DM a', userId);
+          } catch (e) {
+            console.log('[SALDO_WIZ] No se pudo enviar DM del fondoAdvisor:', e.message);
+          }
+        },
+      });
+    } else {
+      await runFondo(ctx);
+    }
   } catch (err) {
     console.error('[SALDO_WIZ] error al generar análisis de fondo:', err);
   }
