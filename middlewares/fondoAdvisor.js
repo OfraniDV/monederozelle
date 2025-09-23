@@ -3,6 +3,7 @@
 const path = require('path');
 const { escapeHtml } = require('../helpers/format');
 const { sendLargeMessage } = require('../helpers/sendLargeMessage');
+const { safeSendMessage, safeReply } = require('../helpers/telegram');
 
 // Escapa TODO texto dinámico para HTML
 function h(text = '') {
@@ -1080,7 +1081,32 @@ async function runFondo(ctx, opts = {}) {
     if (opts.send) {
       await opts.send(blocks.join('\n\n'));
     } else if (ctx) {
-      await sendLargeMessage(ctx, blocks, { parse_mode: 'HTML' });
+      const isGroupChat = ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup';
+      const privateChatId = ctx.from?.id;
+
+      if (isGroupChat && privateChatId && ctx.telegram?.sendMessage) {
+        const privateCtx = {
+          ...ctx,
+          chat: { id: privateChatId, type: 'private' },
+          reply: (text, extra) =>
+            safeSendMessage(ctx.telegram, privateChatId, text, extra),
+        };
+
+        try {
+          await sendLargeMessage(privateCtx, blocks, { parse_mode: 'HTML' });
+          await safeReply(
+            ctx,
+            '📬 Envié el resumen del fondo por privado para evitar spam en el grupo.'
+          ).catch((err) => {
+            console.error('[fondoAdvisor] aviso en grupo falló:', err?.message);
+          });
+        } catch (err) {
+          console.error('[fondoAdvisor] Fallback a grupo (privado falló):', err?.message);
+          await sendLargeMessage(ctx, blocks, { parse_mode: 'HTML' });
+        }
+      } else {
+        await sendLargeMessage(ctx, blocks, { parse_mode: 'HTML' });
+      }
     }
     console.log('[fondoAdvisor] Análisis enviado');
     return result;

@@ -36,18 +36,25 @@ test('flushOnExit reports total, day and last deltas', async () => {
   const sent = [];
   const ctx = {
     from: { id: 1, username: 'tester', first_name: 'Test' },
-    chat: { id: 99, type: 'private' },
+    chat: { id: -99, type: 'supergroup' },
     telegram: {
       sendMessage: async (id, html) => {
-        sent.push(html);
+        sent.push({ id, html });
       },
     },
+    reply: jest.fn().mockResolvedValue(null),
   };
 
   await flushOnExit(ctx);
 
   expect(sent.length).toBe(4);
-  expect(sent[1]).toMatch(/30\.00.*80\.00.*\+50\.00/);
-  expect(sent[2]).toMatch(/50\.00.*80\.00.*\+30\.00/);
-  expect(sent[3]).toMatch(/60\.00.*80\.00.*\+20\.00/);
+  sent.forEach((msg) => {
+    expect(msg.id).toBe(1);
+  });
+  expect(sent[1].html).toMatch(/30\.00.*80\.00.*\+50\.00/);
+  expect(sent[2].html).toMatch(/50\.00.*80\.00.*\+30\.00/);
+  expect(sent[3].html).toMatch(/60\.00.*80\.00.*\+20\.00/);
+  expect(ctx.reply).toHaveBeenCalled();
+  const [notice] = ctx.reply.mock.calls[0];
+  expect(notice).toContain('Resumen de cambios enviado por privado');
 });
