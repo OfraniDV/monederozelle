@@ -22,14 +22,7 @@ const fmt = (v, d = 2) => {
   );
 };
 
-/* -------------------------------------------------------------------------- */
-/* Comando /tarjetas                                                          */
-/* -------------------------------------------------------------------------- */
-module.exports = (bot) => {
-  bot.command('tarjetas', async (ctx) => {
-    try {
-      // 1. Último movimiento por tarjeta
-      const sql = `
+const LAST_MOVEMENTS_SQL = `
         SELECT t.id, t.numero,
                COALESCE(ag.nombre,'—')  AS agente,
                COALESCE(ag.emoji,'')    AS agente_emoji,
@@ -53,7 +46,15 @@ module.exports = (bot) => {
           ORDER BY creado_en DESC
              LIMIT 1
           ) mv ON TRUE;`;
-      const rows = (await pool.query(sql)).rows;
+
+/* -------------------------------------------------------------------------- */
+/* Comando /tarjetas                                                          */
+/* -------------------------------------------------------------------------- */
+module.exports = (bot) => {
+  bot.command('tarjetas', async (ctx) => {
+    try {
+      // 1. Último movimiento por tarjeta
+      const rows = (await pool.query(LAST_MOVEMENTS_SQL)).rows;
       if (!rows.length) return ctx.reply('No hay tarjetas registradas todavía.');
 
       // 2. Agrupar por moneda y por agente
@@ -207,3 +208,5 @@ module.exports = (bot) => {
     }
   });
 };
+
+module.exports.LAST_MOVEMENTS_SQL = LAST_MOVEMENTS_SQL;

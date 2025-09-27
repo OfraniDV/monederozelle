@@ -17,3 +17,11 @@
 - Cuando el inventario USD no alcanza el mínimo configurado se muestra la alerta “⚠️ inventario menor al mínimo…”, y se omite cualquier sugerencia de ciclos de compra.
 - El informe expone ahora la tasa de compra proveniente de `moneda.tasa_usd`, la tasa de venta configurada y las equivalencias en USD para Activos y Neto usando esa tasa de compra.
 - La sección 🏦 Liquidez rápida disponible añade el equivalente en USD por banco cuando hay tasa de compra válida; si no, conserva solo los montos en CUP.
+
+## Monitor
+
+- El snapshot actual reportado por `/monitor` es la suma de saldos finales por tarjeta y debe coincidir con `/tarjetas`.
+- El período se calcula como `saldo_fin_per − saldo_ini_per`, usando el saldo inmediatamente anterior al rango y el último saldo ≤ fin.
+- Las tarjetas creadas dentro del rango arrancan con `saldo_ini_period = 0`; movimientos fuera del rango no inflan ese inicio.
+- Se registran en los logs `cardsInRange`, `cardsBornInRange` y ejemplos de tarjetas cuyo inicio se fuerza a 0.
+- Las equivalencias en USD usan la tasa actual almacenada en `moneda.tasa_usd`.

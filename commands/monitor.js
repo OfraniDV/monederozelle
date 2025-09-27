@@ -19,8 +19,6 @@ try {
   console.error('[monitor] Error al cargar la base de datos', err);
   throw err;
 }
-const { query } = db;
-
 /* ───────── utilidades básicas ───────── */
 function normalize(str = '') {
   return str
@@ -108,6 +106,17 @@ function parseNumber(value, fallback) {
   return Number.isFinite(num) ? num : fallback;
 }
 
+function numberOr(value, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function numberOrNull(value) {
+  if (value === null || value === undefined) return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
 function clamp01(value) {
   const num = Number.isFinite(value) ? value : 0;
   if (num < 0) return 0;
@@ -124,7 +133,7 @@ async function getSellRate() {
   let buyRate = null;
   let buySource = 'none';
   try {
-    const { rows } = await query(
+    const { rows } = await db.query(
       "SELECT tasa_usd FROM moneda WHERE UPPER(codigo)='CUP' ORDER BY id DESC LIMIT 1"
     );
     if (rows && rows.length) {
@@ -156,11 +165,11 @@ async function getSellRate() {
 function calcRanges(period, tz, fecha, mes) {
   if (fecha) {
     const d = moment.tz(fecha, tz);
-    return { start: d.startOf('day'), end: d.endOf('day') };
+    return { start: d.clone().startOf('day'), end: d.clone().endOf('day') };
   }
   if (mes) {
     const m = moment.tz(mes, 'YYYY-MM', tz);
-    return { start: m.startOf('month'), end: m.endOf('month') };
+    return { start: m.clone().startOf('month'), end: m.clone().endOf('month') };
   }
   const now = moment.tz(tz);
   let start;
@@ -247,26 +256,43 @@ WITH movs AS (
      AND mv.descripcion NOT ILIKE '%saldo inicial%'
    GROUP BY mv.tarjeta_id
 ),
+first_mv AS (
+  SELECT tarjeta_id, MIN(creado_en) AS first_dt
+    FROM movimiento
+   GROUP BY tarjeta_id
+),
 ini_total AS ( -- saldo inicial histórico
-  SELECT DISTINCT ON (tarjeta_id) tarjeta_id, saldo_nuevo AS saldo_ini_total
+  SELECT DISTINCT ON (tarjeta_id)
+         tarjeta_id,
+         saldo_nuevo AS saldo_ini_total,
+         creado_en   AS saldo_ini_total_dt
     FROM movimiento
    ORDER BY tarjeta_id, creado_en ASC
 ),
 fin_total AS ( -- saldo actual
-  SELECT DISTINCT ON (tarjeta_id) tarjeta_id, saldo_nuevo AS saldo_fin_total
+  SELECT DISTINCT ON (tarjeta_id)
+         tarjeta_id,
+         saldo_nuevo AS saldo_fin_total,
+         creado_en   AS saldo_fin_total_dt
     FROM movimiento
    ORDER BY tarjeta_id, creado_en DESC
 ),
 ini_per AS (  -- saldo justo antes del comienzo del período
-  SELECT DISTINCT ON (tarjeta_id) tarjeta_id, saldo_nuevo AS saldo_ini_period
+  SELECT DISTINCT ON (tarjeta_id)
+         tarjeta_id,
+         saldo_nuevo AS saldo_ini_period,
+         creado_en   AS saldo_ini_period_dt
     FROM movimiento
    WHERE creado_en < $1
    ORDER BY tarjeta_id, creado_en DESC
 ),
 fin_per AS (  -- saldo al cierre del período
-  SELECT DISTINCT ON (tarjeta_id) tarjeta_id, saldo_nuevo AS saldo_fin_period
+  SELECT DISTINCT ON (tarjeta_id)
+         tarjeta_id,
+         saldo_nuevo AS saldo_fin_period,
+         creado_en   AS saldo_fin_period_dt
     FROM movimiento
-   WHERE creado_en >= $1 AND creado_en < $2
+   WHERE creado_en < $2
    ORDER BY tarjeta_id, creado_en DESC
 )
 SELECT t.id, t.numero,
@@ -275,19 +301,24 @@ SELECT t.id, t.numero,
        COALESCE(m.tasa_usd,1)                                   AS tasa_usd,
        COALESCE(ini_total.saldo_ini_total,0)                    AS saldo_ini_total,
        COALESCE(fin_total.saldo_fin_total,0)                    AS saldo_fin_total,
-       COALESCE(ini_per.saldo_ini_period,
-                ini_total.saldo_ini_total,0)                    AS saldo_ini_period,
-       COALESCE(fin_per.saldo_fin_period,
-                ini_per.saldo_ini_period,
-                ini_total.saldo_ini_total,0)                    AS saldo_fin_period,
+       CASE
+         WHEN first_mv.first_dt >= $1 THEN 0
+         ELSE COALESCE(ini_per.saldo_ini_period, ini_total.saldo_ini_total, 0)
+       END                                                      AS saldo_ini_period,
+       COALESCE(fin_per.saldo_fin_period, ini_per.saldo_ini_period) AS saldo_fin_period,
        COALESCE(movs.movs,0)                                    AS movs,
        COALESCE(movs.n_up,0)                                    AS n_up,
        COALESCE(movs.n_down,0)                                  AS n_down,
-       COALESCE(movs.vol,0)                                     AS vol
+       COALESCE(movs.vol,0)                                     AS vol,
+       first_mv.first_dt                                        AS first_dt,
+       ini_per.saldo_ini_period_dt                              AS saldo_ini_period_dt,
+       fin_per.saldo_fin_period_dt                              AS saldo_fin_period_dt,
+       fin_total.saldo_fin_total_dt                             AS saldo_fin_total_dt
   FROM tarjeta t
   JOIN banco  b ON b.id = t.banco_id
   JOIN agente ag ON ag.id = t.agente_id
   JOIN moneda m ON m.id = t.moneda_id
+  LEFT JOIN first_mv ON first_mv.tarjeta_id = t.id
   LEFT JOIN ini_total ON ini_total.tarjeta_id = t.id
   LEFT JOIN fin_total ON fin_total.tarjeta_id = t.id
   LEFT JOIN ini_per   ON ini_per.tarjeta_id   = t.id
@@ -296,6 +327,69 @@ SELECT t.id, t.numero,
 `;
 
 /* ───────── mensaje por moneda ───────── */
+function transformRow(row, rangeStartDate) {
+  const saldo_ini = numberOr(row.saldo_ini_period, 0);
+  const saldo_fin_maybe = numberOrNull(row.saldo_fin_period);
+  const saldo_fin = saldo_fin_maybe !== null ? saldo_fin_maybe : saldo_ini;
+  const saldo_ini_total = numberOr(row.saldo_ini_total, 0);
+  const saldo_fin_total = numberOr(row.saldo_fin_total, 0);
+  const delta = saldo_fin - saldo_ini;
+  const delta_total = saldo_fin_total - saldo_ini_total;
+  const tasa = numberOr(row.tasa_usd, 1);
+  const saldo_ini_usd = saldo_ini * tasa;
+  const saldo_fin_usd = saldo_fin * tasa;
+  const saldo_ini_total_usd = saldo_ini_total * tasa;
+  const saldo_fin_total_usd = saldo_fin_total * tasa;
+  const pct = saldo_ini !== 0 ? (delta / saldo_ini) * 100 : null;
+  const movs = numberOr(row.movs, 0);
+  const n_up = numberOr(row.n_up, 0);
+  const n_down = numberOr(row.n_down, 0);
+  const vol = numberOr(row.vol, 0);
+  const estado = estadoEmoji(delta, pct, n_up, n_down);
+  const firstDt = row.first_dt ? new Date(row.first_dt) : null;
+  const lastDt = row.saldo_fin_total_dt ? new Date(row.saldo_fin_total_dt) : null;
+  const iniPeriodDt = row.saldo_ini_period_dt ? new Date(row.saldo_ini_period_dt) : null;
+  const finPeriodDt = row.saldo_fin_period_dt ? new Date(row.saldo_fin_period_dt) : null;
+  const rangeStart = rangeStartDate ? new Date(rangeStartDate) : null;
+  const bornInRange = !!(firstDt && rangeStart && firstDt >= rangeStart);
+  const forcedZero = bornInRange && saldo_ini === 0;
+  return {
+    data: {
+      id: row.id,
+      tarjeta: row.numero,
+      banco: row.banco_codigo || row.banco_nombre || '—',
+      agente: row.agente || '—',
+      moneda: row.moneda || '—',
+      saldo_ini,
+      saldo_fin,
+      saldo_ini_total,
+      saldo_fin_total,
+      delta,
+      delta_total,
+      delta_usd: delta * tasa,
+      saldo_ini_usd,
+      saldo_fin_usd,
+      saldo_ini_total_usd,
+      saldo_fin_total_usd,
+      tasa_usd: tasa,
+      pct,
+      movs,
+      n_up,
+      n_down,
+      vol,
+      estado,
+    },
+    meta: {
+      bornInRange,
+      forcedZero,
+      firstDt,
+      lastDt,
+      iniPeriodDt,
+      finPeriodDt,
+    },
+  };
+}
+
 function buildMessage(moneda, rows, opts, range, historiales) {
   const sorted = [...rows];
   switch (opts.orden) {
@@ -318,7 +412,6 @@ function buildMessage(moneda, rows, opts, range, historiales) {
     totalFinPerUsd = 0,
     totalIniTotUsd = 0,
     totalFinTotUsd = 0,
-    totalUsd = 0,
     up = 0,
     down = 0,
     same = 0,
@@ -341,7 +434,6 @@ function buildMessage(moneda, rows, opts, range, historiales) {
     totalFinPerUsd += r.saldo_fin_usd;
     totalIniTotUsd += r.saldo_ini_total_usd;
     totalFinTotUsd += r.saldo_fin_total_usd;
-    totalUsd += r.delta_usd;
     if (r.delta > 0) up++;
     else if (r.delta < 0) down++;
     else same++;
@@ -371,28 +463,38 @@ function buildMessage(moneda, rows, opts, range, historiales) {
     `Periodo: <b>${range.start.format('DD/MM/YYYY')} – ${range.end.clone().subtract(1, 'second').format('DD/MM/YYYY')}</b>\n` +
     filtStr +
     `\n`;
-  const deltaPer   = totalFinPer - totalIniPer;
-  const emojiPer   = deltaPer > 0 ? '📈' : deltaPer < 0 ? '📉' : '➖';
   msg +=
-    `Saldo inicio (período): <code>${fmtMoney(totalIniPer)}</code> → Saldo fin (período): <code>${fmtMoney(totalFinPer)}</code> (Δ <code>${(deltaPer >= 0 ? '+' : '') + fmtMoney(deltaPer)}</code>) ${emojiPer}\n`;
+    'Definiciones:\n' +
+    '• Snapshot actual = suma de saldos finales por tarjeta.\n' +
+    '• Período = saldo_fin_per − saldo_ini_per usando saldos antes/después del rango.\n' +
+    '• Equivalencias USD usan la tasa actual (moneda.tasa_usd).\n\n';
+
+  const deltaPer = totalFinPer - totalIniPer;
+  const deltaPerUsd = totalFinPerUsd - totalIniPerUsd;
+  const emojiPer = deltaPer > 0 ? '📈' : deltaPer < 0 ? '📉' : '➖';
+  msg +=
+    `Período: inicio <code>${fmtMoney(totalIniPer)}</code> → fin <code>${fmtMoney(totalFinPer)}</code>` +
+    ` (Δ <code>${(deltaPer >= 0 ? '+' : '') + fmtMoney(deltaPer)}</code>) ${emojiPer}` +
+    ` (equiv. <code>${(deltaPerUsd >= 0 ? '+' : '') + fmtMoney(deltaPerUsd)}</code> USD)\n`;
   if (needEquivCup) {
     const totalFinPerCupEq = Math.round(totalFinPerUsd * sellNet);
-    msg += `Equiv. CUP (SELL=${fmtCup(sellNet)}): <code>${fmtCup(totalFinPerCupEq)}</code>\n`;
+    msg += `Equiv. fin período CUP (SELL=${fmtCup(sellNet)}): <code>${fmtCup(totalFinPerCupEq)}</code>\n`;
   }
 
-  const deltaTot   = totalFinTot - totalIniTot;
-  const emojiTot   = deltaTot > 0 ? '📈' : deltaTot < 0 ? '📉' : '➖';
+  const deltaTot = totalFinTot - totalIniTot;
+  const deltaTotUsd = totalFinTotUsd - totalIniTotUsd;
+  const emojiTot = deltaTot > 0 ? '📈' : deltaTot < 0 ? '📉' : '➖';
   let histLine =
-    `Saldo inicio (histórico): <code>${fmtMoney(totalIniTot)}</code> → Saldo actual: <code>${fmtMoney(totalFinTot)}</code> (Δ <code>${(deltaTot >= 0 ? '+' : '') + fmtMoney(deltaTot)}</code>) ${emojiTot} (equiv. <code>${fmtMoney(totalUsd)}</code> USD)`;
+    `Snapshot actual: <code>${fmtMoney(totalFinTot)}</code> (Histórico: <code>${fmtMoney(totalIniTot)}</code> → <code>${fmtMoney(totalFinTot)}</code>, Δ <code>${(deltaTot >= 0 ? '+' : '') + fmtMoney(deltaTot)}</code>) ${emojiTot} (equiv. <code>${(deltaTotUsd >= 0 ? '+' : '') + fmtMoney(deltaTotUsd)}</code> USD)`;
   if (needEquivCup) {
-    const totalUsdCupEq = Math.round(totalUsd * sellNet);
-    histLine += ` • Equiv. CUP: <code>${fmtCup(totalUsdCupEq)}</code>`;
+    const deltaTotCupEq = Math.round(deltaTotUsd * sellNet);
+    histLine += ` • Δ hist. CUP: <code>${fmtCup(deltaTotCupEq)}</code>`;
   }
   histLine += '\n';
   msg += histLine;
   if (needEquivCup) {
     const totalFinTotCupEq = Math.round(totalFinTotUsd * sellNet);
-    msg += `Equiv. CUP (SELL=${fmtCup(sellNet)}): <code>${fmtCup(totalFinTotCupEq)}</code>\n`;
+    msg += `Snapshot actual equiv. CUP (SELL=${fmtCup(sellNet)}): <code>${fmtCup(totalFinTotCupEq)}</code>\n`;
   }
   msg += `Tarjetas: 📈 ${up}  📉 ${down}  ➖ ${same}\n\n`;
 
@@ -543,47 +645,37 @@ async function runMonitor(ctx, rawText) {
     if (condiciones.length) sql += ' WHERE ' + condiciones.join(' AND ');
     console.log('[monitor] parámetros de consulta', params);
 
-    const { rows } = await query(sql, params);
+    const { rows } = await db.query(sql, params);
+    const rangeStartDate = rango.start.toDate();
+    const cardsWithMovs = rows.filter((r) => numberOr(r.movs, 0) > 0).length;
+    let cardsBornInRange = 0;
+    const forcedZeroLog = [];
     let datos = rows.map((r) => {
-      const saldo_ini = parseFloat(r.saldo_ini_period) || 0; // período
-      const saldo_fin = parseFloat(r.saldo_fin_period) || saldo_ini;
-      const saldo_ini_total = parseFloat(r.saldo_ini_total) || 0;
-      const saldo_fin_total = parseFloat(r.saldo_fin_total) || 0;
-      const delta = saldo_fin - saldo_ini; // Δ período
-      const delta_total = saldo_fin_total - saldo_ini_total; // Δ histórico
-      const tasa = parseFloat(r.tasa_usd) || 1;
-      const delta_usd = delta * tasa;
-      const saldo_ini_usd = saldo_ini * tasa;
-      const saldo_fin_usd = saldo_fin * tasa;
-      const saldo_ini_total_usd = saldo_ini_total * tasa;
-      const saldo_fin_total_usd = saldo_fin_total * tasa;
-      const pct = saldo_ini !== 0 ? (delta / saldo_ini) * 100 : null;
-      return {
-        id: r.id,
-        tarjeta: r.numero,
-        banco: r.banco_codigo || r.banco_nombre || '—',
-        agente: r.agente || '—',
-        moneda: r.moneda || '—',
-        saldo_ini,
-        saldo_fin,
-        saldo_ini_total,
-        saldo_fin_total,
-        delta,             // período
-        delta_total,       // histórico
-        delta_usd,
-        saldo_ini_usd,
-        saldo_fin_usd,
-        saldo_ini_total_usd,
-        saldo_fin_total_usd,
-        tasa_usd: tasa,
-        pct,
-        movs: parseFloat(r.movs || 0),
-        n_up: parseFloat(r.n_up || 0),
-        n_down: parseFloat(r.n_down || 0),
-        vol: parseFloat(r.vol || 0),
-        estado: estadoEmoji(delta, pct, r.n_up, r.n_down),
-      };
+      const { data, meta } = transformRow(r, rangeStartDate);
+      if (meta.bornInRange) cardsBornInRange++;
+      if (meta.forcedZero) {
+        forcedZeroLog.push({
+          id: data.id,
+          firstDt: meta.firstDt,
+          lastDt: meta.lastDt,
+        });
+      }
+      return data;
     });
+    console.log(`[monitor] cardsInRange=${cardsWithMovs} cardsBornInRange=${cardsBornInRange}`);
+    if (forcedZeroLog.length) {
+      forcedZeroLog.slice(0, 5).forEach((info) => {
+        const firstStr = info.firstDt
+          ? moment(info.firstDt).tz(opts.tz).format('YYYY-MM-DD HH:mm')
+          : '—';
+        const lastStr = info.lastDt
+          ? moment(info.lastDt).tz(opts.tz).format('YYYY-MM-DD HH:mm')
+          : '—';
+        console.log(
+          `[monitor] inicio período forzado a 0 → tarjeta=${info.id} first=${firstStr} last=${lastStr}`
+        );
+      });
+    }
 
     if (opts.soloCambio) {
       datos = datos.filter((d) => d.delta !== 0 || d.movs > 0);
@@ -594,19 +686,19 @@ async function runMonitor(ctx, rawText) {
       if (opts.agente) {
         const ap = [];
         const clause = await buildEntityFilter('ag', opts.agente, ap, 'id', ['nombre']);
-        const r = await query(`SELECT COUNT(*) AS c FROM agente ag WHERE ${clause}`, ap);
+        const r = await db.query(`SELECT COUNT(*) AS c FROM agente ag WHERE ${clause}`, ap);
         console.warn(`[monitor] agentes coincidentes para "${opts.agente}":`, r.rows[0]?.c || 0);
       }
       if (opts.banco) {
         const bp = [];
         const clause = await buildEntityFilter('b', opts.banco, bp, 'id', ['codigo', 'nombre']);
-        const r = await query(`SELECT COUNT(*) AS c FROM banco b WHERE ${clause}`, bp);
+        const r = await db.query(`SELECT COUNT(*) AS c FROM banco b WHERE ${clause}`, bp);
         console.warn(`[monitor] bancos coincidentes para "${opts.banco}":`, r.rows[0]?.c || 0);
       }
       if (opts.moneda) {
         const mp = [];
         const clause = await buildEntityFilter('m', opts.moneda, mp, 'id', ['codigo', 'nombre']);
-        const r = await query(`SELECT COUNT(*) AS c FROM moneda m WHERE ${clause}`, mp);
+        const r = await db.query(`SELECT COUNT(*) AS c FROM moneda m WHERE ${clause}`, mp);
         console.warn(`[monitor] monedas coincidentes para "${opts.moneda}":`, r.rows[0]?.c || 0);
       }
       await ctx.reply('No se encontraron datos para ese periodo con los filtros indicados.');
@@ -622,7 +714,7 @@ async function runMonitor(ctx, rawText) {
                            FROM movimiento
                           WHERE tarjeta_id = ANY($1) AND creado_en >= $2 AND creado_en < $3
                           ORDER BY tarjeta_id, creado_en ASC`;
-        const histRes = await query(histSql, [ids, rango.start.toDate(), rango.end.toDate()]);
+        const histRes = await db.query(histSql, [ids, rango.start.toDate(), rango.end.toDate()]);
         histRes.rows.forEach((h) => {
           if (!historiales[h.tarjeta_id]) historiales[h.tarjeta_id] = [];
           historiales[h.tarjeta_id].push(h);
@@ -653,7 +745,16 @@ async function runMonitor(ctx, rawText) {
   }
 }
 
-module.exports = { runMonitor, parseArgs, calcRanges, getSellRate };
+module.exports = {
+  runMonitor,
+  parseArgs,
+  calcRanges,
+  getSellRate,
+  buildMessage,
+  resumenPor,
+  SQL_BASE,
+  transformRow,
+};
 
 // Comentarios de modificaciones:
 // - Se implementó el comando /monitor con soporte de rangos (día, semana, mes, año).
