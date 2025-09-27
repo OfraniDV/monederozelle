@@ -12,6 +12,7 @@ const {
   renderAdvice,
   sortCardsByPreference,
   getMonthlyOutflowsByCard,
+  normalizeBankCode,
 } = require('../../middlewares/fondoAdvisor');
 
 const BASE_LIMIT_CONFIG = {
@@ -24,6 +25,7 @@ const BASE_LIMIT_CONFIG = {
 describe('fondoAdvisor monthly limits and allocation', () => {
   beforeEach(() => {
     jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
     jest.spyOn(console, 'error').mockImplementation(() => {});
     db.query.mockReset();
   });
@@ -84,7 +86,7 @@ describe('fondoAdvisor monthly limits and allocation', () => {
     expect(bpa.isBolsa).toBe(false);
   });
 
-  test('getMonthlyOutflowsByCard agrega solo CUP y bancos reales', async () => {
+  test('getMonthlyOutflowsByCard agrega solo CUP y bancos reales normalizando sinónimos', async () => {
     const banDecMovs = [-5000, 2000, -1500];
     const bpaMovs = [-80000, -40000, 5000];
 
@@ -110,12 +112,21 @@ describe('fondoAdvisor monthly limits and allocation', () => {
         },
         { id: 3, numero: '33334444', banco: 'BANCA', moneda: 'CUP', used_out: 50000 },
         { id: 4, numero: '44445555', banco: 'BANDEC', moneda: 'USD', used_out: 3000 },
+        { id: 5, numero: '55556666', banco: 'MI TRANSFER', moneda: 'CUP', used_out: 1000, saldo_actual: 100 },
+        {
+          id: 6,
+          numero: '66667777',
+          banco: 'BANCO METROPOLITANO',
+          moneda: 'CUP',
+          used_out: 2000,
+          saldo_actual: 50,
+        },
       ];
       return Promise.resolve({ rows: aggregatedRows });
     });
 
     const rows = await getMonthlyOutflowsByCard(BASE_LIMIT_CONFIG);
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(4);
 
     const byBank = Object.fromEntries(rows.map((row) => [row.banco, row]));
     const expectedBanDec = banDecMovs.reduce((acc, importe) => (importe < 0 ? acc + -importe : acc), 0);
@@ -124,10 +135,49 @@ describe('fondoAdvisor monthly limits and allocation', () => {
     expect(byBank.BANDEC.saldo_actual).toBe(12000);
     expect(byBank.BPA.used_out).toBe(expectedBpa);
     expect(byBank.BPA.saldo_actual).toBe(8000);
+    expect(byBank.MITRANSFER.used_out).toBe(1000);
+    expect(byBank.METRO.used_out).toBe(2000);
     expect(Object.keys(byBank)).not.toContain('BANCA');
     rows.forEach((row) => {
       expect(row.moneda).toBe('CUP');
     });
+  });
+
+  test("getMonthlyOutflowsByCard consulta esquema público si 'chema' está vacío", async () => {
+    db.query
+      .mockImplementationOnce((sql, params) => {
+        expect(sql).toContain('chema.tarjeta');
+        expect(params).toEqual([['BANDEC', 'BPA', 'METRO', 'MITRANSFER']]);
+        return Promise.resolve({ rows: [] });
+      })
+      .mockImplementationOnce((sql, params) => {
+        expect(sql).not.toContain('chema.tarjeta');
+        expect(params).toEqual([['BANDEC', 'BPA', 'METRO', 'MITRANSFER']]);
+        return Promise.resolve({
+          rows: [
+            {
+              id: 10,
+              numero: '10101010',
+              banco: 'BANDEC',
+              moneda: 'CUP',
+              used_out: 12345,
+              saldo_actual: 6789,
+            },
+          ],
+        });
+      });
+
+    const rows = await getMonthlyOutflowsByCard(BASE_LIMIT_CONFIG);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].banco).toBe('BANDEC');
+    expect(rows[0].used_out).toBe(12345);
+  });
+
+  test('normalizeBankCode reduce sinónimos comunes a códigos estándar', () => {
+    expect(normalizeBankCode('MI TRANSFER')).toBe('MITRANSFER');
+    expect(normalizeBankCode('BANCO METROPOLITANO')).toBe('METRO');
+    expect(normalizeBankCode('banDeC')).toBe('BANDEC');
+    expect(normalizeBankCode('Banco Popular de Ahorro S.A.')).toBe('BPA');
   });
 
   test('renderAdvice incluye bloques de límites y sugerencias con banderas', () => {

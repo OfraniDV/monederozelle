@@ -41,6 +41,44 @@ try {
 
 const { query } = db;
 
+const BANK_SYNONYMS = new Map([
+  ['TRANSFERMOVIL', 'MITRANSFER'],
+  ['METROPOLITANO', 'METRO'],
+  ['BANCOMETROPOLITANO', 'METRO'],
+  ['BANCOMETROPOLITANOSA', 'METRO'],
+  ['BANCOPOPULARDEAHORRO', 'BPA'],
+  ['BANCOPOPULARDEAHORROSA', 'BPA'],
+  ['BANCODECREDITOYCOMERCIO', 'BANDEC'],
+  ['BANCODECREDITOYCOMERCIOSA', 'BANDEC'],
+]);
+
+function normalizeBankCode(raw = '') {
+  if (raw == null) return '';
+  const upper = String(raw).trim().toUpperCase();
+  if (!upper) return '';
+  const normalized = upper
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9\s]/g, '');
+  const compact = normalized.replace(/\s+/g, '');
+  if (!compact) return '';
+  if (BANK_SYNONYMS.has(compact)) return BANK_SYNONYMS.get(compact);
+  return compact;
+}
+
+function normalizeBankList(list = []) {
+  const seen = new Set();
+  const out = [];
+  list.forEach((bank) => {
+    const normalized = normalizeBankCode(bank);
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      out.push(normalized);
+    }
+  });
+  return out;
+}
+
 const DEFAULT_CONFIG = {
   cushion: 150000,
   sellRate: 452,
@@ -78,7 +116,9 @@ function loadConfig(env = process.env) {
     cushion: Math.round(parseNumber(env.ADVISOR_CUSHION_CUP, DEFAULT_CONFIG.cushion)),
     sellRate: parseNumber(env.ADVISOR_SELL_RATE_CUP_PER_USD, DEFAULT_CONFIG.sellRate),
     minSellUsd: Math.ceil(parseNumber(env.ADVISOR_MIN_SELL_USD, DEFAULT_CONFIG.minSellUsd)),
-    liquidityBanks: parseList(env.ADVISOR_BANKS_LIQUIDOS, DEFAULT_CONFIG.liquidityBanks),
+    liquidityBanks: normalizeBankList(
+      parseList(env.ADVISOR_BANKS_LIQUIDOS, DEFAULT_CONFIG.liquidityBanks)
+    ),
     sellFeePct: parseNumber(env.ADVISOR_SELL_FEE_PCT, DEFAULT_CONFIG.sellFeePct),
     fxMarginPct: parseNumber(env.ADVISOR_FX_MARGIN_PCT, DEFAULT_CONFIG.fxMarginPct),
     sellRoundToUsd: Math.max(1, Math.round(parseNumber(env.ADVISOR_SELL_ROUND_TO_USD, DEFAULT_CONFIG.sellRoundToUsd))),
@@ -89,11 +129,14 @@ function loadConfig(env = process.env) {
     limitMonthlyBpaCup: Math.round(
       parseNumber(env.LIMIT_MONTHLY_BPA_CUP, DEFAULT_CONFIG.limitMonthlyBpaCup)
     ),
-    extendableBanks: parseList(env.LIMIT_EXTENDABLE_BANKS, DEFAULT_CONFIG.extendableBanks),
-    assessableBanks: parseList(env.LIMIT_ASSESSABLE_BANKS, DEFAULT_CONFIG.assessableBanks),
-    allocationBankOrder: parseList(
-      env.ADVISOR_ALLOCATION_BANK_ORDER,
-      DEFAULT_CONFIG.allocationBankOrder
+    extendableBanks: normalizeBankList(
+      parseList(env.LIMIT_EXTENDABLE_BANKS, DEFAULT_CONFIG.extendableBanks)
+    ),
+    assessableBanks: normalizeBankList(
+      parseList(env.LIMIT_ASSESSABLE_BANKS, DEFAULT_CONFIG.assessableBanks)
+    ),
+    allocationBankOrder: normalizeBankList(
+      parseList(env.ADVISOR_ALLOCATION_BANK_ORDER, DEFAULT_CONFIG.allocationBankOrder)
     ),
   };
 }
@@ -106,9 +149,11 @@ function maskCardNumber(numero) {
 }
 
 async function getMonthlyOutflowsByCard(config = {}) {
-  const assessableBanks = (config.assessableBanks || DEFAULT_CONFIG.assessableBanks || [])
-    .map((bank) => (bank || '').toUpperCase())
-    .filter(Boolean);
+  const assessableBanks = normalizeBankList(
+    (config.assessableBanks && config.assessableBanks.length
+      ? config.assessableBanks
+      : DEFAULT_CONFIG.assessableBanks) || []
+  );
 
   if (!assessableBanks.length) {
     console.log('[fondoAdvisor] Sin bancos evaluables para límites mensuales.');
@@ -148,6 +193,7 @@ async function getMonthlyOutflowsByCard(config = {}) {
 
   const params = [assessableBanks];
   let res;
+  let schemaSource = 'chema';
   try {
     res = await query(buildSql(true), params);
   } catch (err) {
@@ -155,29 +201,92 @@ async function getMonthlyOutflowsByCard(config = {}) {
     if (!isMissingSchema) throw err;
     console.warn('[fondoAdvisor] Fallback consulta límites sin esquema (chema ausente).');
     res = await query(buildSql(false), params);
+    schemaSource = 'public';
   }
+
+  if (((res?.rows) || []).length === 0 && schemaSource === 'chema') {
+    console.warn(
+      "[fondoAdvisor] Consulta límites en esquema 'chema' vacía; intentando esquema público."
+    );
+    try {
+      const fallbackRes = await query(buildSql(false), params);
+      if (fallbackRes?.rows?.length) {
+        res = fallbackRes;
+        schemaSource = 'public';
+      }
+    } catch (err) {
+      console.error('[fondoAdvisor] Error al consultar esquema público:', err.message);
+    }
+  }
+  console.log(
+    `[fondoAdvisor] Límites mensuales obtenidos desde esquema=${schemaSource}; filas=${
+      res?.rows?.length || 0
+    }.`
+  );
   const allowedBanks = new Set(assessableBanks);
 
-  return (res.rows || [])
-    .map((row) => ({
+  const normalizedRows = (res?.rows || []).map((row) => {
+    const moneda = (row.moneda || '').toUpperCase();
+    const bancoRaw = (row.banco || '').toUpperCase();
+    const banco = normalizeBankCode(bancoRaw);
+    return {
       id: row.id,
       numero: row.numero,
-      banco: (row.banco || '').toUpperCase(),
-      moneda: (row.moneda || '').toUpperCase(),
+      banco,
+      bancoRaw,
+      moneda,
       agente: (row.agente || '').toUpperCase(),
       used_out: Math.round(Number(row.used_out) || 0),
       saldo_actual: Math.round(Number(row.saldo_actual) || 0),
-    }))
-    .filter((row) => row.moneda === 'CUP' && allowedBanks.has(row.banco));
+    };
+  });
+
+  const filtered = [];
+  normalizedRows.forEach((row) => {
+    if (row.moneda !== 'CUP') {
+      console.log(
+        `[fondoAdvisor] Excluida tarjeta ${cmp(row.numero)} del cálculo mensual por moneda=${cmp(
+          row.moneda
+        )}.`
+      );
+      return;
+    }
+    if (!allowedBanks.has(row.banco)) {
+      console.log(
+        `[fondoAdvisor] Excluida tarjeta ${cmp(row.numero)} banco=${cmp(row.bancoRaw)} (normalizado=${cmp(
+          row.banco
+        )}) no reconocido.`
+      );
+      return;
+    }
+    filtered.push({
+      id: row.id,
+      numero: row.numero,
+      banco: row.banco,
+      moneda: row.moneda,
+      agente: row.agente,
+      used_out: row.used_out,
+      saldo_actual: row.saldo_actual,
+    });
+  });
+
+  return filtered;
 }
 
 function classifyMonthlyUsage(rows = [], config = {}) {
   const defaultLimit = Math.max(0, Math.round(config.limitMonthlyDefaultCup || 0));
   const bpaLimit = Math.max(0, Math.round(config.limitMonthlyBpaCup || defaultLimit));
-  const extendableSet = new Set((config.extendableBanks || []).map((b) => (b || '').toUpperCase()));
+  const extendableSet = new Set(
+    normalizeBankList(
+      (config.extendableBanks && config.extendableBanks.length
+        ? config.extendableBanks
+        : DEFAULT_CONFIG.extendableBanks) || []
+    )
+  );
 
   const cards = rows.map((row) => {
-    const bank = (row.banco || 'SIN BANCO').toUpperCase();
+    const normalizedBank = row.banco ? normalizeBankCode(row.banco) : '';
+    const bank = normalizedBank || 'SIN BANCO';
     const usedOut = Math.round(Number(row.used_out) || 0);
     const saldoActualRaw = Math.round(Number(row.saldo_actual) || 0);
     const limit = bank === 'BPA' ? bpaLimit : defaultLimit;
@@ -230,7 +339,10 @@ function classifyMonthlyUsage(rows = [], config = {}) {
 function sortCardsByPreference(cards = [], bankOrder = []) {
   const orderMap = new Map();
   bankOrder.forEach((bank, idx) => {
-    orderMap.set((bank || '').toUpperCase(), idx);
+    const normalized = normalizeBankCode(bank);
+    if (normalized && !orderMap.has(normalized)) {
+      orderMap.set(normalized, idx);
+    }
   });
   const maxOrder = bankOrder.length + 1;
   return [...cards].sort((a, b) => {
@@ -432,18 +544,33 @@ function aggregateBalances(rows = [], liquidityBanks = []) {
   const activos = { cup: 0, deudas: 0, neto: 0 };
   let usdInventory = 0;
   const liquidityByBank = {};
-  const liquiditySet = new Set(liquidityBanks.map((b) => (b || '').toUpperCase()));
+  const liquiditySet = new Set(
+    normalizeBankList(
+      (liquidityBanks && liquidityBanks.length ? liquidityBanks : DEFAULT_CONFIG.liquidityBanks) || []
+    )
+  );
+  const currencyDiagnostics = {
+    CUP: { count: 0, total: 0 },
+    MLC: { count: 0, total: 0 },
+    USD: { count: 0, total: 0 },
+    OTHER: { count: 0, total: 0 },
+  };
 
   rows.forEach((r) => {
     const saldoRaw = Number(r.saldo) || 0;
     const moneda = (r.moneda || '').toUpperCase();
-    const banco = (r.banco || '').toUpperCase();
+    const bancoRaw = (r.banco || '').toUpperCase();
+    const banco = normalizeBankCode(bancoRaw);
     const agente = (r.agente || '').toUpperCase();
     const numero = (r.numero || '').toUpperCase();
     const tasaUsd = Number(r.tasa_usd) || 0;
 
+    const diagBucket = currencyDiagnostics[moneda] || currencyDiagnostics.OTHER;
+    diagBucket.count += 1;
+    diagBucket.total += saldoRaw;
+
     const hasReceivableKeyword = RECEIVABLE_REGEX.test(agente) ||
-      RECEIVABLE_REGEX.test(banco) ||
+      RECEIVABLE_REGEX.test(bancoRaw) ||
       RECEIVABLE_REGEX.test(numero);
 
     if (moneda === 'CUP') {
@@ -452,7 +579,17 @@ function aggregateBalances(rows = [], liquidityBanks = []) {
           activos.cup += saldoRaw;
           if (liquiditySet.has(banco)) {
             liquidityByBank[banco] = (liquidityByBank[banco] || 0) + saldoRaw;
+          } else {
+            console.log(
+              `[fondoAdvisor] Excluida fila ${cmp(numero)} del banco ${cmp(
+                bancoRaw
+              )} por banco no reconocido en liquidez.`
+            );
           }
+        } else {
+          console.log(
+            `[fondoAdvisor] Excluida fila ${cmp(numero)} (${cmp(bancoRaw)}) por coincidencia con regex de deudas.`
+          );
         }
       } else {
         activos.deudas += saldoRaw;
@@ -460,6 +597,10 @@ function aggregateBalances(rows = [], liquidityBanks = []) {
           liquidityByBank[banco] = (liquidityByBank[banco] || 0);
         }
       }
+    } else {
+      console.log(
+        `[fondoAdvisor] Fila ${cmp(numero)} ignorada para liquidez CUP por moneda=${cmp(moneda)}.`
+      );
     }
 
     if (USD_CODES.has(moneda) && saldoRaw > 0) {
@@ -473,6 +614,18 @@ function aggregateBalances(rows = [], liquidityBanks = []) {
 
   activos.neto = activos.cup + activos.deudas;
   const liquidityTotal = Object.values(liquidityByBank).reduce((acc, v) => acc + (v || 0), 0);
+
+  const diagParts = ['CUP', 'MLC', 'USD']
+    .map((code) => {
+      const bucket = currencyDiagnostics[code];
+      return `${code}: ${bucket.count} filas / saldo=${Math.round(bucket.total || 0)}`;
+    })
+    .concat(
+      currencyDiagnostics.OTHER.count
+        ? [`OTRAS: ${currencyDiagnostics.OTHER.count} filas / saldo=${Math.round(currencyDiagnostics.OTHER.total || 0)}`]
+        : []
+    );
+  console.log(`[fondoAdvisor] Saldos por moneda => ${diagParts.join(' • ')}.`);
 
   return {
     activosCup: activos.cup,
@@ -1188,4 +1341,5 @@ module.exports = {
   getMonthlyOutflowsByCard,
   sumNonBolsaDepositCap,
   computeHeadlineSeverity,
+  normalizeBankCode,
 };
