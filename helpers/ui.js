@@ -12,6 +12,7 @@
 // Todos los mensajes usan parse_mode HTML; se asume que los textos dinámicos
 // ya vienen saneados con escapeHtml.
 const { Markup } = require('telegraf');
+const { chunkHtml } = require('./format');
 
 /**
  * Compara dos estructuras de reply_markup para detectar cambios.
@@ -128,7 +129,10 @@ function arrangeInlineButtons(buttons = []) {
 // UX-2025: envía páginas y agrega teclado de acción al final
 async function sendReportWithKb(ctx, pages = [], kbInline, { message } = {}) {
   for (const p of pages) {
-    await ctx.reply(p, { parse_mode: 'HTML' });
+    const parts = chunkHtml(p).filter((segment) => segment.trim());
+    for (const part of parts) {
+      await ctx.reply(part, { parse_mode: 'HTML' });
+    }
   }
   const extra = { parse_mode: 'HTML' };
   if (kbInline) {

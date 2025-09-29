@@ -20,10 +20,9 @@
 
 const { Scenes, Markup } = require('telegraf');
 const moment = require('moment');
-const { escapeHtml, boldHeader } = require('../helpers/format');
+const { escapeHtml, boldHeader, chunkHtml } = require('../helpers/format');
 const { getDefaultPeriod } = require('../helpers/period');
 const { sendAndLog } = require('../helpers/reportSender');
-const { flushOnExit } = require('../helpers/sessionSummary');
 const {
   editIfChanged,
   buildBackExitRow,
@@ -33,17 +32,9 @@ const {
 } = require('../helpers/ui');
 const pool = require('../psql/db.js');
 const { runMonitor } = require('./monitor');
+const { createExitHandler } = require('../helpers/wizard');
 
-async function wantExit(ctx) {
-  if (ctx.callbackQuery?.data === 'EXIT') {
-    await ctx.answerCbQuery().catch(() => {});
-    await flushOnExit(ctx);
-    if (ctx.scene?.current) await ctx.scene.leave();
-    await ctx.reply('❌ Operación cancelada.');
-    return true;
-  }
-  return false;
-}
+const wantExit = createExitHandler({ logPrefix: 'MONITOR_ASSIST' });
 
 async function showMain(ctx) {
   const f = ctx.wizard.state.filters;
@@ -256,7 +247,9 @@ const monitorAssist = new Scenes.WizardScene(
           if (f.equiv === 'cup') cmd += ' --equiv=cup';
           await editIfChanged(ctx, 'Generando reporte...', { parse_mode: 'HTML' });
           const msgs = await runMonitor(ctx, cmd);
-          ctx.wizard.state.lastReport = msgs;
+          const safeMsgs = (msgs || [])
+            .flatMap((m) => chunkHtml(m).filter((part) => part.trim()));
+          ctx.wizard.state.lastReport = safeMsgs;
           const kb = buildSaveBackExitKeyboard({ back: 'BACK_TO_MAIN' }); // UX-2025
           await sendReportWithKb(ctx, [], kb); // UX-2025
           ctx.wizard.state.route = 'AFTER_RUN';
