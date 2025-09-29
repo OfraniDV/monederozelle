@@ -81,7 +81,6 @@ stage.hears(/^(salir)$/i, async (ctx) => {
   }
 });
 bot.use(session());
-bot.use(stage.middleware());
 
 registerFondoAdvisor({
   bot,
@@ -113,6 +112,8 @@ const verificarAcceso = async (ctx, next) => {
 
 /* EL ORDEN IMPORTA: todo lo que viene después requerirá permiso */
 bot.use(verificarAcceso);
+/* La Stage debe ir después del guard para que hears/leave no lo evadan */
+bot.use(stage.middleware());
 
 /* ───────── 9. Helpers para envolver comandos con try/catch ───────── */
 const safe = (fn) => async (ctx) => {
