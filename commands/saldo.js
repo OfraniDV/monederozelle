@@ -21,6 +21,7 @@ const { runFondo } = require('../middlewares/fondoAdvisor');
 const pool = require('../psql/db.js');
 const moment = require('moment-timezone');
 const { createExitHandler } = require('../helpers/wizard');
+const { enterAssistMenu } = require('../helpers/assistMenu');
 
 /* ───────── helpers ───────── */
 const kbBackOrCancel = Markup.inlineKeyboard([
@@ -37,6 +38,7 @@ const kbContinue = Markup.inlineKeyboard([
 const wantExit = createExitHandler({
   callbackValues: ['GLOBAL_CANCEL'],
   logPrefix: 'saldo',
+  afterLeave: enterAssistMenu,
 });
 
 async function showAgentes(ctx) {

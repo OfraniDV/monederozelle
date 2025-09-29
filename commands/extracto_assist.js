@@ -24,11 +24,15 @@ const {
   sendReportWithKb,
 } = require('../helpers/ui');
 const { createExitHandler } = require('../helpers/wizard');
+const { enterAssistMenu } = require('../helpers/assistMenu');
 const pool = require('../psql/db.js');
 
 /* Helpers ----------------------------------------------------------------- */
 
-const wantExit = createExitHandler({ logPrefix: 'extracto' });
+const wantExit = createExitHandler({
+  logPrefix: 'extracto',
+  afterLeave: enterAssistMenu,
+});
 
 /* ───────── DB helpers — todos con try/catch para depurar ───────── */
 

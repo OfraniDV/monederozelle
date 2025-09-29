@@ -34,6 +34,7 @@ const {
   sendReportWithKb,
 } = require('../helpers/ui');
 const { createExitHandler } = require('../helpers/wizard');
+const { enterAssistMenu } = require('../helpers/assistMenu');
 const pool = require('../psql/db.js');
 
 /* ───────── helpers ───────── */
@@ -71,6 +72,7 @@ const wantExit = createExitHandler({
       })
       .catch(() => {});
   },
+  afterLeave: enterAssistMenu,
 });
 
 async function loadData() {
