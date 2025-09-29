@@ -12,10 +12,9 @@
 
 const { Scenes, Markup } = require('telegraf');
 const moment = require('moment-timezone');
-const { escapeHtml, fmtMoney, boldHeader } = require('../helpers/format');
+const { escapeHtml, fmtMoney, boldHeader, chunkHtml } = require('../helpers/format');
 const { getDefaultPeriod } = require('../helpers/period');
 const { sendAndLog } = require('../helpers/reportSender');
-const { flushOnExit } = require('../helpers/sessionSummary');
 const { buildEntityFilter } = require('../helpers/filters');
 const {
   editIfChanged,
@@ -24,48 +23,12 @@ const {
   buildSaveExitRow,
   sendReportWithKb,
 } = require('../helpers/ui');
+const { createExitHandler } = require('../helpers/wizard');
 const pool = require('../psql/db.js');
 
 /* Helpers ----------------------------------------------------------------- */
 
-function smartPaginate(text) {
-  if (text.length <= 4000) return [text];
-  const lines = text.split('\n');
-  const pages = [];
-  let buf = '';
-  for (const line of lines) {
-    const nl = line + '\n';
-    if (buf.length + nl.length > 4000) {
-      pages.push(buf.trimEnd());
-      buf = '';
-    }
-    if (nl.length > 4000) {
-      // línea extremadamente larga: forzar corte
-      let start = 0;
-      while (start < nl.length) {
-        pages.push(nl.slice(start, start + 4000).trimEnd());
-        start += 4000;
-      }
-      buf = '';
-      continue;
-    }
-    buf += nl;
-  }
-  if (buf.trim()) pages.push(buf.trimEnd());
-  return pages.length ? pages : ['No hay datos.'];
-}
-
-async function wantExit(ctx) {
-  if (ctx.callbackQuery?.data === 'EXIT') {
-    await ctx.answerCbQuery().catch(() => {});
-    console.log('[extracto] cancelado por el usuario');
-    await flushOnExit(ctx);
-    if (ctx.scene?.current) await ctx.scene.leave();
-    await ctx.reply('❌ Operación cancelada.', { parse_mode: 'HTML' });
-    return true;
-  }
-  return false;
-}
+const wantExit = createExitHandler({ logPrefix: 'extracto' });
 
 /* ───────── DB helpers — todos con try/catch para depurar ───────── */
 
@@ -596,8 +559,8 @@ async function showExtract(ctx) {
   }
 
     const text = header(st.filters) + body + '\n\n';
-    const pages = smartPaginate(text);
-    st.lastReport = pages;
+    const pages = chunkHtml(text).filter((p) => p.trim());
+    st.lastReport = pages.length ? pages : ['No hay datos.'];
     const kb = Markup.inlineKeyboard([buildSaveExitRow()]).reply_markup; // UX-2025
     await sendReportWithKb(ctx, pages, kb); // UX-2025
     st.route = 'AFTER_RUN';

@@ -22,7 +22,7 @@
  */
 
 const { Scenes, Markup } = require('telegraf');
-const { escapeHtml, boldHeader } = require('../helpers/format');
+const { escapeHtml, boldHeader, chunkHtml } = require('../helpers/format');
 const { sendLargeMessage } = require('../helpers/sendLargeMessage');
 const { sendAndLog } = require('../helpers/reportSender');
 const {
@@ -33,6 +33,7 @@ const {
   buildSaveBackExitKeyboard,
   sendReportWithKb,
 } = require('../helpers/ui');
+const { createExitHandler } = require('../helpers/wizard');
 const pool = require('../psql/db.js');
 
 /* ───────── helpers ───────── */
@@ -47,37 +48,30 @@ const fmt = (v, d = 2) => {
   );
 };
 
-async function wantExit(ctx) {
-  if (ctx.callbackQuery?.data === 'EXIT') {
-    await ctx.answerCbQuery().catch(() => {});
-    const msgId = ctx.wizard.state.msgId;
-    await ctx.telegram.editMessageText(
-      ctx.chat.id,
-      msgId,
-      undefined,
-      '❌ Operación cancelada.',
-      { parse_mode: 'HTML' }
-    );
-    await ctx.scene.leave();
-    return true;
-  }
-  if (ctx.message?.text) {
-    const t = ctx.message.text.trim().toLowerCase();
-    if (['/cancel', '/salir', 'salir'].includes(t) && ctx.scene?.current) {
-      const msgId = ctx.wizard.state.msgId;
-      await ctx.telegram.editMessageText(
-        ctx.chat.id,
-        msgId,
-        undefined,
-        '❌ Operación cancelada.',
-        { parse_mode: 'HTML' }
-      );
-      await ctx.scene.leave();
-      return true;
-    }
-  }
-  return false;
+function normalizeBlocks(blocks = []) {
+  const arr = Array.isArray(blocks) ? blocks : [blocks];
+  const chunked = arr.flatMap((block) => {
+    if (block === undefined || block === null) return [];
+    const str = String(block);
+    if (!str.trim()) return [];
+    return chunkHtml(str);
+  });
+  return chunked.length ? chunked : ['No hay datos.'];
 }
+
+const wantExit = createExitHandler({
+  logPrefix: 'tarjetas_assist',
+  notify: false,
+  beforeLeave: async (ctx) => {
+    const msgId = ctx.wizard?.state?.msgId;
+    if (!msgId || !ctx.chat) return;
+    await ctx.telegram
+      .editMessageText(ctx.chat.id, msgId, undefined, '❌ Operación cancelada.', {
+        parse_mode: 'HTML',
+      })
+      .catch(() => {});
+  },
+});
 
 async function loadData() {
   const sql = `
@@ -224,7 +218,7 @@ function buildAgentBlocks(agent) {
 
 async function showAgentDetail(ctx, agentId) {
   const agent = ctx.wizard.state.data.byAgent[agentId];
-  const blocks = buildAgentBlocks(agent);
+  const blocks = normalizeBlocks(buildAgentBlocks(agent));
   ctx.wizard.state.lastReport = blocks; // UX-2025
   await sendLargeMessage(ctx, blocks); // UX-2025
   const kb = Markup.inlineKeyboard([buildSaveExitRow()]).reply_markup; // UX-2025
@@ -300,7 +294,7 @@ function buildMonBankBlocks(mon, bank) {
 async function showMonBankDetail(ctx, monCode, bankCode) {
   const mon = ctx.wizard.state.data.byMon[monCode];
   const bank = mon.banks[bankCode];
-  const blocks = buildMonBankBlocks(mon, bank);
+  const blocks = normalizeBlocks(buildMonBankBlocks(mon, bank));
   ctx.wizard.state.lastReport = blocks; // UX-2025
   await sendLargeMessage(ctx, blocks); // UX-2025
   const kb = Markup.inlineKeyboard([buildSaveExitRow()]).reply_markup; // UX-2025
@@ -366,7 +360,7 @@ function buildAllBlocks(data) {
 }
 
 async function showAll(ctx) {
-  const blocks = buildAllBlocks(ctx.wizard.state.data);
+  const blocks = normalizeBlocks(buildAllBlocks(ctx.wizard.state.data));
   ctx.wizard.state.lastReport = blocks; // UX-2025
   await sendLargeMessage(ctx, blocks); // UX-2025
   const kb = buildSaveBackExitKeyboard({ back: 'BACK_TO_MENU' }); // UX-2025

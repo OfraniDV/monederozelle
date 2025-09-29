@@ -16,10 +16,11 @@
 const { Scenes, Markup } = require('telegraf');
 const { escapeHtml, fmtMoney, boldHeader } = require('../helpers/format');
 const { sendAndLog } = require('../helpers/reportSender');
-const { recordChange, flushOnExit } = require('../helpers/sessionSummary');
+const { recordChange } = require('../helpers/sessionSummary');
 const { runFondo } = require('../middlewares/fondoAdvisor');
 const pool = require('../psql/db.js');
 const moment = require('moment-timezone');
+const { createExitHandler } = require('../helpers/wizard');
 
 /* ───────── helpers ───────── */
 const kbBackOrCancel = Markup.inlineKeyboard([
@@ -33,29 +34,10 @@ const kbContinue = Markup.inlineKeyboard([
   [Markup.button.callback('❌ Finalizar', 'GLOBAL_CANCEL')]
 ]);
 
-async function wantExit(ctx) {
-  if (ctx.callbackQuery?.data === 'GLOBAL_CANCEL') {
-    await ctx.answerCbQuery().catch(() => {});
-    if (ctx.scene?.current) {
-      await flushOnExit(ctx);
-      await ctx.scene.leave();
-      ctx.wizard.state = {};
-      await ctx.reply('❌ Operación cancelada.');
-      return true;
-    }
-  }
-  if (ctx.message?.text) {
-    const t = ctx.message.text.trim().toLowerCase();
-    if (['/cancel', '/salir', 'salir'].includes(t) && ctx.scene?.current) {
-      await flushOnExit(ctx);
-      await ctx.scene.leave();
-      ctx.wizard.state = {};
-      await ctx.reply('❌ Operación cancelada.');
-      return true;
-    }
-  }
-  return false;
-}
+const wantExit = createExitHandler({
+  callbackValues: ['GLOBAL_CANCEL'],
+  logPrefix: 'saldo',
+});
 
 async function showAgentes(ctx) {
   const agentes = (

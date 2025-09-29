@@ -6,6 +6,8 @@
  * to avoid Telegram parse errors or HTML injection. Extend here if a Markdown
  * fallback is ever required.
  */
+const { safeSplitHtmlBlock } = require('./sendLargeMessage');
+
 function escapeHtml(text) {
   if (!text && text !== 0) return '';
   return String(text)
@@ -24,4 +26,11 @@ function boldHeader(icon, text) {
   return `${icon} <b>${escapeHtml(text)}</b>`;
 }
 
-module.exports = { escapeHtml, fmtMoney, boldHeader };
+function chunkHtml(text, limit = 4000) {
+  if (text === undefined || text === null) return [''];
+  const str = String(text);
+  if (str.length <= limit) return [str];
+  return safeSplitHtmlBlock(str, limit);
+}
+
+module.exports = { escapeHtml, fmtMoney, boldHeader, chunkHtml };
