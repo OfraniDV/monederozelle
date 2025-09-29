@@ -4,7 +4,7 @@
  * Wizard interactivo para /monitor con filtros combinables.
  *
  * Correcciones:
- * - Uso de editIfChanged para evitar errores de "message is not modified".
+ * - Uso de renderWizardMenu para recrear menús sin editar mensajes previos.
  * - Menú jerárquico para elegir periodo, moneda, agente y banco con posibilidad de
  *   combinar filtros.
  * - Botón "💬 Ver en privado" cuando se ejecuta en grupos.
@@ -24,11 +24,13 @@ const { escapeHtml, boldHeader, chunkHtml } = require('../helpers/format');
 const { getDefaultPeriod } = require('../helpers/period');
 const { sendAndLog } = require('../helpers/reportSender');
 const {
-  editIfChanged,
   buildBackExitRow,
   arrangeInlineButtons,
   buildSaveBackExitKeyboard,
   sendReportWithKb,
+  renderWizardMenu,
+  goBackMenu,
+  clearWizardMenu,
 } = require('../helpers/ui');
 const pool = require('../psql/db.js');
 const { runMonitor } = require('./monitor');
@@ -37,10 +39,11 @@ const { enterAssistMenu } = require('../helpers/assistMenu');
 
 const wantExit = createExitHandler({
   logPrefix: 'MONITOR_ASSIST',
+  beforeLeave: clearWizardMenu,
   afterLeave: enterAssistMenu,
 });
 
-async function showMain(ctx) {
+async function showMain(ctx, opts = {}) {
   const f = ctx.wizard.state.filters;
   const text =
     `${boldHeader('📈', 'Monitor')}\n` +
@@ -67,14 +70,15 @@ async function showMain(ctx) {
   }
   buttons.push(Markup.button.callback('❌ Salir', 'EXIT'));
   const kb = arrangeInlineButtons(buttons);
-  await editIfChanged(ctx, text, {
-    parse_mode: 'HTML',
-    reply_markup: { inline_keyboard: kb },
+  await renderWizardMenu(ctx, {
+    route: 'MAIN',
+    text,
+    extra: { reply_markup: { inline_keyboard: kb } },
+    pushHistory: opts.pushHistory ?? true,
   });
-  ctx.wizard.state.route = 'MAIN';
 }
 
-async function showPeriodMenu(ctx) {
+async function showPeriodMenu(ctx, opts = {}) {
   const buttons = [
     Markup.button.callback('📊 Día', 'PER_dia'),
     Markup.button.callback('📆 Semana', 'PER_semana'),
@@ -84,14 +88,15 @@ async function showPeriodMenu(ctx) {
   const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
   const text = 'Selecciona el periodo:';
-  await editIfChanged(ctx, text, {
-    parse_mode: 'HTML',
-    reply_markup: { inline_keyboard: kb },
+  await renderWizardMenu(ctx, {
+    route: 'PERIOD',
+    text,
+    extra: { reply_markup: { inline_keyboard: kb } },
+    pushHistory: opts.pushHistory ?? true,
   });
-  ctx.wizard.state.route = 'PERIOD';
 }
 
-async function showDayMenu(ctx) {
+async function showDayMenu(ctx, opts = {}) {
   const today = moment().date();
   const daysInMonth = moment().daysInMonth();
   const buttons = [];
@@ -105,14 +110,15 @@ async function showDayMenu(ctx) {
   }
   const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
-  await editIfChanged(ctx, 'Selecciona el día:', {
-    parse_mode: 'HTML',
-    reply_markup: { inline_keyboard: kb },
+  await renderWizardMenu(ctx, {
+    route: 'DAY',
+    text: 'Selecciona el día:',
+    extra: { reply_markup: { inline_keyboard: kb } },
+    pushHistory: opts.pushHistory ?? true,
   });
-  ctx.wizard.state.route = 'DAY';
 }
 
-async function showMonthMenu(ctx) {
+async function showMonthMenu(ctx, opts = {}) {
   const now = moment();
   const current = now.month();
   const months = moment.months();
@@ -124,14 +130,15 @@ async function showMonthMenu(ctx) {
   );
   const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
-  await editIfChanged(ctx, 'Selecciona el mes:', {
-    parse_mode: 'HTML',
-    reply_markup: { inline_keyboard: kb },
+  await renderWizardMenu(ctx, {
+    route: 'MONTH',
+    text: 'Selecciona el mes:',
+    extra: { reply_markup: { inline_keyboard: kb } },
+    pushHistory: opts.pushHistory ?? true,
   });
-  ctx.wizard.state.route = 'MONTH';
 }
 
-async function showAgentMenu(ctx) {
+async function showAgentMenu(ctx, opts = {}) {
   const rows = (
     await pool.query('SELECT id,nombre,emoji FROM agente ORDER BY nombre')
   ).rows;
@@ -147,15 +154,16 @@ async function showAgentMenu(ctx) {
   const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
   const text = 'Selecciona el agente:';
-  await editIfChanged(ctx, text, {
-    parse_mode: 'HTML',
-    reply_markup: { inline_keyboard: kb },
+  await renderWizardMenu(ctx, {
+    route: 'AGENT',
+    text,
+    extra: { reply_markup: { inline_keyboard: kb } },
+    pushHistory: opts.pushHistory ?? true,
   });
-  ctx.wizard.state.route = 'AGENT';
   ctx.wizard.state.tmpAgents = rows; // para buscar nombre luego
 }
 
-async function showBankMenu(ctx) {
+async function showBankMenu(ctx, opts = {}) {
   const rows = (
     await pool.query('SELECT id,codigo,emoji FROM banco ORDER BY codigo')
   ).rows;
@@ -171,15 +179,16 @@ async function showBankMenu(ctx) {
   const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
   const text = 'Selecciona el banco:';
-  await editIfChanged(ctx, text, {
-    parse_mode: 'HTML',
-    reply_markup: { inline_keyboard: kb },
+  await renderWizardMenu(ctx, {
+    route: 'BANK',
+    text,
+    extra: { reply_markup: { inline_keyboard: kb } },
+    pushHistory: opts.pushHistory ?? true,
   });
-  ctx.wizard.state.route = 'BANK';
   ctx.wizard.state.tmpBanks = rows;
 }
 
-async function showCurrMenu(ctx) {
+async function showCurrMenu(ctx, opts = {}) {
   const rows = (
     await pool.query('SELECT id,codigo,emoji FROM moneda ORDER BY codigo')
   ).rows;
@@ -195,21 +204,31 @@ async function showCurrMenu(ctx) {
   const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
   const text = 'Selecciona la moneda:';
-  await editIfChanged(ctx, text, {
-    parse_mode: 'HTML',
-    reply_markup: { inline_keyboard: kb },
+  await renderWizardMenu(ctx, {
+    route: 'CURR',
+    text,
+    extra: { reply_markup: { inline_keyboard: kb } },
+    pushHistory: opts.pushHistory ?? true,
   });
-  ctx.wizard.state.route = 'CURR';
   ctx.wizard.state.tmpMons = rows;
 }
+
+const ROUTE_HANDLERS = {
+  MAIN: (ctx, opts) => showMain(ctx, opts),
+  PERIOD: (ctx, opts) => showPeriodMenu(ctx, opts),
+  DAY: (ctx, opts) => showDayMenu(ctx, opts),
+  MONTH: (ctx, opts) => showMonthMenu(ctx, opts),
+  CURR: (ctx, opts) => showCurrMenu(ctx, opts),
+  AGENT: (ctx, opts) => showAgentMenu(ctx, opts),
+  BANK: (ctx, opts) => showBankMenu(ctx, opts),
+};
 
 /* ───────── Wizard ───────── */
 const monitorAssist = new Scenes.WizardScene(
   'MONITOR_ASSIST',
   async (ctx) => {
     console.log('[MONITOR_ASSIST] paso 0: menú principal');
-    const msg = await ctx.reply('Cargando…', { parse_mode: 'HTML' });
-    ctx.wizard.state.msgId = msg.message_id;
+    ctx.wizard.state.nav = { stack: [] };
     ctx.wizard.state.filters = {
       period: getDefaultPeriod(),
       monedaNombre: 'Todas',
@@ -217,7 +236,7 @@ const monitorAssist = new Scenes.WizardScene(
       mes: null,
       equiv: null,
     };
-    await showMain(ctx);
+    await showMain(ctx, { pushHistory: false });
     return ctx.wizard.next();
   },
   async (ctx) => {
@@ -249,13 +268,18 @@ const monitorAssist = new Scenes.WizardScene(
           if (f.fecha) cmd += ` --fecha=${f.fecha}`;
           if (f.mes) cmd += ` --mes=${f.mes}`;
           if (f.equiv === 'cup') cmd += ' --equiv=cup';
-          await editIfChanged(ctx, 'Generando reporte...', { parse_mode: 'HTML' });
+          await renderWizardMenu(ctx, {
+            route: 'LOADING',
+            text: 'Generando reporte...',
+            pushHistory: false,
+          });
           const msgs = await runMonitor(ctx, cmd);
           const safeMsgs = (msgs || [])
             .flatMap((m) => chunkHtml(m).filter((part) => part.trim()));
           ctx.wizard.state.lastReport = safeMsgs;
           const kb = buildSaveBackExitKeyboard({ back: 'BACK_TO_MAIN' }); // UX-2025
-          await sendReportWithKb(ctx, [], kb); // UX-2025
+          await clearWizardMenu(ctx);
+          ctx.wizard.state.resultMsgIds = await sendReportWithKb(ctx, [], kb); // UX-2025
           ctx.wizard.state.route = 'AFTER_RUN';
           return;
         }
@@ -268,7 +292,7 @@ const monitorAssist = new Scenes.WizardScene(
         }
         break;
       case 'PERIOD':
-        if (data === 'BACK') return showMain(ctx);
+        if (data === 'BACK') return goBackMenu(ctx, ROUTE_HANDLERS);
         if (data === 'PER_dia') return showDayMenu(ctx);
         if (data === 'PER_mes') return showMonthMenu(ctx);
         if (data.startsWith('PER_')) {
@@ -280,7 +304,7 @@ const monitorAssist = new Scenes.WizardScene(
         }
         break;
       case 'DAY':
-        if (data === 'BACK') return showPeriodMenu(ctx);
+        if (data === 'BACK') return goBackMenu(ctx, ROUTE_HANDLERS);
         if (data === 'LOCKED') return ctx.answerCbQuery('No disponible');
         if (data.startsWith('DAY_')) {
           const d = data.split('_')[1];
@@ -292,7 +316,7 @@ const monitorAssist = new Scenes.WizardScene(
         }
         break;
       case 'MONTH':
-        if (data === 'BACK') return showPeriodMenu(ctx);
+        if (data === 'BACK') return goBackMenu(ctx, ROUTE_HANDLERS);
         if (data === 'LOCKED') return ctx.answerCbQuery('No disponible');
         if (data.startsWith('MES_')) {
           const m = data.split('_')[1];
@@ -304,7 +328,7 @@ const monitorAssist = new Scenes.WizardScene(
         }
         break;
       case 'CURR':
-        if (data === 'BACK') return showMain(ctx);
+        if (data === 'BACK') return goBackMenu(ctx, ROUTE_HANDLERS);
         if (data.startsWith('MO_')) {
           const id = +data.split('_')[1];
           ctx.wizard.state.filters.monedaId = id || null;
@@ -315,7 +339,7 @@ const monitorAssist = new Scenes.WizardScene(
         }
         break;
       case 'AGENT':
-        if (data === 'BACK') return showMain(ctx);
+        if (data === 'BACK') return goBackMenu(ctx, ROUTE_HANDLERS);
         if (data.startsWith('AG_')) {
           const id = +data.split('_')[1];
           ctx.wizard.state.filters.agenteId = id || null;
@@ -326,7 +350,7 @@ const monitorAssist = new Scenes.WizardScene(
         }
         break;
       case 'BANK':
-        if (data === 'BACK') return showMain(ctx);
+        if (data === 'BACK') return goBackMenu(ctx, ROUTE_HANDLERS);
         if (data.startsWith('BK_')) {
           const id = +data.split('_')[1];
           ctx.wizard.state.filters.bancoId = id || null;
@@ -354,12 +378,14 @@ const monitorAssist = new Scenes.WizardScene(
           return;
         }
         if (data === 'BACK_TO_MAIN') {
-          return showMain(ctx);
+          await clearWizardMenu(ctx);
+          ctx.wizard.state.nav = { stack: [] };
+          return showMain(ctx, { pushHistory: false });
         }
         break;
       case 'ASK_AGAIN':
         if (data === 'AGAIN') {
-          return showMain(ctx);
+          return showMain(ctx, { pushHistory: false });
         }
         break;
       default:

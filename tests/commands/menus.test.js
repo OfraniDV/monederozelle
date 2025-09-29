@@ -5,8 +5,9 @@ const moment = require('moment');
 function createCtx() {
   return {
     chat: { id: 1 },
-    wizard: { state: { msgId: 1 } },
-    telegram: { editMessageText: jest.fn().mockResolvedValue(true) },
+    wizard: { state: {} },
+    telegram: { deleteMessage: jest.fn().mockResolvedValue(true) },
+    reply: jest.fn().mockResolvedValue({ message_id: 42 }),
     answerCbQuery: jest.fn().mockResolvedValue(),
   };
 }
@@ -15,7 +16,7 @@ describe('showDayMenu', () => {
   test('bloquea días futuros', async () => {
     const ctx = createCtx();
     await showDayMenu(ctx);
-    const extra = ctx.telegram.editMessageText.mock.calls[0][4];
+    const extra = ctx.reply.mock.calls[0][1];
     const markup = extra.reply_markup.inline_keyboard;
     const today = moment().date();
     const daysInMonth = moment().daysInMonth();
@@ -30,7 +31,7 @@ describe('showMonthMenu', () => {
   test('bloquea meses futuros', async () => {
     const ctx = createCtx();
     await showMonthMenu(ctx);
-    const extra = ctx.telegram.editMessageText.mock.calls[0][4];
+    const extra = ctx.reply.mock.calls[0][1];
     const markup = extra.reply_markup.inline_keyboard;
     const current = moment().month();
     if (current < 11) {
