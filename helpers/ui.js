@@ -128,18 +128,109 @@ function arrangeInlineButtons(buttons = []) {
 
 // UX-2025: envía páginas y agrega teclado de acción al final
 async function sendReportWithKb(ctx, pages = [], kbInline, { message } = {}) {
+  const messageIds = [];
   for (const p of pages) {
     const parts = chunkHtml(p).filter((segment) => segment.trim());
     for (const part of parts) {
-      await ctx.reply(part, { parse_mode: 'HTML' });
+      const sent = await ctx.reply(part, { parse_mode: 'HTML' });
+      messageIds.push(sent.message_id);
     }
   }
   const extra = { parse_mode: 'HTML' };
   if (kbInline) {
     extra.reply_markup = kbInline.reply_markup || kbInline;
   }
-  await ctx.reply(message || 'Reporte generado.\nSelecciona una acción:', extra);
+  const finalMsg = await ctx.reply(
+    message || 'Reporte generado.\nSelecciona una acción:',
+    extra,
+  );
+  messageIds.push(finalMsg.message_id);
+  return messageIds;
 }
+
+function ensureNavState(ctx) {
+  if (!ctx?.wizard) return null;
+  if (!ctx.wizard.state.nav) {
+    ctx.wizard.state.nav = { stack: [] };
+  }
+  return ctx.wizard.state.nav;
+}
+
+async function deleteNavMessage(ctx) {
+  const nav = ctx?.wizard?.state?.nav;
+  const chatId = ctx.chat?.id;
+  if (nav?.msgId && chatId) {
+    await ctx.telegram.deleteMessage(chatId, nav.msgId).catch(() => {});
+    nav.msgId = null;
+  }
+}
+
+async function renderWizardMenu(ctx, { route, text, extra = {}, pushHistory = true } = {}) {
+  const nav = ensureNavState(ctx);
+  await deleteNavMessage(ctx);
+  const payload = { parse_mode: 'HTML', ...extra };
+  const msg = await ctx.reply(text, payload);
+  if (nav) {
+    if (pushHistory && nav.current) {
+      nav.stack.push(nav.current);
+    }
+    nav.current = route;
+    nav.msgId = msg.message_id;
+  }
+  if (ctx.wizard) {
+    ctx.wizard.state.msgId = msg.message_id;
+    ctx.wizard.state.route = route;
+    if (ctx.wizard.state.lastRender) {
+      delete ctx.wizard.state.lastRender;
+    }
+  }
+  return msg;
+}
+
+async function goBackMenu(ctx, handlers = {}, { fallback } = {}) {
+  const nav = ensureNavState(ctx);
+  if (!nav || !nav.stack.length) {
+    if (fallback) {
+      await fallback(ctx);
+    }
+    return false;
+  }
+  const previousRoute = nav.stack.pop();
+  const handler = handlers[previousRoute];
+  if (typeof handler === 'function') {
+    await handler(ctx, { pushHistory: false, fromBack: true });
+    return true;
+  }
+  if (fallback) {
+    await fallback(ctx);
+  }
+  return false;
+}
+
+async function clearWizardMenu(ctx) {
+  await deleteNavMessage(ctx);
+  const chatId = ctx.chat?.id;
+  const resultIds = ctx?.wizard?.state?.resultMsgIds;
+  if (Array.isArray(resultIds) && chatId) {
+    for (const id of resultIds) {
+      await ctx.telegram.deleteMessage(chatId, id).catch(() => {});
+    }
+    ctx.wizard.state.resultMsgIds = [];
+  }
+  if (ctx?.wizard?.state) {
+    ctx.wizard.state.msgId = null;
+    ctx.wizard.state.route = null;
+    if (ctx.wizard.state.nav) {
+      ctx.wizard.state.nav.stack = [];
+      ctx.wizard.state.nav.current = null;
+      ctx.wizard.state.nav.msgId = null;
+    }
+    if (ctx.wizard.state.lastRender) {
+      delete ctx.wizard.state.lastRender;
+    }
+  }
+}
+
 module.exports = {
   editIfChanged,
   buildNavKeyboard,
@@ -148,4 +239,7 @@ module.exports = {
   buildSaveExitRow,
   buildSaveBackExitKeyboard,
   sendReportWithKb,
+  renderWizardMenu,
+  goBackMenu,
+  clearWizardMenu,
 };

@@ -36,14 +36,16 @@ test('monitorAssist envía teclado y no edita después', async () => {
       state: {
         route: 'MAIN',
         filters: { period: 'dia', monedaNombre: 'Todas' },
-        msgId: 1,
-        lastRender: {}
+        nav: { stack: [], msgId: 1, current: 'MAIN' },
       }
     },
     callbackQuery: { data: 'RUN', message: { message_id: 1 } },
     answerCbQuery: jest.fn().mockResolvedValue(),
-    reply: jest.fn().mockResolvedValue(true),
-    telegram: { editMessageText: jest.fn().mockResolvedValue(true) },
+    reply: jest.fn().mockResolvedValue({ message_id: 2 }),
+    telegram: {
+      editMessageText: jest.fn(),
+      deleteMessage: jest.fn().mockResolvedValue(true),
+    },
     botInfo: {}
   };
   await monitorAssist.steps[1](ctx);
@@ -55,7 +57,6 @@ test('monitorAssist envía teclado y no edita después', async () => {
   expect(kb[0][1].text).toMatch('Volver');
   expect(kb[1]).toHaveLength(1);
   expect(kb[1][0].text).toMatch('Salir');
-  const editOrder = ctx.telegram.editMessageText.mock.invocationCallOrder[0];
-  const replyOrder = ctx.reply.mock.invocationCallOrder.slice(-1)[0];
-  expect(replyOrder).toBeGreaterThan(editOrder);
+  expect(ctx.telegram.editMessageText).not.toHaveBeenCalled();
+  expect(ctx.telegram.deleteMessage).toHaveBeenCalled();
 });
