@@ -370,7 +370,9 @@ const saldoWizard = new Scenes.WizardScene(
 );
 
 async function handleSaldoLeave(ctx) {
-  ctx.wizard.state = {};
+  if (ctx.wizard) {
+    ctx.wizard.state = {};
+  }
 
   try {
     const chatType = ctx.chat?.type;
