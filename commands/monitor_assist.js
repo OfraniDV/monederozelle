@@ -33,8 +33,12 @@ const {
 const pool = require('../psql/db.js');
 const { runMonitor } = require('./monitor');
 const { createExitHandler } = require('../helpers/wizard');
+const { enterAssistMenu } = require('../helpers/assistMenu');
 
-const wantExit = createExitHandler({ logPrefix: 'MONITOR_ASSIST' });
+const wantExit = createExitHandler({
+  logPrefix: 'MONITOR_ASSIST',
+  afterLeave: enterAssistMenu,
+});
 
 async function showMain(ctx) {
   const f = ctx.wizard.state.filters;

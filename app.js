@@ -44,6 +44,8 @@ const tarjetasAssist  = require('./commands/tarjetas_assist');
 const monitorAssist   = require('./commands/monitor_assist');
 const accesoAssist    = require('./commands/acceso_assist');
 const extractoAssist  = require('./commands/extracto_assist');
+const assistMenu      = require('./commands/assist_menu');
+const { enterAssistMenu } = require('./helpers/assistMenu');
 const { registerFondoAdvisor, runFondo } = require('./middlewares/fondoAdvisor');
 
 /* ───────── 6. Inicializar BD (idempotente) ───────── */
@@ -59,15 +61,26 @@ async function initDatabase() {
 
 /* ───────── 7. Scenes / Stage ───────── */
 const stage = new Scenes.Stage(
-  [tarjetaWizard, saldoWizard, tarjetasAssist, monitorAssist, accesoAssist, extractoAssist]
+  [
+    tarjetaWizard,
+    saldoWizard,
+    tarjetasAssist,
+    monitorAssist,
+    accesoAssist,
+    extractoAssist,
+    assistMenu,
+  ]
 );
 stage.hears(/^(salir)$/i, async (ctx) => {
+  const currentId = ctx.scene?.current?.id;
   await flushOnExit(ctx);
   if (ctx.scene?.current) await ctx.scene.leave();
   await ctx.reply('❌ Operación cancelada.');
+  if (currentId !== 'ASSISTANT_MENU') {
+    await enterAssistMenu(ctx);
+  }
 });
 bot.use(session());
-bot.use(stage.middleware());
 
 registerFondoAdvisor({
   bot,
@@ -99,6 +112,8 @@ const verificarAcceso = async (ctx, next) => {
 
 /* EL ORDEN IMPORTA: todo lo que viene después requerirá permiso */
 bot.use(verificarAcceso);
+/* La Stage debe ir después del guard para que hears/leave no lo evadan */
+bot.use(stage.middleware());
 
 /* ───────── 9. Helpers para envolver comandos con try/catch ───────── */
 const safe = (fn) => async (ctx) => {
@@ -149,6 +164,7 @@ bot.command('tarjetas', (ctx) => ctx.scene.enter('TARJETAS_ASSIST'));
 bot.command('monitor',  (ctx) => ctx.scene.enter('MONITOR_ASSIST'));
 bot.command('acceso',   ownerOnly((ctx) => ctx.scene.enter('ACCESO_ASSIST')));
 bot.command('extracto', (ctx) => ctx.scene.enter('EXTRACTO_ASSIST'));
+bot.command('menu',     (ctx) => ctx.scene.enter('ASSISTANT_MENU'));
 bot.command('fondo',    safe(require('./commands/fondo')));
 
 /* ───────── 13. Gestión de accesos (solo OWNER) ───────── */
