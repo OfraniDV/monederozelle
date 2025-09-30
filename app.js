@@ -14,6 +14,7 @@ const { Scenes, session } = require('telegraf');
 const { escapeHtml } = require('./helpers/format');
 const { ownerIds } = require('./config');
 const { flushOnExit } = require('./helpers/sessionSummary');
+const { handleGlobalCancel } = require('./helpers/wizardCancel');
 
 /* ───────── 1. Bot base ───────── */
 const bot = require('./bot');
@@ -71,16 +72,10 @@ const stage = new Scenes.Stage(
     assistMenu,
   ]
 );
-stage.hears(/^(salir)$/i, async (ctx) => {
-  const currentId = ctx.scene?.current?.id;
-  await flushOnExit(ctx);
-  if (ctx.scene?.current) await ctx.scene.leave();
-  await ctx.reply('❌ Operación cancelada.');
-  if (currentId !== 'ASSISTANT_MENU') {
-    await enterAssistMenu(ctx);
-  }
-});
 bot.use(session());
+
+bot.action('GLOBAL_CANCEL', handleGlobalCancel);
+bot.hears([/^(\/cancel|\/salir|salir)$/i], handleGlobalCancel);
 
 registerFondoAdvisor({
   bot,
