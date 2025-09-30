@@ -10,6 +10,10 @@ jest.mock('../../helpers/telegram', () => ({
   sanitizeAllowedHtml: jest.fn((text) => text),
 }));
 
+jest.mock('../../middlewares/fondoAdvisor', () => ({
+  runFondo: jest.fn().mockResolvedValue(null),
+}));
+
 const mockEnterAssistMenu = jest.fn();
 jest.mock('../../helpers/assistMenu', () => ({
   enterAssistMenu: mockEnterAssistMenu,
@@ -20,6 +24,7 @@ const { flushOnExit } = require('../../helpers/sessionSummary');
 const { safeReply } = require('../../helpers/telegram');
 const { enterAssistMenu: enterAssistMenuMock } = require('../../helpers/assistMenu');
 const { registerCancelHooks } = require('../../helpers/wizardCancel');
+const { runFondo } = require('../../middlewares/fondoAdvisor');
 
 function ctxFactory() {
   const ctx = {
@@ -31,6 +36,7 @@ function ctxFactory() {
       current: { id: 'SALDO_WIZ' },
       leave: jest.fn().mockImplementation(async () => {
         ctx.scene.current = null;
+        await saldoWizard.handleSaldoLeave(ctx);
       }),
     },
     wizard: { state: { data: {} } },
@@ -47,7 +53,7 @@ describe('saldo wizard cancelación global', () => {
 
   test.each(steps.map((fn, idx) => [idx + 1, fn]))('paso %d termina con GLOBAL_CANCEL', async (_, stepFn) => {
     const ctx = ctxFactory();
-    registerCancelHooks(ctx, { afterLeave: enterAssistMenuMock });
+    registerCancelHooks(ctx, { afterLeave: enterAssistMenuMock, notify: false });
 
     await stepFn(ctx);
 
@@ -55,12 +61,8 @@ describe('saldo wizard cancelación global', () => {
     expect(flushOnExit).toHaveBeenCalledWith(ctx);
     expect(ctx.scene.leave).toHaveBeenCalled();
     expect(ctx.wizard.state).toEqual({});
-    expect(safeReply).toHaveBeenCalledWith(
-      ctx,
-      '❌ Operación cancelada.',
-      expect.objectContaining({ parse_mode: 'HTML' }),
-      expect.any(Object),
-    );
+    expect(safeReply).not.toHaveBeenCalled();
+    expect(runFondo).toHaveBeenCalledWith(ctx);
     expect(enterAssistMenuMock).toHaveBeenCalledWith(ctx);
   });
 });
