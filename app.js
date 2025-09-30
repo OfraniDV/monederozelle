@@ -80,11 +80,6 @@ registerFondoAdvisor({
   scenes: { saldoWizard, tarjetasAssist, monitorAssist, extractoAssist },
 });
 
-/* Wizards que se auto-registran en el stage */
-registerMoneda(bot, stage);
-registerBanco(bot, stage);
-registerAgente(bot, stage);
-
 /* ───────── 8. Middleware de verificación de acceso ───────── */
 const verificarAcceso = async (ctx, next) => {
   /* /start siempre disponible                                                    */
@@ -106,6 +101,11 @@ const verificarAcceso = async (ctx, next) => {
 bot.use(verificarAcceso);
 /* La Stage debe ir después del guard para que hears/leave no lo evadan */
 bot.use(stage.middleware());
+
+/* Wizards que se auto-registran en el stage (requieren ctx.scene listo) */
+registerMoneda(bot, stage);
+registerBanco(bot, stage);
+registerAgente(bot, stage);
 
 /* Cancelación global disponible una vez que la escena está inicializada */
 bot.action('GLOBAL_CANCEL', handleGlobalCancel);
