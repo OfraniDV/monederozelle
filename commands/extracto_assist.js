@@ -23,16 +23,11 @@ const {
   buildSaveExitRow,
   sendReportWithKb,
 } = require('../helpers/ui');
-const { createExitHandler } = require('../helpers/wizard');
+const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { enterAssistMenu } = require('../helpers/assistMenu');
 const pool = require('../psql/db.js');
 
 /* Helpers ----------------------------------------------------------------- */
-
-const wantExit = createExitHandler({
-  logPrefix: 'extracto',
-  afterLeave: enterAssistMenu,
-});
 
 /* ───────── DB helpers — todos con try/catch para depurar ───────── */
 
@@ -582,6 +577,7 @@ const extractoAssist = new Scenes.WizardScene(
     const msg = await ctx.reply('Cargando…', { parse_mode: 'HTML' });
     ctx.wizard.state.msgId = msg.message_id;
     ctx.wizard.state.filters = { period: getDefaultPeriod(), fecha: null, mes: null };
+    registerCancelHooks(ctx, { afterLeave: enterAssistMenu });
     await showFilterMenu(ctx);
     return ctx.wizard.next();
   },
@@ -590,7 +586,7 @@ const extractoAssist = new Scenes.WizardScene(
 );
 
 async function handleAction(ctx) {
-  if (await wantExit(ctx)) return;
+  if (await handleGlobalCancel(ctx)) return;
   const data = ctx.callbackQuery?.data;
   if (!data) return;
   await ctx.answerCbQuery().catch(() => {});

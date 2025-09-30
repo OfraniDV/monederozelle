@@ -6,6 +6,7 @@
   final con esos botones.
 - Los asistentes deben enviar primero el reporte y **después** un mensaje con el teclado;
   nunca se edita un mensaje largo para insertar botones.
+- Usa `helpers/wizardCancel.js` para todas las salidas: registra hooks opcionales con `registerCancelHooks(ctx, { beforeLeave, afterLeave })` y deja que `handleGlobalCancel(ctx)` limpie escena, estado y envíe “❌ Operación cancelada.” (responde a `/cancel`, `/salir`, `salir` y al botón `GLOBAL_CANCEL`).
 
 ## Asesor de Fondo
 

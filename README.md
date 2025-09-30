@@ -85,6 +85,7 @@ Estas utilidades facilitan la creación de asistentes consistentes:
 - `arrangeInlineButtons(buttons)`: organiza botones en filas de dos para teclados más elegantes.
 - `buildSaveExitRow()`: crea una fila única con botones 💾 Salvar / ❌ Salir.
 - `sendReportWithKb(ctx, pages, kb)`: envía páginas largas y añade al final un teclado Save/Exit.
+- `handleGlobalCancel(ctx)`: helper centralizado (en `helpers/wizardCancel.js`) que responde a `/cancel`, `salir` y al botón `GLOBAL_CANCEL`, limpia la escena y confirma con “❌ Operación cancelada.”.
 
 ## 🧮 Asesor de Fondo
 

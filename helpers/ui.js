@@ -51,10 +51,10 @@ async function editIfChanged(ctx, text, extra = {}, useCaption = false) {
 /**
  * Fila estándar de navegación para volver o salir.
  * @param {string} [back='BACK']  Callback para volver.
- * @param {string} [exit='EXIT']  Callback para salir.
+ * @param {string} [exit='GLOBAL_CANCEL']  Callback para salir.
  * @returns {Array}
  */
-function buildBackExitRow(back = 'BACK', exit = 'EXIT') {
+function buildBackExitRow(back = 'BACK', exit = 'GLOBAL_CANCEL') {
   return [
     Markup.button.callback('🔙 Volver', back),
     Markup.button.callback('❌ Salir', exit),
@@ -62,7 +62,7 @@ function buildBackExitRow(back = 'BACK', exit = 'EXIT') {
 }
 
 // UX-2025: fila estándar de guardado/salida en una sola fila
-function buildSaveExitRow(save = 'SAVE', exit = 'EXIT') {
+function buildSaveExitRow(save = 'SAVE', exit = 'GLOBAL_CANCEL') {
   return [
     Markup.button.callback('💾 Salvar', save),
     Markup.button.callback('❌ Salir', exit),
@@ -70,7 +70,7 @@ function buildSaveExitRow(save = 'SAVE', exit = 'EXIT') {
 }
 
 // UX-2025: teclado estándar con guardar, volver y salir en dos filas
-function buildSaveBackExitKeyboard({ save = 'SAVE', back = 'BACK', exit = 'EXIT' } = {}) {
+function buildSaveBackExitKeyboard({ save = 'SAVE', back = 'BACK', exit = 'GLOBAL_CANCEL' } = {}) {
   return Markup.inlineKeyboard([
     [Markup.button.callback('💾 Salvar', save), Markup.button.callback('🔙 Volver', back)],
     [Markup.button.callback('❌ Salir', exit)],
@@ -86,7 +86,7 @@ function buildSaveBackExitKeyboard({ save = 'SAVE', back = 'BACK', exit = 'EXIT'
  * @param {string} [opts.next='NEXT']   Callback para ir a la siguiente.
  * @param {string} [opts.last='LAST']   Callback para ir a la última.
  * @param {string} [opts.back='BACK']   Callback para volver.
- * @param {string} [opts.exit='EXIT']   Callback para salir.
+ * @param {string} [opts.exit='GLOBAL_CANCEL']   Callback para salir.
  * @param {Array}  [opts.extraRows=[]]  Filas adicionales a insertar antes de
  *                                      la fila Volver/Salir.
  * @returns {object} Objeto Markup.inlineKeyboard listo para usarse.
@@ -97,7 +97,7 @@ function buildNavKeyboard({
   next = 'NEXT',
   last = 'LAST',
   back = 'BACK',
-  exit = 'EXIT',
+  exit = 'GLOBAL_CANCEL',
   extraRows = [],
 } = {}) {
   const rows = [

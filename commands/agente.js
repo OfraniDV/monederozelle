@@ -3,38 +3,11 @@ const { Scenes, Markup } = require('telegraf');
 const pool = require('../psql/db.js'); // tu Pool de PostgreSQL
 const { escapeHtml } = require('../helpers/format');
 const { renderWizardMenu, clearWizardMenu } = require('../helpers/ui');
-const { createExitHandler } = require('../helpers/wizard');
+const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { enterAssistMenu } = require('../helpers/assistMenu');
 
 /* Tecla de cancelar / salir para wizards */
 const cancelKb = Markup.inlineKeyboard([[Markup.button.callback('↩️ Cancelar', 'GLOBAL_CANCEL')]]);
-
-/**
- * Revisa si el usuario quiere salir (/cancel, salir, /salir) o pulsó el botón.
- * Si es así, abandona la escena y responde.
- * @returns {Promise<boolean>} true si se salió y no debe continuar.
- */
-async function checkExit(ctx) {
-  if (ctx.callbackQuery?.data === 'GLOBAL_CANCEL') {
-    await ctx.answerCbQuery().catch(() => {});
-    if (ctx.scene?.current) {
-      await ctx.scene.leave();
-      await ctx.reply('❌ Operación cancelada.');
-      return true;
-    }
-  }
-  if (ctx.message?.text) {
-    const t = ctx.message.text.trim().toLowerCase();
-    if (t === '/cancel' || t === 'salir' || t === '/salir') {
-      if (ctx.scene?.current) {
-        await ctx.scene.leave();
-        await ctx.reply('❌ Operación cancelada.');
-        return true;
-      }
-    }
-  }
-  return false;
-}
 
 async function fetchAgentsList() {
   const res = await pool.query('SELECT id,nombre,emoji FROM agente ORDER BY nombre');
@@ -60,7 +33,7 @@ function buildAgentsKeyboard(rows = [], { includeExit = false, includeRefresh = 
     kb.push([Markup.button.callback('🔄 Actualizar', 'AGENTE_REFRESH')]);
   }
   if (includeExit) {
-    kb.push([Markup.button.callback('❌ Salir', 'EXIT')]);
+    kb.push([Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]);
   }
   return kb;
 }
@@ -153,22 +126,19 @@ async function handleAgentCancel(ctx) {
   await ctx.reply('Operación cancelada.');
 }
 
-const exitAgentWizard = createExitHandler({
-  logPrefix: 'AGENTE_WIZ',
-  beforeLeave: clearWizardMenu,
-  afterLeave: enterAssistMenu,
-  notify: false,
-});
-
 const agenteWizard = new Scenes.WizardScene(
   'AGENTE_WIZ',
   async (ctx) => {
     ctx.wizard.state.nav = { stack: [] };
     await renderAgentWizardMenu(ctx, { pushHistory: false });
+    registerCancelHooks(ctx, {
+      beforeLeave: clearWizardMenu,
+      afterLeave: enterAssistMenu,
+    });
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await exitAgentWizard(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     const data = ctx.callbackQuery?.data;
     if (!data) return;
     if (data === 'AGENTE_REFRESH') {
@@ -195,10 +165,6 @@ const agenteWizard = new Scenes.WizardScene(
       await ctx.answerCbQuery().catch(() => {});
       return handleAgentDeleteConfirm(ctx, Number(delConfMatch[1]));
     }
-    if (data === 'AGENTE_CANCEL') {
-      await ctx.answerCbQuery().catch(() => {});
-      return handleAgentCancel(ctx);
-    }
   },
 );
 
@@ -214,7 +180,7 @@ const crearAgenteWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[AGENTE_CREATE_WIZ] Paso 1: recibí nombre:', ctx.message?.text);
     const nombre = (ctx.message?.text || '').trim();
     if (!nombre) {
@@ -243,7 +209,7 @@ const crearAgenteWizard = new Scenes.WizardScene(
 const editarAgenteWizard = new Scenes.WizardScene(
   'AGENTE_EDIT_WIZ',
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[AGENTE_EDIT_WIZ] Paso 0: iniciar edición');
     const edit = ctx.scene.state?.edit;
     if (!edit) {
@@ -258,7 +224,7 @@ const editarAgenteWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[AGENTE_EDIT_WIZ] Paso 1: nuevo nombre:', ctx.message?.text);
     const nuevo = (ctx.message?.text || '').trim();
     if (!nuevo) {
@@ -336,19 +302,6 @@ const registerAgente = (bot, stage) => {
     console.log('[action] AGENTE_CANCEL');
     await ctx.answerCbQuery().catch(() => {});
     await handleAgentCancel(ctx);
-  });
-
-  // soporte global para salir de cualquier wizard de agente escribiendo salir o /cancel
-  bot.use(async (ctx, next) => {
-    if (ctx.message?.text) {
-      const t = ctx.message.text.trim().toLowerCase();
-      if ((t === '/cancel' || t === 'salir' || t === '/salir') && ctx.scene?.current) {
-        console.log('[global exit agente] saliendo de wizard por texto:', t);
-        await ctx.reply('❌ Operación cancelada.');
-        return ctx.scene.leave();
-      }
-    }
-    return next();
   });
 };
 

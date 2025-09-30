@@ -16,4 +16,4 @@ Asistente de navegación que permite explorar tarjetas sin generar nuevos mensaj
 - Bloques HTML escapados con resúmenes por agente y moneda, enviados como mensaje editado o división automática cuando superan los 4096 caracteres.【F:commands/tarjetas_assist.js†L25-L220】
 
 ## Dependencias
-- Utiliza helpers de UI (`editIfChanged`, `arrangeInlineButtons`, `buildBackExitRow`), `chunkHtml`, `createExitHandler` y `sendLargeMessage`/`sendAndLog` para reportes, además del pool PostgreSQL para obtener datos.【F:commands/tarjetas_assist.js†L22-L360】
+- Utiliza helpers de UI (`editIfChanged`, `arrangeInlineButtons`, `buildBackExitRow`), `chunkHtml`, `handleGlobalCancel` y `sendLargeMessage`/`sendAndLog` para reportes, además del pool PostgreSQL para obtener datos.【F:commands/tarjetas_assist.js†L22-L360】

@@ -20,7 +20,7 @@ const { recordChange } = require('../helpers/sessionSummary');
 const { runFondo } = require('../middlewares/fondoAdvisor');
 const pool = require('../psql/db.js');
 const moment = require('moment-timezone');
-const { createExitHandler } = require('../helpers/wizard');
+const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { enterAssistMenu } = require('../helpers/assistMenu');
 
 /* ───────── helpers ───────── */
@@ -34,12 +34,6 @@ const kbContinue = Markup.inlineKeyboard([
   [Markup.button.callback('👥 Otros agentes', 'OTROS_AG')],
   [Markup.button.callback('❌ Finalizar', 'GLOBAL_CANCEL')]
 ]);
-
-const wantExit = createExitHandler({
-  callbackValues: ['GLOBAL_CANCEL'],
-  logPrefix: 'saldo',
-  afterLeave: enterAssistMenu,
-});
 
 async function showAgentes(ctx) {
   const agentes = (
@@ -159,6 +153,7 @@ const saldoWizard = new Scenes.WizardScene(
   /* 0 – mostrar agentes */
   async ctx => {
     console.log('[SALDO_WIZ] paso 0: mostrar agentes');
+    registerCancelHooks(ctx, { afterLeave: enterAssistMenu });
     const ok = await showAgentes(ctx);
     if (!ok) return ctx.scene.leave();
     return ctx.wizard.next();
@@ -167,7 +162,7 @@ const saldoWizard = new Scenes.WizardScene(
   /* 1 – elegir tarjeta del agente */
   async ctx => {
     console.log('[SALDO_WIZ] paso 1: elegir tarjeta');
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('AG_')) {
       return ctx.reply('Usa los botones para seleccionar agente.');
     }
@@ -185,7 +180,7 @@ const saldoWizard = new Scenes.WizardScene(
   /* 2 – pedir saldo actual */
   async ctx => {
     console.log('[SALDO_WIZ] paso 2: pedir saldo actual');
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     if (!ctx.callbackQuery) return;
     const { data } = ctx.callbackQuery;
     if (data === 'OTROS_AG') {
@@ -209,7 +204,7 @@ const saldoWizard = new Scenes.WizardScene(
   /* 3 – registrar movimiento y preguntar continuación */
   async ctx => {
     console.log('[SALDO_WIZ] paso 3: registrar movimiento');
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     if (ctx.callbackQuery) {
       const { data } = ctx.callbackQuery;
       if (data === 'VOLVER_TA') {
@@ -348,7 +343,7 @@ const saldoWizard = new Scenes.WizardScene(
   /* 4 – decidir si continuar o salir */
   async ctx => {
     console.log('[SALDO_WIZ] paso 4: continuar o salir');
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     if (!ctx.callbackQuery) return;
     const { data } = ctx.callbackQuery;
     await ctx.answerCbQuery().catch(() => {});

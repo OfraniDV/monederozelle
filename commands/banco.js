@@ -1,40 +1,10 @@
 // commands/banco.js
 const { Scenes, Markup } = require('telegraf');
 const pool = require('../psql/db.js'); // asegúrate de que psql/db.js exporte el Pool
+const { handleGlobalCancel } = require('../helpers/wizardCancel');
 
 /* Tecla de cancelar / salir */
 const cancelKb = Markup.inlineKeyboard([[Markup.button.callback('↩️ Cancelar', 'GLOBAL_CANCEL')]]);
-
-/**
- * Revisa si el usuario quiere salir ("/cancel", "salir", "/salir") o pulsó el botón.
- * Si es así, abandona la escena y responde.
- * @returns {Promise<boolean>} true si se salió y no debe continuar el paso.
- */
-async function checkExit(ctx) {
-  // botón cancel
-  if (ctx.callbackQuery?.data === 'GLOBAL_CANCEL') {
-    await ctx.answerCbQuery().catch(() => {});
-    if (ctx.scene?.current) {
-      await ctx.scene.leave();
-      await ctx.reply('❌ Operación cancelada.');
-      return true;
-    }
-  }
-
-  // texto de salida
-  if (ctx.message?.text) {
-    const t = ctx.message.text.trim().toLowerCase();
-    if (t === '/cancel' || t === 'salir' || t === '/salir') {
-      if (ctx.scene?.current) {
-        await ctx.scene.leave();
-        await ctx.reply('❌ Operación cancelada.');
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
 
 // ---------------------- WIZARD: crear banco ----------------------
 const crearBancoWizard = new Scenes.WizardScene(
@@ -50,7 +20,7 @@ const crearBancoWizard = new Scenes.WizardScene(
   },
   // Paso 1: recibir código
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[BANCO_CREATE_WIZ] Paso 1: recibí código:', ctx.message?.text);
     const codigo = (ctx.message?.text || '').trim().toUpperCase();
     if (!codigo) {
@@ -63,7 +33,7 @@ const crearBancoWizard = new Scenes.WizardScene(
   },
   // Paso 2: recibir nombre
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[BANCO_CREATE_WIZ] Paso 2: recibí nombre:', ctx.message?.text);
     const nombre = (ctx.message?.text || '').trim();
     if (!nombre) {
@@ -76,7 +46,7 @@ const crearBancoWizard = new Scenes.WizardScene(
   },
   // Paso 3: recibir emoji y crear
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[BANCO_CREATE_WIZ] Paso 3: recibí emoji:', ctx.message?.text);
     const emoji = (ctx.message?.text || '').trim();
     const { codigo, nombre } = ctx.wizard.state.data;

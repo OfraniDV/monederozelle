@@ -33,7 +33,7 @@ const {
   buildSaveBackExitKeyboard,
   sendReportWithKb,
 } = require('../helpers/ui');
-const { createExitHandler } = require('../helpers/wizard');
+const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { enterAssistMenu } = require('../helpers/assistMenu');
 const pool = require('../psql/db.js');
 
@@ -59,21 +59,6 @@ function normalizeBlocks(blocks = []) {
   });
   return chunked.length ? chunked : ['No hay datos.'];
 }
-
-const wantExit = createExitHandler({
-  logPrefix: 'tarjetas_assist',
-  notify: false,
-  beforeLeave: async (ctx) => {
-    const msgId = ctx.wizard?.state?.msgId;
-    if (!msgId || !ctx.chat) return;
-    await ctx.telegram
-      .editMessageText(ctx.chat.id, msgId, undefined, '❌ Operación cancelada.', {
-        parse_mode: 'HTML',
-      })
-      .catch(() => {});
-  },
-  afterLeave: enterAssistMenu,
-});
 
 async function loadData() {
   const sql = `
@@ -171,7 +156,7 @@ async function showMenu(ctx) {
     Markup.button.callback('👤 Por agente', 'VIEW_AGENT'),
     Markup.button.callback('🧮 Resumen USD global', 'VIEW_SUM'),
     Markup.button.callback('📋 Ver todas', 'VIEW_ALL'),
-    Markup.button.callback('❌ Salir', 'EXIT'),
+    Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL'),
   ];
   const kb = Markup.inlineKeyboard(buttons.map((b) => [b]));
   const text = '💳 <b>Tarjetas</b>\nElige la vista deseada:';
@@ -405,7 +390,7 @@ const tarjetasAssist = new Scenes.WizardScene(
       Markup.button.callback('👤 Por agente', 'VIEW_AGENT'),
       Markup.button.callback('🧮 Resumen USD global', 'VIEW_SUM'),
       Markup.button.callback('📋 Ver todas', 'VIEW_ALL'),
-      Markup.button.callback('❌ Salir', 'EXIT'),
+      Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL'),
     ];
     const kb = Markup.inlineKeyboard(buttons.map((b) => [b]));
     const text = `${boldHeader('💳', 'Tarjetas')}\nElige la vista deseada:`;
@@ -413,10 +398,22 @@ const tarjetasAssist = new Scenes.WizardScene(
     ctx.wizard.state.msgId = msg.message_id;
     ctx.wizard.state.lastRender = { text, reply_markup: kb.reply_markup };
     ctx.wizard.state.route = { view: 'MENU' };
+    registerCancelHooks(ctx, {
+      beforeLeave: async (innerCtx) => {
+        const messageId = innerCtx.wizard?.state?.msgId;
+        if (!messageId || !innerCtx.chat) return;
+        await innerCtx.telegram
+          .editMessageText(innerCtx.chat.id, messageId, undefined, '❌ Operación cancelada.', {
+            parse_mode: 'HTML',
+          })
+          .catch(() => {});
+      },
+      afterLeave: enterAssistMenu,
+    });
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     const data = ctx.callbackQuery?.data;
     if (!data) return;
     await ctx.answerCbQuery().catch(() => {});

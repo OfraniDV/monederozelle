@@ -34,14 +34,8 @@ const {
 } = require('../helpers/ui');
 const pool = require('../psql/db.js');
 const { runMonitor } = require('./monitor');
-const { createExitHandler } = require('../helpers/wizard');
+const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { enterAssistMenu } = require('../helpers/assistMenu');
-
-const wantExit = createExitHandler({
-  logPrefix: 'MONITOR_ASSIST',
-  beforeLeave: clearWizardMenu,
-  afterLeave: enterAssistMenu,
-});
 
 async function showMain(ctx, opts = {}) {
   const f = ctx.wizard.state.filters;
@@ -68,7 +62,7 @@ async function showMain(ctx, opts = {}) {
   if (ctx.chat.type !== 'private') {
     buttons.push(Markup.button.callback('💬 Ver en privado', 'PRIVATE'));
   }
-  buttons.push(Markup.button.callback('❌ Salir', 'EXIT'));
+  buttons.push(Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL'));
   const kb = arrangeInlineButtons(buttons);
   await renderWizardMenu(ctx, {
     route: 'MAIN',
@@ -236,11 +230,15 @@ const monitorAssist = new Scenes.WizardScene(
       mes: null,
       equiv: null,
     };
+    registerCancelHooks(ctx, {
+      beforeLeave: clearWizardMenu,
+      afterLeave: enterAssistMenu,
+    });
     await showMain(ctx, { pushHistory: false });
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     const data = ctx.callbackQuery?.data;
     if (!data) return;
     await ctx.answerCbQuery().catch(() => {});
@@ -368,7 +366,7 @@ const monitorAssist = new Scenes.WizardScene(
           }
           const kb = [
             [Markup.button.callback('Sí', 'AGAIN')],
-            [Markup.button.callback('No', 'EXIT')],
+            [Markup.button.callback('No', 'GLOBAL_CANCEL')],
           ];
           await ctx.reply('¿Deseas consultar otro usuario?', {
             parse_mode: 'HTML',

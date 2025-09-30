@@ -10,6 +10,7 @@ const {
   editIfChanged,
   buildBackExitRow,
 } = require('../helpers/ui');
+const { handleGlobalCancel } = require('../helpers/wizardCancel');
 const pool = require('../psql/db.js');
 
 /* Botones comunes */
@@ -135,29 +136,6 @@ async function renderEditMenu(ctx) {
   ctx.wizard.state.route = 'EDIT_MENU';
 }
 
-/* ─── salir / cancelar ─── */
-async function wantExit(ctx) {
-  if (ctx.callbackQuery?.data === 'GLOBAL_CANCEL') {
-    await ctx.answerCbQuery().catch(() => {});
-    if (ctx.scene?.current) {
-      await flushOnExit(ctx);
-      await ctx.scene.leave();
-      await ctx.reply('❌ Operación cancelada.');
-      return true;
-    }
-  }
-  if (ctx.message?.text) {
-    const t = ctx.message.text.trim().toLowerCase();
-    if (['/cancel', '/salir', 'salir'].includes(t) && ctx.scene?.current) {
-      await flushOnExit(ctx);
-      await ctx.scene.leave();
-      await ctx.reply('❌ Operación cancelada.');
-      return true;
-    }
-  }
-  return false;
-}
-
 /* ─── Wizard ─── */
 const tarjetaWizard = new Scenes.WizardScene(
   'TARJETA_WIZ',
@@ -165,7 +143,7 @@ const tarjetaWizard = new Scenes.WizardScene(
   /* Paso 0 – Agente -------------------------------------------------------- */
   async ctx => {
     console.log('[TARJETA_WIZ] paso 0: agente');
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     const msg = await ctx.reply('Cargando…');
     ctx.wizard.state.msgId = msg.message_id;
     await showAgentes(ctx);
@@ -175,7 +153,7 @@ const tarjetaWizard = new Scenes.WizardScene(
   /* Paso 1 – Seleccionar agente y mostrar tarjetas ------------------------- */
   async ctx => {
     console.log('[TARJETA_WIZ] paso 1: tarjetas del agente');
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('AG_')) {
       return ctx.reply('Usa los botones para elegir agente.');
     }
@@ -189,7 +167,7 @@ const tarjetaWizard = new Scenes.WizardScene(
   /* Paso 2 – Acciones sobre tarjetas o añadir nueva ----------------------- */
   async ctx => {
     console.log('[TARJETA_WIZ] paso 2: menú tarjetas');
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     const data = ctx.callbackQuery?.data;
     if (!data) return;
     await ctx.answerCbQuery().catch(() => {});
@@ -290,7 +268,7 @@ const tarjetaWizard = new Scenes.WizardScene(
   /* Paso 3 – Banco o edición ---------------------------------------------- */
   async ctx => {
     console.log('[TARJETA_WIZ] paso 3: seleccionar banco');
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     const numero = (ctx.message?.text || '').trim();
     if (!numero) return ctx.reply('Número inválido.');
 
@@ -354,7 +332,7 @@ const tarjetaWizard = new Scenes.WizardScene(
   /* Paso 4 – Moneda ------------------------------------------------------- */
   async ctx => {
     console.log('[TARJETA_WIZ] paso 4: seleccionar moneda');
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('BN_')) {
       return ctx.reply('Usa los botones para elegir banco.');
     }
@@ -374,7 +352,7 @@ const tarjetaWizard = new Scenes.WizardScene(
   /* Paso 5 – Saldo inicial ------------------------------------------------- */
   async ctx => {
     console.log('[TARJETA_WIZ] paso 5: saldo inicial');
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('MO_')) {
       return ctx.reply('Usa los botones para elegir moneda.');
     }
@@ -388,7 +366,7 @@ const tarjetaWizard = new Scenes.WizardScene(
   /* Paso 6 – Guardar tarjeta + primer movimiento -------------------------- */
   async ctx => {
     console.log('[TARJETA_WIZ] paso 6: guardar tarjeta');
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
 
     let saldo = 0;
     if (ctx.callbackQuery?.data === 'SALDO_0') {
@@ -438,7 +416,7 @@ const tarjetaWizard = new Scenes.WizardScene(
   /* Paso 7 – Edición interactiva ----------------------------------------- */
   async ctx => {
     console.log('[TARJETA_WIZ] paso 7: edición interactiva');
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
 
     const route = ctx.wizard.state.route;
     const data = ctx.callbackQuery?.data;

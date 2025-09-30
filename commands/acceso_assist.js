@@ -13,34 +13,13 @@
 const { Scenes, Markup } = require('telegraf');
 const { escapeHtml } = require('../helpers/format');
 const { editIfChanged } = require('../helpers/ui');
+const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const {
   agregarUsuario,
   eliminarUsuario,
   usuarioExiste,
   listarUsuarios,
 } = require('./usuariosconacceso');
-
-/**
- * Maneja la salida universal del asistente.
- * @param {object} ctx Contexto de Telegraf.
- * @returns {Promise<boolean>} true si se salió del asistente.
- */
-async function wantExit(ctx) {
-  if (ctx.callbackQuery?.data === 'EXIT') {
-    await ctx.answerCbQuery().catch(() => {});
-    const msgId = ctx.wizard.state.msgId;
-    await ctx.telegram.editMessageText(
-      ctx.chat.id,
-      msgId,
-      undefined,
-      '❌ Operación cancelada.',
-      { parse_mode: 'HTML' }
-    );
-    await ctx.scene.leave();
-    return true;
-  }
-  return false;
-}
 
 /**
  * Obtiene el nombre del usuario desde Telegram.
@@ -70,7 +49,7 @@ async function showList(ctx) {
   ]);
   const addLabel = rows.length ? '➕ Añadir' : '➕ Agregar';
   keyboard.push([Markup.button.callback(addLabel, 'ADD')]);
-  keyboard.push([Markup.button.callback('❌ Salir', 'EXIT')]);
+  keyboard.push([Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]);
   const text = '🛂 <b>Usuarios con acceso</b>:';
   await editIfChanged(ctx, text, {
     parse_mode: 'HTML',
@@ -84,11 +63,22 @@ const accesoAssist = new Scenes.WizardScene(
   async (ctx) => {
     const msg = await ctx.reply('Cargando…', { parse_mode: 'HTML' });
     ctx.wizard.state.msgId = msg.message_id;
+    registerCancelHooks(ctx, {
+      beforeLeave: async (innerCtx) => {
+        const messageId = innerCtx.wizard?.state?.msgId;
+        if (!messageId || !innerCtx.chat) return;
+        await innerCtx.telegram
+          .editMessageText(innerCtx.chat.id, messageId, undefined, '❌ Operación cancelada.', {
+            parse_mode: 'HTML',
+          })
+          .catch(() => {});
+      },
+    });
     await showList(ctx);
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     const data = ctx.callbackQuery?.data;
     if (data) {
       await ctx.answerCbQuery().catch(() => {});
@@ -96,7 +86,7 @@ const accesoAssist = new Scenes.WizardScene(
         ctx.wizard.state.route = 'ADD';
         await editIfChanged(ctx, '🔑 Ingresa el <b>ID</b> del usuario:', {
           parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: [[Markup.button.callback('❌ Salir', 'EXIT')]] },
+          reply_markup: { inline_keyboard: [[Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]] },
         });
         return;
       }

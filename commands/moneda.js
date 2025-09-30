@@ -1,40 +1,10 @@
 // commands/moneda.js
 const { Scenes, Markup } = require('telegraf');
 const pool = require('../psql/db.js'); // tu Pool de PostgreSQL
+const { handleGlobalCancel } = require('../helpers/wizardCancel');
 
 /* Botón cancelar / salir */
 const cancelKb = Markup.inlineKeyboard([[Markup.button.callback('↩️ Cancelar', 'GLOBAL_CANCEL')]]);
-
-/**
- * Revisa si el usuario quiere salir (/cancel, salir, /salir) o pulsó el botón.
- * Si es así cierra el wizard/scene y responde.
- * @returns {Promise<boolean>} true si hizo exit y no debe continuar.
- */
-async function checkExit(ctx) {
-  // Callback de cancelar
-  if (ctx.callbackQuery?.data === 'GLOBAL_CANCEL') {
-    await ctx.answerCbQuery().catch(() => {});
-    if (ctx.scene?.current) {
-      await ctx.scene.leave();
-      await ctx.reply('❌ Operación cancelada.');
-      return true;
-    }
-  }
-
-  // Texto de salida
-  if (ctx.message?.text) {
-    const t = ctx.message.text.trim().toLowerCase();
-    if (t === '/cancel' || t === 'salir' || t === '/salir') {
-      if (ctx.scene?.current) {
-        await ctx.scene.leave();
-        await ctx.reply('❌ Operación cancelada.');
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
 
 /* ------------------------------------------------------------------ *
  *  WIZARD 1 : CREAR MONEDA                                           *
@@ -50,7 +20,7 @@ const crearMonedaWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[MONEDA_CREATE_WIZ] Paso 1: recibí código:', ctx.message?.text);
     const codigo = (ctx.message?.text || '').trim().toUpperCase();
     if (!codigo) {
@@ -62,7 +32,7 @@ const crearMonedaWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[MONEDA_CREATE_WIZ] Paso 2: recibí nombre:', ctx.message?.text);
     const nombre = (ctx.message?.text || '').trim();
     if (!nombre) {
@@ -77,7 +47,7 @@ const crearMonedaWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[MONEDA_CREATE_WIZ] Paso 3: recibí unidades por USD:', ctx.message?.text);
     const num = parseFloat((ctx.message?.text || '').replace(',', '.'));
     if (isNaN(num) || num <= 0) {
@@ -89,7 +59,7 @@ const crearMonedaWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[MONEDA_CREATE_WIZ] Paso 4: recibí emoji:', ctx.message?.text);
     const emoji = (ctx.message?.text || '').trim();
     const { codigo, nombre, tasa_usd } = ctx.wizard.state.data;
@@ -113,7 +83,7 @@ const crearMonedaWizard = new Scenes.WizardScene(
 const editarMonedaWizard = new Scenes.WizardScene(
   'MONEDA_EDIT_WIZ',
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[MONEDA_EDIT_WIZ] Paso 0: iniciar edición');
     const m = ctx.scene.state.edit;
     if (!m) return ctx.scene.leave();
@@ -122,7 +92,7 @@ const editarMonedaWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[MONEDA_EDIT_WIZ] Paso 1: posible código nuevo:', ctx.message?.text);
     const codigo = (ctx.message?.text || '').trim().toUpperCase();
     if (codigo) ctx.wizard.state.data.codigo = codigo;
@@ -130,7 +100,7 @@ const editarMonedaWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[MONEDA_EDIT_WIZ] Paso 2: posible nombre nuevo:', ctx.message?.text);
     const nombre = (ctx.message?.text || '').trim();
     if (nombre) ctx.wizard.state.data.nombre = nombre;
@@ -142,7 +112,7 @@ const editarMonedaWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[MONEDA_EDIT_WIZ] Paso 3: recibir unidades por USD:', ctx.message?.text);
     const num = parseFloat((ctx.message?.text || '').replace(',', '.'));
     if (!isNaN(num) && num > 0) ctx.wizard.state.data.tasa_usd = 1 / num;
@@ -153,7 +123,7 @@ const editarMonedaWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[MONEDA_EDIT_WIZ] Paso 4: recibir emoji final:', ctx.message?.text);
     const emoji = (ctx.message?.text || '').trim();
     if (emoji !== '') ctx.wizard.state.data.emoji = emoji;
@@ -266,14 +236,6 @@ const registerMoneda = (bot, stage) => {
     }
   });
 
-  bot.action('GLOBAL_CANCEL', async (ctx) => {
-    console.log('[action] GLOBAL_CANCEL');
-    await ctx.answerCbQuery().catch(() => {});
-    if (ctx.scene?.current) {
-      await ctx.scene.leave();
-      await ctx.reply('❌ Operación cancelada.');
-    }
-  });
 };
 
 module.exports = registerMoneda;

@@ -33,7 +33,7 @@ function buildMenuKeyboard(ctx, { includeExit = true, extraItems = [] } = {}) {
   );
   const rows = arrangeInlineButtons(buttons);
   if (includeExit) {
-    rows.push([Markup.button.callback('❌ Cerrar', 'EXIT')]);
+    rows.push([Markup.button.callback('❌ Cerrar', 'GLOBAL_CANCEL')]);
   }
   return Markup.inlineKeyboard(rows);
 }

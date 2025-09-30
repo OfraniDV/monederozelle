@@ -1,16 +1,6 @@
 const { Scenes } = require('telegraf');
-const { createExitHandler } = require('../helpers/wizard');
+const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { buildMenuKeyboard, getMenuItems } = require('../helpers/assistMenu');
-
-const wantExit = createExitHandler({
-  logPrefix: 'assist_menu',
-  notify: false,
-  beforeLeave: async (ctx) => {
-    const messageId = ctx.wizard?.state?.msgId;
-    if (!messageId || !ctx.chat) return;
-    await ctx.telegram.deleteMessage(ctx.chat.id, messageId).catch(() => {});
-  },
-});
 
 const assistMenu = new Scenes.WizardScene(
   'ASSISTANT_MENU',
@@ -21,10 +11,17 @@ const assistMenu = new Scenes.WizardScene(
     });
     ctx.wizard.state.msgId = msg.message_id;
     ctx.wizard.state.route = 'MENU';
+    registerCancelHooks(ctx, {
+      beforeLeave: async (innerCtx) => {
+        const messageId = innerCtx.wizard?.state?.msgId;
+        if (!messageId || !innerCtx.chat) return;
+        await innerCtx.telegram.deleteMessage(innerCtx.chat.id, messageId).catch(() => {});
+      },
+    });
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (await wantExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     const data = ctx.callbackQuery?.data;
     if (!data) return;
     await ctx.answerCbQuery().catch(() => {});
