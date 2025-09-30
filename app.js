@@ -151,7 +151,7 @@ bot.command('resumen',        safe(resumirCuenta));
 bot.command('resumentotal',   safe(resumenTotal));
 
 /* ───────── 12. Nuevos comandos (wizards) ───────── */
-bot.command('monedas',  ownerOnly((ctx) => ctx.scene.enter('MONEDA_WIZ')));
+bot.command('monedas',  ownerOnly((ctx) => ctx.scene.enter('MONEDA_CREATE_WIZ')));
 bot.command('bancos',   ownerOnly((ctx) => ctx.scene.enter('BANCO_CREATE_WIZ')));
 bot.command('agentes',  ownerOnly((ctx) => ctx.scene.enter('AGENTE_WIZ')));
 bot.command('tarjeta',  ownerOnly((ctx) => ctx.scene.enter('TARJETA_WIZ')));
