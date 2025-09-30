@@ -153,7 +153,10 @@ const saldoWizard = new Scenes.WizardScene(
   /* 0 – mostrar agentes */
   async ctx => {
     console.log('[SALDO_WIZ] paso 0: mostrar agentes');
-    registerCancelHooks(ctx, { afterLeave: enterAssistMenu });
+    registerCancelHooks(ctx, {
+      afterLeave: enterAssistMenu,
+      notify: false, // evitamos mensaje genérico: mostramos fondo y luego menú
+    });
     const ok = await showAgentes(ctx);
     if (!ok) return ctx.scene.leave();
     return ctx.wizard.next();
