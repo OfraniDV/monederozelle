@@ -74,9 +74,6 @@ const stage = new Scenes.Stage(
 );
 bot.use(session());
 
-bot.action('GLOBAL_CANCEL', handleGlobalCancel);
-bot.hears([/^(\/cancel|\/salir|salir)$/i], handleGlobalCancel);
-
 registerFondoAdvisor({
   bot,
   stage,
@@ -109,6 +106,10 @@ const verificarAcceso = async (ctx, next) => {
 bot.use(verificarAcceso);
 /* La Stage debe ir después del guard para que hears/leave no lo evadan */
 bot.use(stage.middleware());
+
+/* Cancelación global disponible una vez que la escena está inicializada */
+bot.action('GLOBAL_CANCEL', handleGlobalCancel);
+bot.hears([/^(\/cancel|\/salir|salir)$/i], handleGlobalCancel);
 
 /* ───────── 9. Helpers para envolver comandos con try/catch ───────── */
 const safe = (fn) => async (ctx) => {
