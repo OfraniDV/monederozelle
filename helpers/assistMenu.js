@@ -11,7 +11,7 @@ const MENU_ITEMS = [
   { scene: 'TARJETA_WIZ', label: '➕ Tarjeta', ownerOnly: true },
   { scene: 'AGENTE_WIZ', label: '🧑‍💼 Agentes', ownerOnly: true },
   { scene: 'BANCO_CREATE_WIZ', label: '🏦 Bancos', ownerOnly: true },
-  { scene: 'MONEDA_WIZ', label: '💱 Monedas', ownerOnly: true },
+  { scene: 'MONEDA_CREATE_WIZ', label: '💱 Monedas', ownerOnly: true },
 ];
 
 function isOwner(ctx) {
