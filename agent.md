@@ -1,5 +1,10 @@
 # Agent Notes
 
+## Protocolo de contribución
+- Documenta en la carpeta pertinente cada ajuste o hallazgo (README, docs, auditorías, TODO, etc.).
+- Mantén intactas las lógicas vigentes y la base de datos salvo que una instrucción explícita indique lo contrario.
+- Ubica las pruebas nuevas en `tests/` dentro de la subcarpeta correspondiente.
+
 - `buildSaveExitRow()` genera una sola fila con los botones `💾 Salvar` y `❌ Salir`.
 - `buildSaveBackExitKeyboard()` genera el teclado estándar con `💾 Salvar`, `🔙 Volver` y `❌ Salir` en dos filas para mantener la escena abierta.
 - `sendReportWithKb(ctx, pages, kb)` envía cada página del reporte y luego un mensaje
