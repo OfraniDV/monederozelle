@@ -120,8 +120,8 @@ describe('fondoAdvisor core calculations', () => {
     const message = blocks.join('\n\n');
     expect(Array.isArray(blocks)).toBe(true);
     expect(message).toContain('💸 <b>Venta requerida (Zelle)</b>');
-    expect(message).toContain('Objetivo: vender 348 USD a 452 ⇒ +157,296 CUP');
-    expect(message).toContain('Vende ahora: 200 USD ⇒ +90,400 CUP');
+    expect(message).toContain('👉 Objetivo: vender 348 USD a 452 ⇒ +157,296 CUP');
+    expect(message).toContain('👉 Vende ahora: 200 USD ⇒ +90,400 CUP');
     expect(message).toContain('Faltante tras venta: 66,710 CUP (≈ 148 USD)');
     expect(message).toContain('🧾 <b>Proyección post-venta</b>');
     expect(message).toContain('Colchón proyectado: 83,290 CUP');
