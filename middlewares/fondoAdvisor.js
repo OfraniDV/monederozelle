@@ -848,22 +848,41 @@ function renderAdvice(result) {
     console.error('[fondoAdvisor] Inventario USD render error:', e.message);
   }
 
-  const venta = [
-    '💸 <b>Venta requerida (Zelle)</b>',
-    `• Objetivo: vender ${fmtUsd(plan.sellTarget.usd)} USD a ${fmtCup(plan.sellNet)} ⇒ +${fmtCup(plan.sellTarget.cupIn)} CUP`,
-  ];
-  const sellNowLine = `• Vende ahora: ${fmtUsd(plan.sellNow.usd)} USD ⇒ +${fmtCup(plan.sellNow.cupIn)} CUP`;
-  if (plan.sellNow.usd === 0 && plan.sellNow.minWarning) {
+  const sellTargetUsd = plan?.sellTarget?.usd || 0;
+  const sellTargetCupIn = plan?.sellTarget?.cupIn || 0;
+  const sellNowUsd = plan?.sellNow?.usd || 0;
+  const sellNowCupInPlan = plan?.sellNow?.cupIn || 0;
+  const sellRemainingCup = plan?.remainingCup || 0;
+  const sellRemainingUsd = plan?.remainingUsd || 0;
+  const showSellBlock = [
+    sellTargetUsd,
+    sellTargetCupIn,
+    sellNowUsd,
+    sellNowCupInPlan,
+    sellRemainingCup,
+    sellRemainingUsd,
+  ].some((value) => Math.abs(value) > 0);
+
+  if (showSellBlock) {
+    const venta = [
+      '',
+      '💸 <b>Venta requerida (Zelle)</b>',
+      `👉 Objetivo: vender ${fmtUsd(plan.sellTarget.usd)} USD a ${fmtCup(plan.sellNet)} ⇒ +${fmtCup(plan.sellTarget.cupIn)} CUP`,
+    ];
+    const sellNowLine = `👉 Vende ahora: ${fmtUsd(plan.sellNow.usd)} USD ⇒ +${fmtCup(plan.sellNow.cupIn)} CUP`;
+    if (plan.sellNow.usd === 0 && plan.sellNow.minWarning) {
+      venta.push(
+        `${sellNowLine} (⚠️ inventario menor al mínimo de ${fmtUsd(config.minSellUsd)} USD)`
+      );
+    } else {
+      venta.push(sellNowLine);
+    }
     venta.push(
-      `${sellNowLine} (⚠️ inventario menor al mínimo de ${fmtUsd(config.minSellUsd)} USD)`
+      `• Faltante tras venta: ${fmtCup(plan.remainingCup)} CUP (≈ ${fmtUsd(plan.remainingUsd)} USD)`
     );
-  } else {
-    venta.push(sellNowLine);
+    venta.push('');
+    blocks.push(venta.join('\n'));
   }
-  venta.push(
-    `• Faltante tras venta: ${fmtCup(plan.remainingCup)} CUP (≈ ${fmtUsd(plan.remainingUsd)} USD)`
-  );
-  blocks.push(venta.join('\n'));
 
   if (hasBuyRate) {
     const excesoCupRaw = (activosCup || 0) - Math.abs(deudasCup || 0) - (cushionTarget || 0);
@@ -871,15 +890,17 @@ function renderAdvice(result) {
     if (excesoCup > 0) {
       const objetivoUsd = Math.floor(excesoCup / resolvedBuyRate);
       const objetivoCup = Math.round(objetivoUsd * resolvedBuyRate);
-      const compra = [
-        '💠 <b>Compra sugerida (USD)</b>',
-        `• Exceso sobre colchón/deudas: ${fmtCup(excesoCup)} CUP`,
-        `• Objetivo: comprar ${fmtUsd(objetivoUsd)} USD a ${fmtCup(resolvedBuyRate)} ⇒ −${fmtCup(objetivoCup)} CUP`,
-      ];
       if (objetivoUsd > 0) {
-        compra.push(`• Compra ahora: ${fmtUsd(objetivoUsd)} USD ⇒ −${fmtCup(objetivoCup)} CUP`);
+        const compra = [
+          '',
+          '💠 <b>Compra sugerida (USD)</b>',
+          `• Exceso sobre colchón/deudas: ${fmtCup(excesoCup)} CUP`,
+          `👇 Objetivo: comprar ${fmtUsd(objetivoUsd)} USD a ${fmtCup(resolvedBuyRate)} ⇒ −${fmtCup(objetivoCup)} CUP`,
+          `👇 Compra ahora: ${fmtUsd(objetivoUsd)} USD ⇒ −${fmtCup(objetivoCup)} CUP`,
+          '',
+        ];
+        blocks.push(compra.join('\n'));
       }
-      blocks.push(compra.join('\n'));
     }
   }
 
