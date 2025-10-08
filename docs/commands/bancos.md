@@ -18,3 +18,6 @@ Wizard multi-paso que permite crear, editar y eliminar bancos asociados a tarjet
 
 ## Dependencias
 - Requiere `psql/db.js` para consultar y modificar las tablas `banco` y `tarjeta`, y utiliza componentes de Telegraf (`Scenes`, `Markup`) para construir la interfaz de wizard.【F:commands/banco.js†L1-L259】
+
+## Notas de mantenimiento
+- La validación de cancelación en el wizard de edición reutiliza el helper `handleGlobalCancel`, evitando referencias a funciones inexistentes como `checkExit` y garantizando una salida consistente ante `/cancel` o "salir".【F:commands/banco.js†L71-L133】
