@@ -12,7 +12,7 @@
  */
 const { Scenes, Markup } = require('telegraf');
 const { escapeHtml } = require('../helpers/format');
-const { editIfChanged } = require('../helpers/ui');
+const { editIfChanged, withExitHint } = require('../helpers/ui');
 const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const {
   agregarUsuario,
@@ -50,7 +50,7 @@ async function showList(ctx) {
   const addLabel = rows.length ? '➕ Añadir' : '➕ Agregar';
   keyboard.push([Markup.button.callback(addLabel, 'ADD')]);
   keyboard.push([Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]);
-  const text = '🛂 <b>Usuarios con acceso</b>:';
+  const text = withExitHint('🛂 <b>Usuarios con acceso</b>:');
   await editIfChanged(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: keyboard },
@@ -61,7 +61,7 @@ async function showList(ctx) {
 const accesoAssist = new Scenes.WizardScene(
   'ACCESO_ASSIST',
   async (ctx) => {
-    const msg = await ctx.reply('Cargando…', { parse_mode: 'HTML' });
+    const msg = await ctx.reply(withExitHint('Cargando…'), { parse_mode: 'HTML' });
     ctx.wizard.state.msgId = msg.message_id;
     registerCancelHooks(ctx, {
       beforeLeave: async (innerCtx) => {
@@ -84,7 +84,7 @@ const accesoAssist = new Scenes.WizardScene(
       await ctx.answerCbQuery().catch(() => {});
       if (data === 'ADD') {
         ctx.wizard.state.route = 'ADD';
-        await editIfChanged(ctx, '🔑 Ingresa el <b>ID</b> del usuario:', {
+        await editIfChanged(ctx, withExitHint('🔑 Ingresa el <b>ID</b> del usuario:'), {
           parse_mode: 'HTML',
           reply_markup: { inline_keyboard: [[Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]] },
         });

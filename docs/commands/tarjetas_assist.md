@@ -5,7 +5,7 @@ Asistente de navegación que permite explorar tarjetas sin generar nuevos mensaj
 
 ## Flujo principal
 1. Carga todos los saldos de tarjetas con metadatos de agente, banco y moneda, agrupando por agente y por moneda/banco para construir estructuras reutilizables.【F:commands/tarjetas_assist.js†L82-L168】
-2. Presenta un menú principal con opciones “Por moneda y banco”, “Por agente”, “Resumen USD global” y “Ver todas”, cada una navegable con botones `Volver`/`Salir`.【F:commands/tarjetas_assist.js†L170-L204】
+2. Presenta un menú principal con opciones “Por moneda y banco”, “Por agente”, “Resumen USD global” y “Ver todas”, cada una navegable con botones `Volver`/`❌ Salir` y textos que recuerdan que escribir “salir” también cancela la escena.【F:commands/tarjetas_assist.js†L170-L210】
 3. Las rutas de agente muestran tarjetas y totales por moneda, mientras que las vistas por moneda+banco separan saldos positivos y negativos para resaltar capacidad versus deudas. Los bloques resultantes se normalizan con `chunkHtml` antes de reutilizarlos.【F:commands/tarjetas_assist.js†L51-L360】
 4. Todas las respuestas se envían editando el mensaje original mediante `editIfChanged`; para listados largos se usa `sendLargeMessage` o `sendReportWithKb` evitando errores 400 por contenido repetido y cerrando correctamente etiquetas HTML.【F:commands/tarjetas_assist.js†L25-L360】
 

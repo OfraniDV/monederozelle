@@ -14,6 +14,19 @@
 const { Markup } = require('telegraf');
 const { chunkHtml } = require('./format');
 
+const EXIT_HINT_TEXT = 'Puedes pulsar «Salir» o escribir "salir" en cualquier momento.';
+
+function withExitHint(text = '') {
+  const base = String(text).trimEnd();
+  if (!base) {
+    return EXIT_HINT_TEXT;
+  }
+  if (base.includes(EXIT_HINT_TEXT)) {
+    return base;
+  }
+  return `${base}\n\n${EXIT_HINT_TEXT}`;
+}
+
 /**
  * Compara dos estructuras de reply_markup para detectar cambios.
  * @param {object} a
@@ -141,7 +154,7 @@ async function sendReportWithKb(ctx, pages = [], kbInline, { message } = {}) {
     extra.reply_markup = kbInline.reply_markup || kbInline;
   }
   const finalMsg = await ctx.reply(
-    message || 'Reporte generado.\nSelecciona una acción:',
+    withExitHint(message || 'Reporte generado.\nSelecciona una acción:'),
     extra,
   );
   messageIds.push(finalMsg.message_id);
@@ -242,4 +255,5 @@ module.exports = {
   renderWizardMenu,
   goBackMenu,
   clearWizardMenu,
+  withExitHint,
 };

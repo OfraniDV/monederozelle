@@ -9,17 +9,18 @@ const {
   arrangeInlineButtons,
   editIfChanged,
   buildBackExitRow,
+  withExitHint,
 } = require('../helpers/ui');
 const { handleGlobalCancel } = require('../helpers/wizardCancel');
 const pool = require('../psql/db.js');
 
 /* Botones comunes */
 const kbCancel = Markup.inlineKeyboard([
-  Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')
+  Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')
 ]);
 const kbSaldo = Markup.inlineKeyboard([
   Markup.button.callback('0 ↩️ Iniciar en 0', 'SALDO_0'),
-  Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')
+  Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')
 ]);
 
 /* Helpers */
@@ -62,7 +63,7 @@ async function showAgentes(ctx) {
   if (!agents.length) {
     await editIfChanged(
       ctx,
-      '⚠️ No hay agentes. Crea uno con /agentes y vuelve a /tarjeta.',
+      withExitHint('⚠️ No hay agentes. Crea uno con /agentes y vuelve a /tarjeta.'),
       {
         parse_mode: 'HTML',
         reply_markup: { inline_keyboard: [buildBackExitRow('BACK', 'GLOBAL_CANCEL')] },
@@ -74,8 +75,8 @@ async function showAgentes(ctx) {
   }
   const buttons = agents.map((a) => Markup.button.callback(a.nombre, `AG_${a.id}`));
   const kb = arrangeInlineButtons(buttons);
-  kb.push([Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')]);
-  await editIfChanged(ctx, '👤 Elige agente:', {
+  kb.push([Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]);
+  await editIfChanged(ctx, withExitHint('👤 Elige agente:'), {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: kb },
   });
@@ -110,9 +111,10 @@ async function showTarjetasMenu(ctx) {
   ]);
   kb.push([Markup.button.callback('➕ Añadir nueva tarjeta', 'TA_ADD')]);
   kb.push(buildBackExitRow('BACK', 'GLOBAL_CANCEL'));
-  const texto = tarjetas.length
+  const textoBase = tarjetas.length
     ? '💳 Tarjetas existentes:'
     : '💳 Este agente aún no tiene tarjetas.';
+  const texto = withExitHint(textoBase);
   const extra = { parse_mode: 'HTML', reply_markup: { inline_keyboard: kb } };
   if (ctx.wizard.state.msgId) {
     await editIfChanged(ctx, texto, extra);
@@ -125,13 +127,14 @@ async function showTarjetasMenu(ctx) {
 
 async function renderEditMenu(ctx) {
   const e = ctx.wizard.state.edit;
-  const text =
+  const text = withExitHint(
     `Tarjeta existente:\n` +
-    `<b>Número:</b> ${escapeHtml(e.numero)}\n` +
-    `<b>Banco:</b> ${escapeHtml(e.banco || '—')}\n` +
-    `<b>Moneda:</b> ${escapeHtml(e.moneda || '—')}\n` +
-    `<b>Saldo:</b> ${escapeHtml(e.saldo || 0)}\n\n` +
-    '¿Qué deseas actualizar?';
+      `<b>Número:</b> ${escapeHtml(e.numero)}\n` +
+      `<b>Banco:</b> ${escapeHtml(e.banco || '—')}\n` +
+      `<b>Moneda:</b> ${escapeHtml(e.moneda || '—')}\n` +
+      `<b>Saldo:</b> ${escapeHtml(e.saldo || 0)}\n\n` +
+      '¿Qué deseas actualizar?'
+  );
   await editIfChanged(ctx, text, { parse_mode: 'HTML', ...getEditKb() });
   ctx.wizard.state.route = 'EDIT_MENU';
 }
@@ -144,7 +147,7 @@ const tarjetaWizard = new Scenes.WizardScene(
   async ctx => {
     console.log('[TARJETA_WIZ] paso 0: agente');
     if (await handleGlobalCancel(ctx)) return;
-    const msg = await ctx.reply('Cargando…');
+    const msg = await ctx.reply(withExitHint('Cargando…'));
     ctx.wizard.state.msgId = msg.message_id;
     await showAgentes(ctx);
     return ctx.wizard.next();
@@ -155,7 +158,7 @@ const tarjetaWizard = new Scenes.WizardScene(
     console.log('[TARJETA_WIZ] paso 1: tarjetas del agente');
     if (await handleGlobalCancel(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('AG_')) {
-      return ctx.reply('Usa los botones para elegir agente.');
+      return ctx.reply(withExitHint('Usa los botones para elegir agente.'), kbCancel);
     }
     await ctx.answerCbQuery().catch(() => {});
     const agente_id = +ctx.callbackQuery.data.split('_')[1];
@@ -222,10 +225,10 @@ const tarjetaWizard = new Scenes.WizardScene(
       const id = +data.split('_')[3];
       try {
         await pool.query('DELETE FROM tarjeta WHERE id=$1', [id]);
-        await ctx.reply('🗑️ Tarjeta eliminada.');
+        await ctx.reply(withExitHint('🗑️ Tarjeta eliminada.'));
       } catch (e) {
         console.error('[TARJETA_DEL] Error:', e);
-        await ctx.reply('❌ No se pudo eliminar la tarjeta.');
+        await ctx.reply(withExitHint('❌ No se pudo eliminar la tarjeta.'));
       }
       return showTarjetasMenu(ctx);
     }
@@ -251,7 +254,7 @@ const tarjetaWizard = new Scenes.WizardScene(
         );
       } catch (e) {
         console.error('[TARJETA_DEL] check error:', e);
-        await ctx.reply('❌ Error verificando la tarjeta.');
+      await ctx.reply(withExitHint('❌ Error verificando la tarjeta.'));
       }
       return;
     }
@@ -259,7 +262,7 @@ const tarjetaWizard = new Scenes.WizardScene(
       return showTarjetasMenu(ctx);
     }
     if (data === 'TA_ADD') {
-      await ctx.reply('🔢 Número o alias de la tarjeta:', kbCancel);
+      await ctx.reply(withExitHint('🔢 Número o alias de la tarjeta:'), kbCancel);
       return ctx.wizard.next();
     }
     // no-op
@@ -270,7 +273,7 @@ const tarjetaWizard = new Scenes.WizardScene(
     console.log('[TARJETA_WIZ] paso 3: seleccionar banco');
     if (await handleGlobalCancel(ctx)) return;
     const numero = (ctx.message?.text || '').trim();
-    if (!numero) return ctx.reply('Número inválido.');
+    if (!numero) return ctx.reply(withExitHint('Número inválido.'), kbCancel);
 
     ctx.wizard.state.data.numero = numero;
 
@@ -322,10 +325,10 @@ const tarjetaWizard = new Scenes.WizardScene(
 
     const kb = await getBancoKb();
     if (!kb) {
-      await ctx.reply('⚠️ No hay bancos. Crea uno con /bancos y vuelve.');
+      await ctx.reply(withExitHint('⚠️ No hay bancos. Crea uno con /bancos y vuelve.'), kbCancel);
       return ctx.scene.leave();
     }
-    await ctx.reply('🏦 Elige banco:', { parse_mode: 'HTML', ...kb });
+    await ctx.reply(withExitHint('🏦 Elige banco:'), { parse_mode: 'HTML', ...kb });
     return ctx.wizard.next();
   },
 
@@ -334,7 +337,7 @@ const tarjetaWizard = new Scenes.WizardScene(
     console.log('[TARJETA_WIZ] paso 4: seleccionar moneda');
     if (await handleGlobalCancel(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('BN_')) {
-      return ctx.reply('Usa los botones para elegir banco.');
+      return ctx.reply(withExitHint('Usa los botones para elegir banco.'), kbCancel);
     }
     await ctx.answerCbQuery().catch(() => {});
     ctx.wizard.state.data.banco_id =
@@ -342,10 +345,10 @@ const tarjetaWizard = new Scenes.WizardScene(
 
     const kb = await getMonedaKb();
     if (!kb) {
-      await ctx.reply('⚠️ No hay monedas. Crea una con /monedas y vuelve.');
+      await ctx.reply(withExitHint('⚠️ No hay monedas. Crea una con /monedas y vuelve.'), kbCancel);
       return ctx.scene.leave();
     }
-    await ctx.reply('💱 Elige moneda:', { parse_mode: 'HTML', ...kb });
+    await ctx.reply(withExitHint('💱 Elige moneda:'), { parse_mode: 'HTML', ...kb });
     return ctx.wizard.next();
   },
 
@@ -354,12 +357,12 @@ const tarjetaWizard = new Scenes.WizardScene(
     console.log('[TARJETA_WIZ] paso 5: saldo inicial');
     if (await handleGlobalCancel(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('MO_')) {
-      return ctx.reply('Usa los botones para elegir moneda.');
+      return ctx.reply(withExitHint('Usa los botones para elegir moneda.'), kbCancel);
     }
     await ctx.answerCbQuery().catch(() => {});
     ctx.wizard.state.data.moneda_id = +ctx.callbackQuery.data.split('_')[1];
 
-    await ctx.reply('💰 Saldo inicial (escribe cantidad o pulsa «0»):', kbSaldo);
+    await ctx.reply(withExitHint('💰 Saldo inicial (escribe cantidad o pulsa «0»):'), kbSaldo);
     return ctx.wizard.next();
   },
 
@@ -427,7 +430,7 @@ const tarjetaWizard = new Scenes.WizardScene(
       if (data === 'EDIT_BANK') {
         const kb = await getBancoKb();
         if (!kb) {
-          await editIfChanged(ctx, '⚠️ No hay bancos. Crea uno con /bancos y vuelve.', {
+          await editIfChanged(ctx, withExitHint('⚠️ No hay bancos. Crea uno con /bancos y vuelve.'), {
             parse_mode: 'HTML',
             reply_markup: { inline_keyboard: [buildBackExitRow('BACK', 'GLOBAL_CANCEL')] },
           });
@@ -435,7 +438,7 @@ const tarjetaWizard = new Scenes.WizardScene(
         }
         const rows = kb.reply_markup.inline_keyboard;
         rows.push(buildBackExitRow('BACK', 'GLOBAL_CANCEL'));
-        await editIfChanged(ctx, '🏦 Elige banco:', {
+        await editIfChanged(ctx, withExitHint('🏦 Elige banco:'), {
           parse_mode: 'HTML',
           reply_markup: { inline_keyboard: rows },
         });
@@ -445,7 +448,7 @@ const tarjetaWizard = new Scenes.WizardScene(
       if (data === 'EDIT_CURR') {
         const kb = await getMonedaKb();
         if (!kb) {
-          await editIfChanged(ctx, '⚠️ No hay monedas. Crea una con /monedas y vuelve.', {
+          await editIfChanged(ctx, withExitHint('⚠️ No hay monedas. Crea una con /monedas y vuelve.'), {
             parse_mode: 'HTML',
             reply_markup: { inline_keyboard: [buildBackExitRow('BACK', 'GLOBAL_CANCEL')] },
           });
@@ -453,7 +456,7 @@ const tarjetaWizard = new Scenes.WizardScene(
         }
         const rows = kb.reply_markup.inline_keyboard;
         rows.push(buildBackExitRow('BACK', 'GLOBAL_CANCEL'));
-        await editIfChanged(ctx, '💱 Elige moneda:', {
+        await editIfChanged(ctx, withExitHint('💱 Elige moneda:'), {
           parse_mode: 'HTML',
           reply_markup: { inline_keyboard: rows },
         });
@@ -461,7 +464,7 @@ const tarjetaWizard = new Scenes.WizardScene(
         return;
       }
       if (data === 'EDIT_NUM') {
-        await editIfChanged(ctx, '🔢 Nuevo número de la tarjeta:', {
+        await editIfChanged(ctx, withExitHint('🔢 Nuevo número de la tarjeta:'), {
           parse_mode: 'HTML',
           reply_markup: { inline_keyboard: [buildBackExitRow('BACK', 'GLOBAL_CANCEL')] },
         });

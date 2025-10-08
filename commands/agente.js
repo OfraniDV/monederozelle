@@ -2,12 +2,12 @@
 const { Scenes, Markup } = require('telegraf');
 const pool = require('../psql/db.js'); // tu Pool de PostgreSQL
 const { escapeHtml } = require('../helpers/format');
-const { renderWizardMenu, clearWizardMenu } = require('../helpers/ui');
+const { renderWizardMenu, clearWizardMenu, withExitHint } = require('../helpers/ui');
 const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { enterAssistMenu } = require('../helpers/assistMenu');
 
 /* Tecla de cancelar / salir para wizards */
-const cancelKb = Markup.inlineKeyboard([[Markup.button.callback('↩️ Cancelar', 'GLOBAL_CANCEL')]]);
+const cancelKb = Markup.inlineKeyboard([[Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]]);
 
 async function fetchAgentsList() {
   const res = await pool.query('SELECT id,nombre,emoji FROM agente ORDER BY nombre');
@@ -40,10 +40,11 @@ function buildAgentsKeyboard(rows = [], { includeExit = false, includeRefresh = 
 
 async function renderAgentWizardMenu(ctx, { pushHistory = true } = {}) {
   const rows = await fetchAgentsList();
-  const text =
+  const text = withExitHint(
     '🧑‍💼 <b>Gestor de agentes</b>\n\n' +
-    buildAgentsText(rows) +
-    '\n\nPulsa un agente para editar o eliminar.';
+      buildAgentsText(rows) +
+      '\n\nPulsa un agente para editar o eliminar.'
+  );
   await renderWizardMenu(ctx, {
     route: 'LIST',
     text,
@@ -174,7 +175,7 @@ const crearAgenteWizard = new Scenes.WizardScene(
   async (ctx) => {
     console.log('[AGENTE_CREATE_WIZ] Paso 0: pedir nombre');
     await ctx.reply(
-      'Nombre del agente:\n(Escribe "salir" o "/cancel" para cancelar)',
+      withExitHint('Nombre del agente:\n(Escribe "salir" o "/cancel" para cancelar)'),
       cancelKb
     );
     return ctx.wizard.next();
@@ -220,7 +221,7 @@ const editarAgenteWizard = new Scenes.WizardScene(
       id: edit.id,
       nombre: edit.nombre,
     };
-    await ctx.reply(`✏️ Nombre del agente (actual: ${edit.nombre}):`, cancelKb);
+    await ctx.reply(withExitHint(`✏️ Nombre del agente (actual: ${edit.nombre}):`), cancelKb);
     return ctx.wizard.next();
   },
   async (ctx) => {
