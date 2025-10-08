@@ -72,7 +72,7 @@ const editarBancoWizard = new Scenes.WizardScene(
   'BANCO_EDIT_WIZ',
   // Paso 0: iniciar edición mostrando actual
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[BANCO_EDIT_WIZ] Paso 0: iniciar edición');
     const edit = ctx.scene.state?.edit;
     if (!edit) {
@@ -91,7 +91,7 @@ const editarBancoWizard = new Scenes.WizardScene(
   },
   // Paso 1: nuevo código
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[BANCO_EDIT_WIZ] Paso 1: recibí nuevo código:', ctx.message?.text);
     const input = (ctx.message?.text || '').trim().toUpperCase();
     if (input) ctx.wizard.state.data.newCodigo = input;
@@ -100,7 +100,7 @@ const editarBancoWizard = new Scenes.WizardScene(
   },
   // Paso 2: nuevo nombre
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[BANCO_EDIT_WIZ] Paso 2: recibí nuevo nombre:', ctx.message?.text);
     const input = (ctx.message?.text || '').trim();
     if (input) ctx.wizard.state.data.newNombre = input;
@@ -109,7 +109,7 @@ const editarBancoWizard = new Scenes.WizardScene(
   },
   // Paso 3: emoji y aplicar actualización
   async (ctx) => {
-    if (await checkExit(ctx)) return;
+    if (await handleGlobalCancel(ctx)) return;
     console.log('[BANCO_EDIT_WIZ] Paso 3: recibí emoji:', ctx.message?.text);
     const emojiInput = (ctx.message?.text || '').trim();
     const state = ctx.wizard.state.data;
