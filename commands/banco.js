@@ -2,9 +2,10 @@
 const { Scenes, Markup } = require('telegraf');
 const pool = require('../psql/db.js'); // asegúrate de que psql/db.js exporte el Pool
 const { handleGlobalCancel } = require('../helpers/wizardCancel');
+const { withExitHint } = require('../helpers/ui');
 
 /* Tecla de cancelar / salir */
-const cancelKb = Markup.inlineKeyboard([[Markup.button.callback('↩️ Cancelar', 'GLOBAL_CANCEL')]]);
+const cancelKb = Markup.inlineKeyboard([[Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]]);
 
 // ---------------------- WIZARD: crear banco ----------------------
 const crearBancoWizard = new Scenes.WizardScene(
@@ -13,7 +14,9 @@ const crearBancoWizard = new Scenes.WizardScene(
   async (ctx) => {
     console.log('[BANCO_CREATE_WIZ] Paso 0: pedir código');
     await ctx.reply(
-      '🏦 Ingresa el código identificador del banco (ej: BANDEC, BPA):\n(Escribe "salir" o "/cancel" para cancelar)',
+      withExitHint(
+        '🏦 Ingresa el código identificador del banco (ej: BANDEC, BPA):\n(Escribe "salir" o "/cancel" para cancelar)'
+      ),
       cancelKb
     );
     return ctx.wizard.next();
@@ -28,7 +31,7 @@ const crearBancoWizard = new Scenes.WizardScene(
       return;
     }
     ctx.wizard.state.data = { codigo };
-    await ctx.reply('📛 Nombre legible del banco (ej: BANDEC Oficial):', cancelKb);
+    await ctx.reply(withExitHint('📛 Nombre legible del banco (ej: BANDEC Oficial):'), cancelKb);
     return ctx.wizard.next();
   },
   // Paso 2: recibir nombre
@@ -41,7 +44,7 @@ const crearBancoWizard = new Scenes.WizardScene(
       return;
     }
     ctx.wizard.state.data.nombre = nombre;
-    await ctx.reply('😀 Emoji representativo del banco (puedes dejarlo vacío):', cancelKb);
+    await ctx.reply(withExitHint('😀 Emoji representativo del banco (puedes dejarlo vacío):'), cancelKb);
     return ctx.wizard.next();
   },
   // Paso 3: recibir emoji y crear
@@ -86,7 +89,7 @@ const editarBancoWizard = new Scenes.WizardScene(
       nombre: edit.nombre,
       emoji: edit.emoji || '',
     };
-    await ctx.reply(`✏️ Código del banco (actual: ${edit.codigo}):`, cancelKb);
+    await ctx.reply(withExitHint(`✏️ Código del banco (actual: ${edit.codigo}):`), cancelKb);
     return ctx.wizard.next();
   },
   // Paso 1: nuevo código
@@ -95,7 +98,10 @@ const editarBancoWizard = new Scenes.WizardScene(
     console.log('[BANCO_EDIT_WIZ] Paso 1: recibí nuevo código:', ctx.message?.text);
     const input = (ctx.message?.text || '').trim().toUpperCase();
     if (input) ctx.wizard.state.data.newCodigo = input;
-    await ctx.reply(`📛 Nombre del banco (actual: ${ctx.wizard.state.data.nombre}):`, cancelKb);
+    await ctx.reply(
+      withExitHint(`📛 Nombre del banco (actual: ${ctx.wizard.state.data.nombre}):`),
+      cancelKb
+    );
     return ctx.wizard.next();
   },
   // Paso 2: nuevo nombre
@@ -104,7 +110,10 @@ const editarBancoWizard = new Scenes.WizardScene(
     console.log('[BANCO_EDIT_WIZ] Paso 2: recibí nuevo nombre:', ctx.message?.text);
     const input = (ctx.message?.text || '').trim();
     if (input) ctx.wizard.state.data.newNombre = input;
-    await ctx.reply(`😀 Emoji del banco (actual: ${ctx.wizard.state.data.emoji || '(ninguno)'}):`, cancelKb);
+    await ctx.reply(
+      withExitHint(`😀 Emoji del banco (actual: ${ctx.wizard.state.data.emoji || '(ninguno)'}):`),
+      cancelKb
+    );
     return ctx.wizard.next();
   },
   // Paso 3: emoji y aplicar actualización
@@ -148,8 +157,11 @@ const registerBanco = (bot, stage) => {
       console.log('[bancos] Filas obtenidas:', rows.length);
       if (!rows.length) {
         await ctx.reply(
-          'No hay bancos registrados aún.',
-          Markup.inlineKeyboard([[Markup.button.callback('➕ Añadir banco', 'BANCO_CREATE')]])
+          withExitHint('No hay bancos registrados aún.'),
+          Markup.inlineKeyboard([
+            [Markup.button.callback('➕ Añadir banco', 'BANCO_CREATE')],
+            [Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')],
+          ])
         );
         return;
       }
@@ -166,8 +178,9 @@ const registerBanco = (bot, stage) => {
         Markup.button.callback('🗑️', `BANCO_DEL_${b.id}`),
       ]);
       keyboard.push([Markup.button.callback('➕ Añadir banco', 'BANCO_CREATE')]);
+      keyboard.push([Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]);
 
-      await ctx.reply(`Bancos:\n${listado}`, Markup.inlineKeyboard(keyboard));
+      await ctx.reply(withExitHint(`Bancos:\n${listado}`), Markup.inlineKeyboard(keyboard));
     } catch (e) {
       console.error('[bancos] Error listando bancos:', e);
       await ctx.reply('❌ Ocurrió un error al listar los bancos.');

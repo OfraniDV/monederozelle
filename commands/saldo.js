@@ -22,17 +22,18 @@ const pool = require('../psql/db.js');
 const moment = require('moment-timezone');
 const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { enterAssistMenu } = require('../helpers/assistMenu');
+const { withExitHint } = require('../helpers/ui');
 
 /* ───────── helpers ───────── */
 const kbBackOrCancel = Markup.inlineKeyboard([
   [Markup.button.callback('🔙 Volver', 'VOLVER_TA')],
-  [Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')]
+  [Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]
 ]);
 
 const kbContinue = Markup.inlineKeyboard([
   [Markup.button.callback('🔄 Otra tarjeta', 'OTRA_TA')],
   [Markup.button.callback('👥 Otros agentes', 'OTROS_AG')],
-  [Markup.button.callback('❌ Finalizar', 'GLOBAL_CANCEL')]
+  [Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]
 ]);
 
 async function showAgentes(ctx) {
@@ -40,7 +41,7 @@ async function showAgentes(ctx) {
     await pool.query('SELECT id,nombre FROM agente ORDER BY nombre')
   ).rows;
   if (!agentes.length) {
-    await ctx.reply('⚠️ No hay agentes registrados.');
+    await ctx.reply(withExitHint('⚠️ No hay agentes registrados.'), kbBackOrCancel);
     return false;
   }
 
@@ -54,10 +55,11 @@ async function showAgentes(ctx) {
     }
     kb.push(row);
   }
-  kb.push([Markup.button.callback('❌ Cancelar', 'GLOBAL_CANCEL')]);
+  kb.push([Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]);
 
-  const txt = `${boldHeader('👥', 'Agentes disponibles')}\nSeleccione uno:`;
-  const extra = { parse_mode: 'HTML', ...Markup.inlineKeyboard(kb) };
+  const txt = withExitHint(`${boldHeader('👥', 'Agentes disponibles')}\nSeleccione uno:`);
+  const inline = Markup.inlineKeyboard(kb);
+  const extra = { parse_mode: 'HTML', reply_markup: inline.reply_markup };
 
   const msgId = ctx.wizard.state.data?.msgId;
   if (msgId) {
@@ -102,8 +104,8 @@ async function showTarjetas(ctx) {
       ctx.chat.id,
       ctx.wizard.state.data.msgId,
       undefined,
-      'Este agente todavía no tiene tarjetas.',
-      { parse_mode: 'HTML' }
+      withExitHint('Este agente todavía no tiene tarjetas.'),
+      { parse_mode: 'HTML', reply_markup: kbBackOrCancel.reply_markup }
     );
     await ctx.scene.leave();
     return false;
@@ -117,9 +119,9 @@ async function showTarjetas(ctx) {
   ]);
   kb.push([
     Markup.button.callback('👥 Agentes', 'OTROS_AG'),
-    Markup.button.callback('🚪 Salir', 'GLOBAL_CANCEL')
+    Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')
   ]);
-  const txt = `💳 <b>Tarjetas de ${escapeHtml(agente_nombre)}</b>`;
+  const txt = withExitHint(`💳 <b>Tarjetas de ${escapeHtml(agente_nombre)}</b>`);
   await ctx.telegram.editMessageText(
     ctx.chat.id,
     ctx.wizard.state.data.msgId,
@@ -132,11 +134,12 @@ async function showTarjetas(ctx) {
 }
 
 async function askSaldo(ctx, tarjeta) {
-  const txt =
+  const txt = withExitHint(
     `✏️ <b>Introduce el saldo actual de tu tarjeta</b>\n\n` +
-    `Tarjeta ${escapeHtml(tarjeta.numero)} (saldo actual: <code>${fmtMoney(tarjeta.saldo)}</code>).\n` +
-    'Por favor coloca el saldo actual de tu tarjeta. No te preocupes, te diré si ha aumentado o disminuido y en cuánto.\n\n' +
-    'Ejemplo: 1500.50';
+      `Tarjeta ${escapeHtml(tarjeta.numero)} (saldo actual: <code>${fmtMoney(tarjeta.saldo)}</code>).\n` +
+      'Por favor coloca el saldo actual de tu tarjeta. No te preocupes, te diré si ha aumentado o disminuido y en cuánto.\n\n' +
+      'Ejemplo: 1500.50'
+  );
   await ctx.telegram.editMessageText(
     ctx.chat.id,
     ctx.wizard.state.data.msgId,
@@ -167,7 +170,7 @@ const saldoWizard = new Scenes.WizardScene(
     console.log('[SALDO_WIZ] paso 1: elegir tarjeta');
     if (await handleGlobalCancel(ctx)) return;
     if (!ctx.callbackQuery?.data.startsWith('AG_')) {
-      return ctx.reply('Usa los botones para seleccionar agente.');
+      return ctx.reply(withExitHint('Usa los botones para seleccionar agente.'), kbBackOrCancel);
     }
     await ctx.answerCbQuery().catch(() => {});
     const agente_id = +ctx.callbackQuery.data.split('_')[1];
@@ -193,7 +196,7 @@ const saldoWizard = new Scenes.WizardScene(
       return;
     }
     if (!data.startsWith('TA_')) {
-      return ctx.reply('Usa los botones para elegir la tarjeta.');
+      return ctx.reply(withExitHint('Usa los botones para elegir la tarjeta.'), kbBackOrCancel);
     }
     await ctx.answerCbQuery().catch(() => {});
     const tarjeta_id = +data.split('_')[1];
@@ -216,11 +219,11 @@ const saldoWizard = new Scenes.WizardScene(
         if (ok) return ctx.wizard.selectStep(2);
         return;
       }
-      return ctx.reply('Usa los botones o escribe el saldo.');
+      return ctx.reply(withExitHint('Usa los botones o escribe el saldo.'), kbBackOrCancel);
     }
     const num = parseFloat((ctx.message?.text || '').replace(',', '.'));
     if (isNaN(num)) {
-      return ctx.reply('Valor inválido, escribe solo el saldo numérico.');
+      return ctx.reply(withExitHint('Valor inválido, escribe solo el saldo numérico.'), kbBackOrCancel);
     }
 
     const { tarjeta } = ctx.wizard.state.data;
@@ -296,14 +299,15 @@ const saldoWizard = new Scenes.WizardScene(
       const emojiDelta = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
       const signo = delta > 0 ? 'Aumentó' : delta < 0 ? 'Disminuyó' : 'Sin cambio';
       const header = `${boldHeader('💰', 'Saldo actualizado')}\n`;
-      const txt =
+      const txt = withExitHint(
         header +
-        `Saldo anterior: <code>${fmtMoney(saldoAnterior)}</code>\n` +
-        `Saldo informado: <code>${fmtMoney(saldoNuevo)}</code>\n` +
-        `${emojiDelta} ${signo} <code>${fmtMoney(Math.abs(delta))}</code> ${escapeHtml(tarjeta.moneda)}\n\n` +
-        '📆 Historial de hoy:\n' +
-        lines.join('\n') +
-        '\n\n¿Deseas actualizar otra tarjeta?';
+          `Saldo anterior: <code>${fmtMoney(saldoAnterior)}</code>\n` +
+          `Saldo informado: <code>${fmtMoney(saldoNuevo)}</code>\n` +
+          `${emojiDelta} ${signo} <code>${fmtMoney(Math.abs(delta))}</code> ${escapeHtml(tarjeta.moneda)}\n\n` +
+          '📆 Historial de hoy:\n' +
+          lines.join('\n') +
+          '\n\n¿Deseas actualizar otra tarjeta?'
+      );
       // ⚙️  DEPURACIÓN: muestra exactamente qué opciones se envían
       console.log('[SALDO_WIZ] sendAndLog extra →', kbContinue);
 
@@ -336,7 +340,7 @@ const saldoWizard = new Scenes.WizardScene(
       }
     } catch (e) {
       console.error('[SALDO_WIZ] error insert movimiento:', e);
-      await ctx.reply('❌ No se pudo registrar el movimiento.');
+      await ctx.reply(withExitHint('❌ No se pudo registrar el movimiento.'), kbBackOrCancel);
       return ctx.scene.leave();
     }
 
@@ -363,7 +367,7 @@ const saldoWizard = new Scenes.WizardScene(
       return;
     }
 
-    return ctx.reply('Usa los botones para continuar.');
+    return ctx.reply(withExitHint('Usa los botones para continuar.'), kbBackOrCancel);
   }
 );
 

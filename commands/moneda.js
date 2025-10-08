@@ -2,9 +2,10 @@
 const { Scenes, Markup } = require('telegraf');
 const pool = require('../psql/db.js'); // tu Pool de PostgreSQL
 const { handleGlobalCancel } = require('../helpers/wizardCancel');
+const { withExitHint } = require('../helpers/ui');
 
 /* Botón cancelar / salir */
-const cancelKb = Markup.inlineKeyboard([[Markup.button.callback('↩️ Cancelar', 'GLOBAL_CANCEL')]]);
+const cancelKb = Markup.inlineKeyboard([[Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]]);
 
 /* ------------------------------------------------------------------ *
  *  WIZARD 1 : CREAR MONEDA                                           *
@@ -14,7 +15,9 @@ const crearMonedaWizard = new Scenes.WizardScene(
   async (ctx) => {
     console.log('[MONEDA_CREATE_WIZ] Paso 0: pedir código');
     await ctx.reply(
-      '🪙 Código de la nueva moneda (ej: USD, CUP, SM):\n(Escribe "salir" o "/cancel" para cancelar)',
+      withExitHint(
+        '🪙 Código de la nueva moneda (ej: USD, CUP, SM):\n(Escribe "salir" o "/cancel" para cancelar)'
+      ),
       cancelKb
     );
     return ctx.wizard.next();
@@ -28,7 +31,7 @@ const crearMonedaWizard = new Scenes.WizardScene(
       return; // se queda en el mismo paso
     }
     ctx.wizard.state.data = { codigo };
-    await ctx.reply('📛 Nombre descriptivo (ej: Dólar estadounidense):', cancelKb);
+    await ctx.reply(withExitHint('📛 Nombre descriptivo (ej: Dólar estadounidense):'), cancelKb);
     return ctx.wizard.next();
   },
   async (ctx) => {
@@ -41,7 +44,7 @@ const crearMonedaWizard = new Scenes.WizardScene(
     }
     ctx.wizard.state.data.nombre = nombre;
     await ctx.reply(
-      '💱 ¿Cuántas unidades equivalen a 1 USD? (ej: 420 para CUP, 1 para USD)',
+      withExitHint('💱 ¿Cuántas unidades equivalen a 1 USD? (ej: 420 para CUP, 1 para USD)'),
       cancelKb
     );
     return ctx.wizard.next();
@@ -55,7 +58,7 @@ const crearMonedaWizard = new Scenes.WizardScene(
       return;
     }
     ctx.wizard.state.data.tasa_usd = 1 / num; // guardamos “1 unidad en USD”
-    await ctx.reply('😀 Emoji representativo (opcional, envía vacío si no):', cancelKb);
+    await ctx.reply(withExitHint('😀 Emoji representativo (opcional, envía vacío si no):'), cancelKb);
     return ctx.wizard.next();
   },
   async (ctx) => {
@@ -88,7 +91,7 @@ const editarMonedaWizard = new Scenes.WizardScene(
     const m = ctx.scene.state.edit;
     if (!m) return ctx.scene.leave();
     ctx.wizard.state.data = { ...m }; // id, codigo, nombre, tasa_usd, emoji
-    await ctx.reply(`✏️ Código (actual: ${m.codigo}):`, cancelKb);
+    await ctx.reply(withExitHint(`✏️ Código (actual: ${m.codigo}):`), cancelKb);
     return ctx.wizard.next();
   },
   async (ctx) => {
@@ -96,7 +99,7 @@ const editarMonedaWizard = new Scenes.WizardScene(
     console.log('[MONEDA_EDIT_WIZ] Paso 1: posible código nuevo:', ctx.message?.text);
     const codigo = (ctx.message?.text || '').trim().toUpperCase();
     if (codigo) ctx.wizard.state.data.codigo = codigo;
-    await ctx.reply(`📛 Nombre (actual: ${ctx.wizard.state.data.nombre}):`, cancelKb);
+    await ctx.reply(withExitHint(`📛 Nombre (actual: ${ctx.wizard.state.data.nombre}):`), cancelKb);
     return ctx.wizard.next();
   },
   async (ctx) => {
@@ -106,7 +109,7 @@ const editarMonedaWizard = new Scenes.WizardScene(
     if (nombre) ctx.wizard.state.data.nombre = nombre;
     const unidades = (1 / ctx.wizard.state.data.tasa_usd).toFixed(2);
     await ctx.reply(
-      `💱 Unidades que equivalen a 1 USD (actual: ${unidades}):`,
+      withExitHint(`💱 Unidades que equivalen a 1 USD (actual: ${unidades}):`),
       cancelKb
     );
     return ctx.wizard.next();
@@ -117,7 +120,7 @@ const editarMonedaWizard = new Scenes.WizardScene(
     const num = parseFloat((ctx.message?.text || '').replace(',', '.'));
     if (!isNaN(num) && num > 0) ctx.wizard.state.data.tasa_usd = 1 / num;
     await ctx.reply(
-      `😀 Emoji (actual: ${ctx.wizard.state.data.emoji || '(ninguno)'}):`,
+      withExitHint(`😀 Emoji (actual: ${ctx.wizard.state.data.emoji || '(ninguno)'}):`),
       cancelKb
     );
     return ctx.wizard.next();
@@ -155,8 +158,11 @@ const registerMoneda = (bot, stage) => {
 
     if (!rows.length) {
       return ctx.reply(
-        'No hay monedas aún.',
-        Markup.inlineKeyboard([[Markup.button.callback('➕ Añadir moneda', 'MONEDA_CREATE')]])
+        withExitHint('No hay monedas aún.'),
+        Markup.inlineKeyboard([
+          [Markup.button.callback('➕ Añadir moneda', 'MONEDA_CREATE')],
+          [Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')],
+        ])
       );
     }
 
@@ -169,8 +175,9 @@ const registerMoneda = (bot, stage) => {
       Markup.button.callback('🗑️', `MONEDA_DEL_${r.id}`)
     ]);
     kb.push([Markup.button.callback('➕ Añadir moneda', 'MONEDA_CREATE')]);
+    kb.push([Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]);
 
-    await ctx.reply(`Monedas:\n${listado}`, Markup.inlineKeyboard(kb));
+    await ctx.reply(withExitHint(`Monedas:\n${listado}`), Markup.inlineKeyboard(kb));
   });
 
   bot.action('MONEDA_CREATE', (ctx) => {

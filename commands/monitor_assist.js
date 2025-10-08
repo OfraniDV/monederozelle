@@ -31,6 +31,7 @@ const {
   renderWizardMenu,
   goBackMenu,
   clearWizardMenu,
+  withExitHint,
 } = require('../helpers/ui');
 const pool = require('../psql/db.js');
 const { runMonitor } = require('./monitor');
@@ -39,14 +40,15 @@ const { enterAssistMenu } = require('../helpers/assistMenu');
 
 async function showMain(ctx, opts = {}) {
   const f = ctx.wizard.state.filters;
-  const text =
+  const text = withExitHint(
     `${boldHeader('📈', 'Monitor')}\n` +
-    `Periodo: <b>${escapeHtml(f.fecha || f.mes || f.period)}</b>\n` +
-    `Moneda: <b>${escapeHtml(f.monedaNombre || 'Todas')}</b>\n` +
-    `Agente: <b>${escapeHtml(f.agenteNombre || 'Todos')}</b>\n` +
-    `Banco: <b>${escapeHtml(f.bancoNombre || 'Todos')}</b>\n` +
-    `Equivalencia: <b>${escapeHtml(f.equiv === 'cup' ? 'CUP' : '—')}</b>\n\n` +
-    'Selecciona un filtro o ejecuta el reporte:';
+      `Periodo: <b>${escapeHtml(f.fecha || f.mes || f.period)}</b>\n` +
+      `Moneda: <b>${escapeHtml(f.monedaNombre || 'Todas')}</b>\n` +
+      `Agente: <b>${escapeHtml(f.agenteNombre || 'Todos')}</b>\n` +
+      `Banco: <b>${escapeHtml(f.bancoNombre || 'Todos')}</b>\n` +
+      `Equivalencia: <b>${escapeHtml(f.equiv === 'cup' ? 'CUP' : '—')}</b>\n\n` +
+      'Selecciona un filtro o ejecuta el reporte:'
+  );
   const buttons = [
     Markup.button.callback('📆 Periodo', 'PERIOD'),
     Markup.button.callback('💱 Moneda', 'CURR'),
@@ -81,7 +83,7 @@ async function showPeriodMenu(ctx, opts = {}) {
   ];
   const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
-  const text = 'Selecciona el periodo:';
+  const text = withExitHint('Selecciona el periodo:');
   await renderWizardMenu(ctx, {
     route: 'PERIOD',
     text,
@@ -106,7 +108,7 @@ async function showDayMenu(ctx, opts = {}) {
   kb.push(buildBackExitRow());
   await renderWizardMenu(ctx, {
     route: 'DAY',
-    text: 'Selecciona el día:',
+    text: withExitHint('Selecciona el día:'),
     extra: { reply_markup: { inline_keyboard: kb } },
     pushHistory: opts.pushHistory ?? true,
   });
@@ -126,7 +128,7 @@ async function showMonthMenu(ctx, opts = {}) {
   kb.push(buildBackExitRow());
   await renderWizardMenu(ctx, {
     route: 'MONTH',
-    text: 'Selecciona el mes:',
+    text: withExitHint('Selecciona el mes:'),
     extra: { reply_markup: { inline_keyboard: kb } },
     pushHistory: opts.pushHistory ?? true,
   });
@@ -147,7 +149,7 @@ async function showAgentMenu(ctx, opts = {}) {
   ];
   const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
-  const text = 'Selecciona el agente:';
+  const text = withExitHint('Selecciona el agente:');
   await renderWizardMenu(ctx, {
     route: 'AGENT',
     text,
@@ -172,7 +174,7 @@ async function showBankMenu(ctx, opts = {}) {
   ];
   const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
-  const text = 'Selecciona el banco:';
+  const text = withExitHint('Selecciona el banco:');
   await renderWizardMenu(ctx, {
     route: 'BANK',
     text,
@@ -197,7 +199,7 @@ async function showCurrMenu(ctx, opts = {}) {
   ];
   const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
-  const text = 'Selecciona la moneda:';
+  const text = withExitHint('Selecciona la moneda:');
   await renderWizardMenu(ctx, {
     route: 'CURR',
     text,
@@ -268,7 +270,7 @@ const monitorAssist = new Scenes.WizardScene(
           if (f.equiv === 'cup') cmd += ' --equiv=cup';
           await renderWizardMenu(ctx, {
             route: 'LOADING',
-            text: 'Generando reporte...',
+            text: withExitHint('Generando reporte...'),
             pushHistory: false,
           });
           const msgs = await runMonitor(ctx, cmd);

@@ -4,11 +4,11 @@
 Registra un conjunto de escenas para gestionar agentes (titulares) de tarjetas: listar existentes, crear nuevos, editar datos y eliminar registros junto con sus tarjetas asociadas cuando procede.【F:commands/agente.js†L1-L166】
 
 ## Flujo principal
-1. El comando `/agentes` consulta la tabla `agente`, muestra la lista con botones de edición/eliminación y ofrece la opción de añadir uno nuevo.【F:commands/agente.js†L94-L123】
+1. El comando `/agentes` consulta la tabla `agente`, muestra la lista con botones de edición/eliminación, incorpora `❌ Salir` fijo y recuerda que basta escribir “salir” para cerrar.【F:commands/agente.js†L100-L130】
 2. El wizard `AGENTE_CREATE_WIZ` solicita nombre y crea el agente mediante `INSERT ... ON CONFLICT DO NOTHING`, confirmando al usuario el resultado.【F:commands/agente.js†L34-L78】
 3. El wizard `AGENTE_EDIT_WIZ` carga el agente seleccionado, permite modificar nombre y guarda los cambios gestionando colisiones por unicidad.【F:commands/agente.js†L80-L136】
 4. Al eliminar se verifican dependencias (tarjetas y movimientos) para advertir al operador y, tras confirmación, se borran tarjetas relacionadas dentro de una transacción.【F:commands/agente.js†L138-L170】
-5. Cualquier mensaje con `/cancel`, `salir` o botón `↩️ Cancelar` abandona la escena actual y notifica la cancelación.【F:commands/agente.js†L6-L32】【F:commands/agente.js†L170-L188】
+5. Todas las pantallas muestran el botón `❌ Salir` y agregan el texto “Puedes pulsar «Salir» o escribir "salir" en cualquier momento”, aplicable también a `/cancel` o `/salir`.【F:commands/agente.js†L10-L76】【F:commands/agente.js†L100-L160】
 
 ## Entradas relevantes
 - Textos enviados por el operador durante los wizards (`nombre` actualizado) y callbacks inline para editar o eliminar un agente específico.【F:commands/agente.js†L34-L170】

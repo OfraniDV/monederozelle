@@ -1,5 +1,5 @@
 const { Markup } = require('telegraf');
-const { arrangeInlineButtons } = require('./ui');
+const { arrangeInlineButtons, withExitHint } = require('./ui');
 const { ownerIds } = require('../config');
 
 const MENU_ITEMS = [
@@ -33,14 +33,14 @@ function buildMenuKeyboard(ctx, { includeExit = true, extraItems = [] } = {}) {
   );
   const rows = arrangeInlineButtons(buttons);
   if (includeExit) {
-    rows.push([Markup.button.callback('❌ Cerrar', 'GLOBAL_CANCEL')]);
+    rows.push([Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]);
   }
   return Markup.inlineKeyboard(rows);
 }
 
 async function sendAssistMenu(ctx, { text = 'Elige un asistente para continuar:', includeExit = true, extraItems = [] } = {}) {
   const keyboard = buildMenuKeyboard(ctx, { includeExit, extraItems });
-  return ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard.reply_markup });
+  return ctx.reply(withExitHint(text), { parse_mode: 'HTML', reply_markup: keyboard.reply_markup });
 }
 
 async function enterAssistMenu(ctx, opts = {}) {

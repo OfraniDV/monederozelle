@@ -32,6 +32,7 @@ const {
   buildSaveExitRow,
   buildSaveBackExitKeyboard,
   sendReportWithKb,
+  withExitHint,
 } = require('../helpers/ui');
 const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { enterAssistMenu } = require('../helpers/assistMenu');
@@ -159,7 +160,7 @@ async function showMenu(ctx) {
     Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL'),
   ];
   const kb = Markup.inlineKeyboard(buttons.map((b) => [b]));
-  const text = '💳 <b>Tarjetas</b>\nElige la vista deseada:';
+  const text = withExitHint('💳 <b>Tarjetas</b>\nElige la vista deseada:');
   await editIfChanged(ctx, text, { parse_mode: 'HTML', reply_markup: kb.reply_markup });
   ctx.wizard.state.route = { view: 'MENU' };
 }
@@ -176,7 +177,7 @@ async function showAgentList(ctx) {
   );
   const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
-  const text = '👤 <b>Agentes</b>\nSelecciona un agente:';
+  const text = withExitHint('👤 <b>Agentes</b>\nSelecciona un agente:');
   await editIfChanged(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: kb },
@@ -226,7 +227,7 @@ async function showMonList(ctx) {
   );
   const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
-  const text = '💱 <b>Monedas</b>\nSelecciona una moneda:';
+  const text = withExitHint('💱 <b>Monedas</b>\nSelecciona una moneda:');
   await editIfChanged(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: kb },
@@ -247,9 +248,9 @@ async function showBankList(ctx, monCode) {
   );
   const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
-  const text = `${mon.emoji} <b>${escapeHtml(
+  const text = withExitHint(`${mon.emoji} <b>${escapeHtml(
     mon.code
-  )}</b>\nSelecciona banco:`;
+  )}</b>\nSelecciona banco:`);
   await editIfChanged(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: kb },
@@ -373,7 +374,7 @@ async function showSummary(ctx) {
   ];
   const kb = arrangeInlineButtons(buttons);
   kb.push(buildBackExitRow());
-  await editIfChanged(ctx, resumen, {
+  await editIfChanged(ctx, withExitHint(resumen), {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: kb },
   });
@@ -393,7 +394,7 @@ const tarjetasAssist = new Scenes.WizardScene(
       Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL'),
     ];
     const kb = Markup.inlineKeyboard(buttons.map((b) => [b]));
-    const text = `${boldHeader('💳', 'Tarjetas')}\nElige la vista deseada:`;
+    const text = withExitHint(`${boldHeader('💳', 'Tarjetas')}\nElige la vista deseada:`);
     const msg = await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb.reply_markup });
     ctx.wizard.state.msgId = msg.message_id;
     ctx.wizard.state.lastRender = { text, reply_markup: kb.reply_markup };

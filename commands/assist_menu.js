@@ -1,11 +1,12 @@
 const { Scenes } = require('telegraf');
 const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { buildMenuKeyboard, getMenuItems } = require('../helpers/assistMenu');
+const { withExitHint } = require('../helpers/ui');
 
 const assistMenu = new Scenes.WizardScene(
   'ASSISTANT_MENU',
   async (ctx) => {
-    const msg = await ctx.reply('Selecciona un asistente para continuar:', {
+    const msg = await ctx.reply(withExitHint('Selecciona un asistente para continuar:'), {
       parse_mode: 'HTML',
       reply_markup: buildMenuKeyboard(ctx).reply_markup,
     });
