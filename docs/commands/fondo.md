@@ -16,6 +16,7 @@ El comando ejecuta el asesor financiero avanzado definido en `middlewares/fondoA
 
 ## Salidas
 - Bloques con métricas de activos, deudas, urgencia y plan de acción en texto HTML, enviados mediante `sendLargeMessage` o la función `opts.send` cuando se invoca desde otros asistentes.【F:middlewares/fondoAdvisor.js†L1183-L1258】
+- La métrica `netoCup` descuenta automáticamente el colchón objetivo configurado para mostrar únicamente el efectivo disponible tras reservar esa cobertura.【F:middlewares/fondoAdvisor.js†L1238-L1245】
 
 ## Dependencias
 - Middleware `runFondo` es reusado por asistentes de tarjetas, monitor y extracto al abandonar sus escenas para mantener actualizado el diagnóstico financiero.【F:middlewares/fondoAdvisor.js†L1274-L1321】

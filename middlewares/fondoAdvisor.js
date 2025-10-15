@@ -1235,8 +1235,14 @@ async function runFondo(ctx, opts = {}) {
     });
     console.log(`[fondoAdvisor] Urgencia calculada => ${urgency}`);
 
+    const netoCupDisponible = Math.round((totals.netoCup || 0) - (needs.cushionTarget || 0));
+    console.log(
+      `[fondoAdvisor] Neto tras colchón => ${netoCupDisponible} (colchón=${needs.cushionTarget})`
+    );
+
     const result = {
       ...totals,
+      netoCup: netoCupDisponible,
       ...needs,
       plan,
       projection,
