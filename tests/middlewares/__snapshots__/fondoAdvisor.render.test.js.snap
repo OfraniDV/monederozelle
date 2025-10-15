@@ -28,9 +28,9 @@ exports[`renderAdvice snapshots caso base con tasa 325 1`] = `
 
 
 💸 <b>Venta requerida (Zelle)</b>
-👉 Objetivo: vender 200 USD a 450 ⇒ +90,000 CUP (≈ 276.92 USD)
-👉 Vende ahora: 150 USD ⇒ +67,500 CUP (≈ 207.69 USD)
-• Faltante tras venta: 22,500 CUP (≈ 69.23 USD)
+👉 Objetivo: vender 200 USD a 450 ⇒ +90,000 CUP (≈ 200.00 USD)
+👉 Vende ahora: 150 USD ⇒ +67,500 CUP (≈ 150.00 USD)
+• Faltante tras venta: 22,500 CUP (≈ 70.00 USD)
 
 
 
@@ -119,9 +119,9 @@ exports[`renderAdvice snapshots caso con escenarios y leftover destacados 1`] = 
 
 
 💸 <b>Venta requerida (Zelle)</b>
-👉 Objetivo: vender 250 USD a 450 ⇒ +112,500 CUP (≈ 346.15 USD)
-👉 Vende ahora: 180 USD ⇒ +81,000 CUP (≈ 249.23 USD)
-• Faltante tras venta: 31,500 CUP (≈ 96.92 USD)
+👉 Objetivo: vender 250 USD a 450 ⇒ +112,500 CUP (≈ 250.00 USD)
+👉 Vende ahora: 180 USD ⇒ +81,000 CUP (≈ 180.00 USD)
+• Faltante tras venta: 31,500 CUP (≈ 97.00 USD)
 
 
 
