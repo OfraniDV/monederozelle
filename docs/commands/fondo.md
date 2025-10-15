@@ -16,6 +16,7 @@ El comando ejecuta el asesor financiero avanzado definido en `middlewares/fondoA
 
 ## Salidas
 - Bloques con métricas de activos, deudas, urgencia y plan de acción en texto HTML, enviados mediante `sendLargeMessage` o la función `opts.send` cuando se invoca desde otros asistentes.【F:middlewares/fondoAdvisor.js†L1183-L1258】
+- El bloque de venta anota los equivalentes en USD con la tasa neta de venta (`sellNet`) y, cuando no hay tasa de compra válida, omite esos aproximados para mantener la coherencia con la nota informativa final.【F:middlewares/fondoAdvisor.js†L918-L932】
 - La métrica `netoCup` descuenta automáticamente el colchón objetivo configurado para mostrar únicamente el efectivo disponible tras reservar esa cobertura.【F:middlewares/fondoAdvisor.js†L1238-L1245】
 
 ## Dependencias

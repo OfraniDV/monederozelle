@@ -1,0 +1,266 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`renderAdvice snapshots caso base con tasa 325 1`] = `
+"🧮 <b>Asesor de Fondo</b>
+
+🟠 PRIORITARIO
+
+━━━━━━━━━━━━━━━━━━
+
+📊 <b>Estado actual</b>
+• Activos: 250,000 CUP (≈ 769.23 USD)
+• Deudas: -80,000 CUP (≈ -246.15 USD)
+• Colchón actual: 90,000 CUP (≈ 276.92 USD)
+• Neto: 170,000 CUP (≈ 523.08 USD)
+
+ℹ️ <b>Indicadores</b>
+• Deuda/Activos: 32.0%
+• Avance colchón: 75% ▓▓▓▓▓▓▓▓░░
+• Meses cubiertos (colchón / gasto mensual): 1.00
+
+🎯 <b>Objetivo</b>
+• Colchón objetivo: 120,000 CUP (≈ 369.23 USD)
+• Necesidad adicional: 30,000 CUP (≈ 92.31 USD)
+
+💵 <b>Inventario USD/Zelle</b>
+• Total: 260 USD
+• Disponible ahora: 210 USD
+
+
+💸 <b>Venta requerida (Zelle)</b>
+👉 Objetivo: vender 200 USD a 450 ⇒ +90,000 CUP (≈ 200.00 USD)
+👉 Vende ahora: 150 USD ⇒ +67,500 CUP (≈ 150.00 USD)
+• Faltante tras venta: 22,500 CUP (≈ 70.00 USD)
+
+
+
+💠 <b>Compra sugerida (USD)</b>
+• Exceso sobre colchón/deudas: 50,000 CUP (≈ 153.85 USD)
+👇 Objetivo: comprar 153 USD a 325 ⇒ −49,725 CUP (≈ 153.00 USD)
+👇 Compra ahora: 153 USD ⇒ −49,725 CUP (≈ 153.00 USD)
+
+
+────────────────────────────────
+
+🚦 <b>Límite mensual por tarjeta</b>
+
+ℹ️ Límite mensual: Estándar 120,000 CUP (≈ 369.23 USD) • BPA 150,000 CUP (≈ 461.54 USD) (ampliable)
+
+<pre>Banco  Tarjeta      SAL    SALDO    LIBRE      CAP Estado ≈USD(LIBRE)
+─────────────────────────────────────────────────────────────────────
+BANDEC #1111    30,000   10,000   90,000   80,000 🟢      277
+BPA    #2222    40,000    5,000  110,000  105,000 🟡 ampliable      338
+METRO  #3333    20,000        0  100,000  100,000 🟢      308
+─────────────────────────────────────────────────────────────────────
+TOTAL  —        90,000   15,000  300,000  285,000      923
+≈USD totales: SAL 276.92 • SALDO 46.15 • LIBRE 923.08 • CAP 876.92</pre>
+
+📍 <b>Sugerencia de destino</b>
+
+<pre>Venta AHORA: 67,500 CUP (≈ 207.69 USD)
+  Banco  Tarjeta   ↦ CUP cap antes→desp    Estado
+  ───────────────────────────────────────────────
+  BANDEC #1111   40,000   60,000→  20,000 🟢
+  BPA    #2222   20,000   50,000→  30,000 🟡
+  ⚠️ CUP sin destino: 5,000 CUP (≈ 15.38 USD)
+Objetivo total: 90,000 CUP (≈ 276.92 USD)
+  Banco  Tarjeta   ↦ CUP cap antes→desp    Estado
+  ───────────────────────────────────────────────
+  BANDEC #1111   50,000   60,000→  10,000 🟢
+  BPA    #2222   30,000   60,000→  30,000 🟡
+  MITRANSFER #4444   10,000   20,000→  10,000 🟢 🧳 fallback
+  ⚠️ CUP sin destino: 10,000 CUP (≈ 30.77 USD)
+
+  • Nota: BOLSA usada como 2º plano. Entre bolsas: -1 CUP; Bolsa→Banco: neto ≈ asignado × 0.95</pre>
+
+────────────────────────────────
+
+🧾 <b>Proyección post-venta</b>
+• Negativos: -5,000 CUP (≈ -15.38 USD)
+• Colchón proyectado: 110,000 CUP (≈ 338.46 USD) &lt; 120,000 CUP (≈ 369.23 USD)
+
+🏦 <b>Liquidez rápida disponible</b>
+• BANDEC: 50,000 CUP (≈ 153.85 USD)
+• BPA: 30,000 CUP (≈ 92.31 USD)
+• METRO: 20,000 CUP (≈ 61.54 USD)
+
+📐 <b>Explicación</b>
+• Fórmula: necesidad = |deudas| + colchón − activos = 80,000 + 120,000 − 250,000 = 30,000 CUP
+• Objetivo USD = ceil(necesidad / sellNet) (+ márgenes y redondeo)
+• sellNet = floor(SELL × (1 − fee)) ⇒ SELL: 450 (fuente DB)  fee: 2.00%
+• Conversión: USD ≈ CUP / 325.00 (fuente DB)"
+`;
+
+exports[`renderAdvice snapshots caso con escenarios y leftover destacados 1`] = `
+"🧮 <b>Asesor de Fondo</b>
+
+🟠 PRIORITARIO
+
+━━━━━━━━━━━━━━━━━━
+
+📊 <b>Estado actual</b>
+• Activos: 250,000 CUP (≈ 769.23 USD)
+• Deudas: -80,000 CUP (≈ -246.15 USD)
+• Colchón actual: 90,000 CUP (≈ 276.92 USD)
+• Neto: 170,000 CUP (≈ 523.08 USD)
+
+ℹ️ <b>Indicadores</b>
+• Deuda/Activos: 32.0%
+• Avance colchón: 75% ▓▓▓▓▓▓▓▓░░
+• Meses cubiertos (colchón / gasto mensual): 1.00
+
+🎯 <b>Objetivo</b>
+• Colchón objetivo: 120,000 CUP (≈ 369.23 USD)
+• Necesidad adicional: 30,000 CUP (≈ 92.31 USD)
+
+💵 <b>Inventario USD/Zelle</b>
+• Total: 260 USD
+• Disponible ahora: 210 USD
+
+
+💸 <b>Venta requerida (Zelle)</b>
+👉 Objetivo: vender 250 USD a 450 ⇒ +112,500 CUP (≈ 250.00 USD)
+👉 Vende ahora: 180 USD ⇒ +81,000 CUP (≈ 180.00 USD)
+• Faltante tras venta: 31,500 CUP (≈ 97.00 USD)
+
+
+
+💠 <b>Compra sugerida (USD)</b>
+• Exceso sobre colchón/deudas: 50,000 CUP (≈ 153.85 USD)
+👇 Objetivo: comprar 153 USD a 325 ⇒ −49,725 CUP (≈ 153.00 USD)
+👇 Compra ahora: 153 USD ⇒ −49,725 CUP (≈ 153.00 USD)
+
+
+────────────────────────────────
+
+🚦 <b>Límite mensual por tarjeta</b>
+
+ℹ️ Límite mensual: Estándar 120,000 CUP (≈ 369.23 USD) • BPA 150,000 CUP (≈ 461.54 USD) (ampliable)
+
+<pre>Banco  Tarjeta      SAL    SALDO    LIBRE      CAP Estado ≈USD(LIBRE)
+─────────────────────────────────────────────────────────────────────
+BANDEC #1111    30,000   10,000   90,000   80,000 🟢      277
+BPA    #2222    40,000    5,000  110,000  105,000 🟡 ampliable      338
+METRO  #3333    20,000        0  100,000  100,000 🟢      308
+─────────────────────────────────────────────────────────────────────
+TOTAL  —        90,000   15,000  300,000  285,000      923
+≈USD totales: SAL 276.92 • SALDO 46.15 • LIBRE 923.08 • CAP 876.92</pre>
+
+📍 <b>Sugerencia de destino</b>
+
+<pre>Venta AHORA: 81,000 CUP (≈ 249.23 USD)
+  Banco  Tarjeta   ↦ CUP cap antes→desp    Estado
+  ───────────────────────────────────────────────
+  BANDEC #1111   50,000   60,000→  10,000 🟢
+  ⚠️ CUP sin destino: 30,000 CUP (≈ 92.31 USD)
+Objetivo total: 112,500 CUP (≈ 346.15 USD)
+  Banco  Tarjeta   ↦ CUP cap antes→desp    Estado
+  ───────────────────────────────────────────────
+  BANDEC #1111   50,000   60,000→  10,000 🟢
+  BPA    #2222   30,000   60,000→  30,000 🟡
+  MITRANSFER #4444   10,000   20,000→  10,000 🟢 🧳 fallback
+  ⚠️ CUP sin destino: 10,000 CUP (≈ 30.77 USD)
+
+  • Nota: BOLSA usada como 2º plano. Entre bolsas: -1 CUP; Bolsa→Banco: neto ≈ asignado × 0.95</pre>
+
+────────────────────────────────
+
+🧾 <b>Proyección post-venta</b>
+• Negativos: -5,000 CUP (≈ -15.38 USD)
+• Colchón proyectado: 110,000 CUP (≈ 338.46 USD) &lt; 120,000 CUP (≈ 369.23 USD)
+
+🏦 <b>Liquidez rápida disponible</b>
+• BANDEC: 50,000 CUP (≈ 153.85 USD)
+• BPA: 30,000 CUP (≈ 92.31 USD)
+• METRO: 20,000 CUP (≈ 61.54 USD)
+
+📐 <b>Explicación</b>
+• Fórmula: necesidad = |deudas| + colchón − activos = 80,000 + 120,000 − 250,000 = 30,000 CUP
+• Objetivo USD = ceil(necesidad / sellNet) (+ márgenes y redondeo)
+• sellNet = floor(SELL × (1 − fee)) ⇒ SELL: 450 (fuente DB)  fee: 2.00%
+• Conversión: USD ≈ CUP / 325.00 (fuente DB)"
+`;
+
+exports[`renderAdvice snapshots caso sin tasa de compra 1`] = `
+"🧮 <b>Asesor de Fondo</b>
+
+🟠 PRIORITARIO
+
+━━━━━━━━━━━━━━━━━━
+
+📊 <b>Estado actual</b>
+• Activos: 250,000 CUP
+• Deudas: -80,000 CUP
+• Colchón actual: 90,000 CUP
+• Neto: 170,000 CUP
+
+ℹ️ <b>Indicadores</b>
+• Deuda/Activos: 32.0%
+• Avance colchón: 75% ▓▓▓▓▓▓▓▓░░
+• Meses cubiertos (colchón / gasto mensual): 1.00
+
+🎯 <b>Objetivo</b>
+• Colchón objetivo: 120,000 CUP
+• Necesidad adicional: 30,000 CUP
+
+💵 <b>Inventario USD/Zelle</b>
+• Total: 260 USD
+• Disponible ahora: 210 USD
+
+
+💸 <b>Venta requerida (Zelle)</b>
+👉 Objetivo: vender 200 USD a 450 ⇒ +90,000 CUP
+👉 Vende ahora: 150 USD ⇒ +67,500 CUP
+• Faltante tras venta: 22,500 CUP
+
+
+────────────────────────────────
+
+🚦 <b>Límite mensual por tarjeta</b>
+
+ℹ️ Límite mensual: Estándar 120,000 CUP • BPA 150,000 CUP (ampliable)
+
+<pre>Banco  Tarjeta      SAL    SALDO    LIBRE      CAP Estado
+─────────────────────────────────────────────────────────
+BANDEC #1111    30,000   10,000   90,000   80,000 🟢
+BPA    #2222    40,000    5,000  110,000  105,000 🟡 ampliable
+METRO  #3333    20,000        0  100,000  100,000 🟢
+─────────────────────────────────────────────────────────
+TOTAL  —        90,000   15,000  300,000  285,000</pre>
+
+📍 <b>Sugerencia de destino</b>
+
+<pre>Venta AHORA: 67,500 CUP
+  Banco  Tarjeta   ↦ CUP cap antes→desp    Estado
+  ───────────────────────────────────────────────
+  BANDEC #1111   40,000   60,000→  20,000 🟢
+  BPA    #2222   20,000   50,000→  30,000 🟡
+  ⚠️ CUP sin destino: 5,000 CUP
+Objetivo total: 90,000 CUP
+  Banco  Tarjeta   ↦ CUP cap antes→desp    Estado
+  ───────────────────────────────────────────────
+  BANDEC #1111   50,000   60,000→  10,000 🟢
+  BPA    #2222   30,000   60,000→  30,000 🟡
+  MITRANSFER #4444   10,000   20,000→  10,000 🟢 🧳 fallback
+  ⚠️ CUP sin destino: 10,000 CUP
+
+  • Nota: BOLSA usada como 2º plano. Entre bolsas: -1 CUP; Bolsa→Banco: neto ≈ asignado × 0.95</pre>
+
+────────────────────────────────
+
+🧾 <b>Proyección post-venta</b>
+• Negativos: -5,000 CUP
+• Colchón proyectado: 110,000 CUP &lt; 120,000 CUP
+
+🏦 <b>Liquidez rápida disponible</b>
+• BANDEC: 50,000 CUP
+• BPA: 30,000 CUP
+• METRO: 20,000 CUP
+
+📐 <b>Explicación</b>
+• Fórmula: necesidad = |deudas| + colchón − activos = 80,000 + 120,000 − 250,000 = 30,000 CUP
+• Objetivo USD = ceil(necesidad / sellNet) (+ márgenes y redondeo)
+• sellNet = floor(SELL × (1 − fee)) ⇒ SELL: 450 (fuente DB)  fee: 2.00%
+
+ℹ️ No se mostró equivalente en USD porque no hay tasa de compra configurada."
+`;

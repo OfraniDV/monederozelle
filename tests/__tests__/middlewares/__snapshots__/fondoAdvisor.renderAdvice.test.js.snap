@@ -7,15 +7,19 @@ exports[`renderAdvice output formatting snapshot completo mantiene formato HTML 
 
 ━━━━━━━━━━━━━━━━━━
 
-📊 <b>Estado actual CUP</b>
+📊 <b>Estado actual</b>
 • Activos: 412,779 CUP (≈ 1,031.95 USD)
-• Deudas: -275,000 CUP
+• Deudas: -275,000 CUP (≈ -687.50 USD)
+• Colchón actual: 137,779 CUP (≈ 344.45 USD)
 • Neto: 137,779 CUP (≈ 344.45 USD)
-• Libre tras deudas: 137,779 CUP
+
+ℹ️ <b>Indicadores</b>
+• Deuda/Activos: 66.6%
+• Avance colchón: 77% ▓▓▓▓▓▓▓▓░░
 
 🎯 <b>Objetivo</b>
-• Colchón objetivo: 180,000 CUP
-• Necesidad adicional: 42,221 CUP
+• Colchón objetivo: 180,000 CUP (≈ 450.00 USD)
+• Necesidad adicional: 42,221 CUP (≈ 105.55 USD)
 
 💵 <b>Inventario USD/Zelle</b>
 • Total: 180 USD
@@ -23,32 +27,32 @@ exports[`renderAdvice output formatting snapshot completo mantiene formato HTML 
 
 
 💸 <b>Venta requerida (Zelle)</b>
-👉 Objetivo: vender 94 USD a 452 ⇒ +42,488 CUP
-👉 Vende ahora: 80 USD ⇒ +36,160 CUP
-• Faltante tras venta: 6,061 CUP (≈ 14 USD)
+👉 Objetivo: vender 94 USD a 452 ⇒ +42,488 CUP (≈ 94.00 USD)
+👉 Vende ahora: 80 USD ⇒ +36,160 CUP (≈ 80.00 USD)
+• Faltante tras venta: 6,061 CUP (≈ 14.00 USD)
 
 
 ────────────────────────────────
 
 🚦 <b>Límite mensual por tarjeta</b>
 
-ℹ️ Límite mensual: Estándar 120,000 CUP • BPA 120,000 CUP (ampliable)
+ℹ️ Límite mensual: Estándar 120,000 CUP (≈ 300.00 USD) • BPA 120,000 CUP (≈ 300.00 USD) (ampliable)
 
 <pre>—</pre>
 
-📍 <b>Sugerencia de destino del CUP</b>
+📍 <b>Sugerencia de destino</b>
 
-<pre>Venta AHORA: 36,160 CUP
+<pre>Venta AHORA: 36,160 CUP (≈ 90.40 USD)
   Sin capacidad disponible
-Objetivo total: 42,488 CUP
+Objetivo total: 42,488 CUP (≈ 106.22 USD)
   Sin capacidad disponible
-  ⚠️ CUP sin destino: 6,061 CUP</pre>
+  ⚠️ CUP sin destino: 6,061 CUP (≈ 15.15 USD)</pre>
 
 ────────────────────────────────
 
 🧾 <b>Proyección post-venta</b>
-• Negativos: 0 CUP
-• Colchón proyectado: 173,939 CUP &lt; 180,000
+• Negativos: 0 CUP (≈ 0.00 USD)
+• Colchón proyectado: 173,939 CUP (≈ 434.85 USD) &lt; 180,000 CUP (≈ 450.00 USD)
 
 🏦 <b>Liquidez rápida disponible</b>
 • BANDEC: 322,491 CUP (≈ 806.23 USD)
@@ -59,5 +63,6 @@ Objetivo total: 42,488 CUP
 📐 <b>Explicación</b>
 • Fórmula: necesidad = |deudas| + colchón − activos = 275,000 + 180,000 − 412,779 = 42,221 CUP
 • Objetivo USD = ceil(necesidad / sellNet) (+ márgenes y redondeo)
-• sellNet = floor(SELL × (1 − fee)) ⇒ SELL: 452 (fuente ENV)  fee: 0.00%"
+• sellNet = floor(SELL × (1 − fee)) ⇒ SELL: 452 (fuente ENV)  fee: 0.00%
+• Conversión: USD ≈ CUP / 400.00 (fuente DB)"
 `;

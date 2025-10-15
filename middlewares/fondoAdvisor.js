@@ -493,6 +493,24 @@ function fmtUsdDetailed(value) {
   );
 }
 
+/**
+ * Crea un formateador que representa valores en CUP junto a su aproximado en USD.
+ * @param {Object} params
+ * @param {boolean} params.hasBuyRate - Indica si existe tasa de compra válida.
+ * @param {number} params.resolvedBuyRate - Tasa de compra efectiva para el cálculo.
+ * @returns {(value: number) => string}
+ */
+function createFmtCupUsdPair({ hasBuyRate, resolvedBuyRate }) {
+  return function fmtCupUsdPair(value) {
+    const safeValue = Number.isFinite(value) ? Number(value) : 0;
+    if (!hasBuyRate) {
+      return `${fmtCup(safeValue)} CUP`;
+    }
+    const usd = safeValue / resolvedBuyRate;
+    return `${fmtCup(safeValue)} CUP (≈ ${fmtUsdDetailed(usd)} USD)`;
+  };
+}
+
 async function getLatestBalances() {
   const sql = `
     SELECT COALESCE(m.codigo,'—')  AS moneda,
@@ -754,6 +772,11 @@ function computeUrgency({ needCup = 0, sellNowUsd = 0, remainingCup = 0, sellTar
   return '🟢 NORMAL';
 }
 
+/**
+ * Construye el mensaje HTML del asesor financiero a partir de los totales y planes calculados.
+ * @param {Object} result
+ * @returns {string[]}
+ */
 function renderAdvice(result) {
   const {
     activosCup,
@@ -804,30 +827,55 @@ function renderAdvice(result) {
       : null) || null;
   const resolvedSellSource = (sellRateSource || plan?.usedSellSource || 'env').toUpperCase();
   const buySourceLabel = resolvedBuySource ? resolvedBuySource.toUpperCase() : 'N/D';
-  const activosUsdEquiv = hasBuyRate ? (activosCup || 0) / resolvedBuyRate : null;
-  const netoUsdEquiv = hasBuyRate ? (netoCup || 0) / resolvedBuyRate : null;
+  const fmtCupUsdPair = createFmtCupUsdPair({ hasBuyRate, resolvedBuyRate });
 
   console.log(
     `[fondoAdvisor] renderAdvice => tasa de compra aplicada: ${hasBuyRate ? resolvedBuyRate : 'sin dato'} (fuente ${buySourceLabel})`
   );
 
+  console.log('[fondoAdvisor][Estado] Renderizando bloque de estado actual.');
   const estado = [
-    '📊 <b>Estado actual CUP</b>',
-    hasBuyRate
-      ? `• Activos: ${fmtCup(activosCup)} CUP (≈ ${fmtUsdDetailed(activosUsdEquiv)} USD)`
-      : `• Activos: ${fmtCup(activosCup)} CUP`,
-    `• Deudas: ${fmtCup(deudasCup)} CUP`,
-    hasBuyRate
-      ? `• Neto: ${fmtCup(netoCup)} CUP (≈ ${fmtUsdDetailed(netoUsdEquiv)} USD)`
-      : `• Neto: ${fmtCup(netoCup)} CUP`,
-    `• Libre tras deudas: ${fmtCup(disponibles)} CUP`,
+    '📊 <b>Estado actual</b>',
+    `• Activos: ${fmtCupUsdPair(activosCup)}`,
+    `• Deudas: ${fmtCupUsdPair(deudasCup)}`,
+    `• Colchón actual: ${fmtCupUsdPair(disponibles)}`,
+    `• Neto: ${fmtCupUsdPair(netoCup)}`,
   ];
   blocks.push(estado.join('\n'));
 
+  const indicadores = [];
+  if (Number.isFinite(deudaAbs) && Number.isFinite(activosCup) && Math.abs(activosCup) > 0) {
+    const ratio = (Math.abs(deudaAbs) / Math.max(Math.abs(activosCup), 1)) * 100;
+    indicadores.push(`• Deuda/Activos: ${(Math.round(ratio * 10) / 10).toFixed(1)}%`);
+  }
+  if (Number.isFinite(disponibles) && Number.isFinite(cushionTarget) && Math.abs(cushionTarget) > 0) {
+    const rawProgress = disponibles / Math.max(Math.abs(cushionTarget), 1);
+    const clamped = Math.min(1, Math.max(0, rawProgress));
+    const percent = Math.round(clamped * 100);
+    const filled = Math.round(clamped * 10);
+    const bar = '▓'.repeat(filled).padEnd(10, '░');
+    indicadores.push(`• Avance colchón: ${percent}% ${bar}`);
+  }
+  const monthlyOutflowCup = (monthlyLimits?.cards || []).reduce(
+    (acc, card) => acc + Math.max(0, Math.round(card.usedOut || 0)),
+    0
+  );
+  if (monthlyOutflowCup > 0 && Number.isFinite(disponibles)) {
+    const monthsCovered = Math.max(0, disponibles / monthlyOutflowCup);
+    if (Number.isFinite(monthsCovered)) {
+      indicadores.push(`• Meses cubiertos (colchón / gasto mensual): ${monthsCovered.toFixed(2)}`);
+    }
+  }
+  if (indicadores.length) {
+    console.log(`[fondoAdvisor][Indicadores] Indicadores derivados generados => ${indicadores.length}`);
+    blocks.push(['ℹ️ <b>Indicadores</b>', ...indicadores].join('\n'));
+  }
+
+  console.log('[fondoAdvisor][Objetivo] Renderizando bloque de objetivo.');
   const objetivo = [
     '🎯 <b>Objetivo</b>',
-    `• Colchón objetivo: ${fmtCup(cushionTarget)} CUP`,
-    `• Necesidad adicional: ${fmtCup(needCup)} CUP`,
+    `• Colchón objetivo: ${fmtCupUsdPair(cushionTarget)}`,
+    `• Necesidad adicional: ${fmtCupUsdPair(needCup)}`,
   ];
   blocks.push(objetivo.join('\n'));
 
@@ -864,22 +912,39 @@ function renderAdvice(result) {
   ].some((value) => Math.abs(value) > 0);
 
   if (showSellBlock) {
+    const fmtSellCupUsdPair = (cupValue, usdHint) => {
+      const safeCup = Number.isFinite(cupValue) ? Number(cupValue) : 0;
+      if (!hasBuyRate) {
+        return `${fmtCup(safeCup)} CUP`;
+      }
+      const safeUsdHint = Number.isFinite(usdHint) ? Number(usdHint) : null;
+      const sellRate = Number.isFinite(plan?.sellNet) && plan.sellNet > 0 ? plan.sellNet : null;
+      const usdValue =
+        safeUsdHint != null
+          ? safeUsdHint
+          : sellRate
+          ? safeCup / sellRate
+          : null;
+      if (usdValue == null || Math.abs(usdValue) === 0) {
+        return `${fmtCup(safeCup)} CUP`;
+      }
+      return `${fmtCup(safeCup)} CUP (≈ ${fmtUsdDetailed(usdValue)} USD)`;
+    };
+
     const venta = [
       '',
       '💸 <b>Venta requerida (Zelle)</b>',
-      `👉 Objetivo: vender ${fmtUsd(plan.sellTarget.usd)} USD a ${fmtCup(plan.sellNet)} ⇒ +${fmtCup(plan.sellTarget.cupIn)} CUP`,
+      `👉 Objetivo: vender ${fmtUsd(plan.sellTarget.usd)} USD a ${fmtCup(plan.sellNet)} ⇒ +${fmtSellCupUsdPair(plan.sellTarget.cupIn, plan.sellTarget.usd)}`,
     ];
-    const sellNowLine = `👉 Vende ahora: ${fmtUsd(plan.sellNow.usd)} USD ⇒ +${fmtCup(plan.sellNow.cupIn)} CUP`;
+    const sellNowBase = `👉 Vende ahora: ${fmtUsd(plan.sellNow.usd)} USD ⇒ +${fmtSellCupUsdPair(plan.sellNow.cupIn, plan.sellNow.usd)}`;
     if (plan.sellNow.usd === 0 && plan.sellNow.minWarning) {
       venta.push(
-        `${sellNowLine} (⚠️ inventario menor al mínimo de ${fmtUsd(config.minSellUsd)} USD)`
+        `${sellNowBase} (⚠️ inventario menor al mínimo de ${fmtUsd(config.minSellUsd)} USD)`
       );
     } else {
-      venta.push(sellNowLine);
+      venta.push(sellNowBase);
     }
-    venta.push(
-      `• Faltante tras venta: ${fmtCup(plan.remainingCup)} CUP (≈ ${fmtUsd(plan.remainingUsd)} USD)`
-    );
+    venta.push(`• Faltante tras venta: ${fmtSellCupUsdPair(plan.remainingCup, plan.remainingUsd)}`);
     venta.push('');
     blocks.push(venta.join('\n'));
   }
@@ -894,9 +959,9 @@ function renderAdvice(result) {
         const compra = [
           '',
           '💠 <b>Compra sugerida (USD)</b>',
-          `• Exceso sobre colchón/deudas: ${fmtCup(excesoCup)} CUP`,
-          `👇 Objetivo: comprar ${fmtUsd(objetivoUsd)} USD a ${fmtCup(resolvedBuyRate)} ⇒ −${fmtCup(objetivoCup)} CUP`,
-          `👇 Compra ahora: ${fmtUsd(objetivoUsd)} USD ⇒ −${fmtCup(objetivoCup)} CUP`,
+          `• Exceso sobre colchón/deudas: ${fmtCupUsdPair(excesoCup)}`,
+          `👇 Objetivo: comprar ${fmtUsd(objetivoUsd)} USD a ${fmtCup(resolvedBuyRate)} ⇒ −${fmtCupUsdPair(objetivoCup)}`,
+          `👇 Compra ahora: ${fmtUsd(objetivoUsd)} USD ⇒ −${fmtCupUsdPair(objetivoCup)}`,
           '',
         ];
         blocks.push(compra.join('\n'));
@@ -908,14 +973,11 @@ function renderAdvice(result) {
   const orderedCards = sortCardsByPreference(limitsData.cards || [], config.allocationBankOrder || [])
     // No mostrar BOLSA (MITRANSFER y similares) en el bloque de límites
     .filter((c) => !c.isBolsa && c.bank !== 'MITRANSFER');
-  const limitDefaultFmt = formatInteger(
-    config.limitMonthlyDefaultCup ?? DEFAULT_CONFIG.limitMonthlyDefaultCup
-  );
-  const limitBpaFmt = formatInteger(
-    config.limitMonthlyBpaCup ?? config.limitMonthlyDefaultCup ?? DEFAULT_CONFIG.limitMonthlyBpaCup
-  );
-  const limitInfoLine = `ℹ️ Límite mensual: Estándar ${h(limitDefaultFmt)} CUP • BPA ${h(limitBpaFmt)} CUP (ampliable)`;
+  const limitDefaultValue = config.limitMonthlyDefaultCup ?? DEFAULT_CONFIG.limitMonthlyDefaultCup;
+  const limitBpaValue = config.limitMonthlyBpaCup ?? config.limitMonthlyDefaultCup ?? DEFAULT_CONFIG.limitMonthlyBpaCup;
+  const limitInfoLine = `ℹ️ Límite mensual: Estándar ${fmtCupUsdPair(limitDefaultValue)} • BPA ${fmtCupUsdPair(limitBpaValue)} (ampliable)`;
   const limitPreLines = [];
+  console.log('[fondoAdvisor][Tabla] Preparando tabla de límites mensuales.');
   if (!orderedCards.length) {
     limitPreLines.push('—');
   } else {
@@ -928,6 +990,9 @@ function renderAdvice(result) {
       'CAP'.padStart(VAL_W),
       'Estado',
     ];
+    if (hasBuyRate) {
+      headerCells.push('≈USD(LIBRE)'.padStart(VAL_W));
+    }
     const header = headerCells.join(' ').trimEnd();
     const dash = '─'.repeat(header.length);
     limitPreLines.push(header, dash);
@@ -951,7 +1016,7 @@ function renderAdvice(result) {
       const remainingStr = formatInteger(libre).padStart(VAL_W);
       const capStr = formatInteger(cap).padStart(VAL_W);
       const statusText = describeLimitStatus(card.status);
-      const line = [
+      const lineParts = [
         bank.padEnd(BANK_W),
         mask.padEnd(CARD_W),
         salStr,
@@ -959,27 +1024,40 @@ function renderAdvice(result) {
         remainingStr,
         capStr,
         statusText,
-      ]
-        .join(' ')
-        .trimEnd();
+      ];
+      if (hasBuyRate) {
+        const libreUsdStr = formatInteger(Math.round(libre / resolvedBuyRate)).padStart(VAL_W);
+        lineParts.push(libreUsdStr);
+      }
+      const line = lineParts.join(' ').trimEnd();
       limitPreLines.push(line);
     });
     const salTotStr = formatInteger(totalSal).padStart(VAL_W);
     const saldoTotStr = formatInteger(totalSaldo).padStart(VAL_W);
     const libreTotStr = formatInteger(totalLibre).padStart(VAL_W);
     const capTotStr = formatInteger(totalCap).padStart(VAL_W);
+    const libreTotUsdStr = hasBuyRate
+      ? formatInteger(Math.round(totalLibre / resolvedBuyRate)).padStart(VAL_W)
+      : '';
     limitPreLines.push(dash);
-    const totalLine = [
+    const totalParts = [
       'TOTAL'.padEnd(BANK_W),
       '—'.padEnd(CARD_W),
       salTotStr,
       saldoTotStr,
       libreTotStr,
       capTotStr,
-    ]
-      .join(' ')
-      .trimEnd();
+    ];
+    if (hasBuyRate) {
+      totalParts.push(libreTotUsdStr);
+    }
+    const totalLine = totalParts.join(' ').trimEnd();
     limitPreLines.push(totalLine);
+    if (hasBuyRate) {
+      limitPreLines.push(
+        `≈USD totales: SAL ${fmtUsdDetailed(totalSal / resolvedBuyRate)} • SALDO ${fmtUsdDetailed(totalSaldo / resolvedBuyRate)} • LIBRE ${fmtUsdDetailed(totalLibre / resolvedBuyRate)} • CAP ${fmtUsdDetailed(totalCap / resolvedBuyRate)}`
+      );
+    }
   }
 
   const distNow = distributionNow || { assignments: [], leftover: 0, totalAssigned: 0 };
@@ -987,9 +1065,17 @@ function renderAdvice(result) {
   const suggestionPreLines = [];
   let usedBolsaInDistribution = false;
 
+  console.log('[fondoAdvisor][Distribución] Preparando escenarios de colocación.');
+
+  /**
+   * Inserta un escenario de distribución en la tabla sugerida.
+   * @param {string} label
+   * @param {number} amount
+   * @param {{assignments: Array, leftover: number}} distribution
+   */
   const appendScenario = (label, amount, distribution) => {
     if (!amount || amount <= 0) return;
-    suggestionPreLines.push(`${label}: ${formatInteger(amount)} CUP`);
+    suggestionPreLines.push(`${label}: ${fmtCupUsdPair(amount)}`);
     if (!distribution.assignments.length) {
       suggestionPreLines.push('  Sin capacidad disponible');
     } else {
@@ -1028,7 +1114,7 @@ function renderAdvice(result) {
       });
     }
     if (distribution.leftover > 0) {
-      suggestionPreLines.push(`  ⚠️ CUP sin destino: ${formatInteger(distribution.leftover)} CUP`);
+      suggestionPreLines.push(`  ⚠️ CUP sin destino: ${fmtCupUsdPair(distribution.leftover)}`);
     }
   };
 
@@ -1052,15 +1138,16 @@ function renderAdvice(result) {
   blocks.push('🚦 <b>Límite mensual por tarjeta</b>');
   blocks.push(limitInfoLine);
   blocks.push(pre(limitPreLines));
-  blocks.push('📍 <b>Sugerencia de destino del CUP</b>');
+  blocks.push('📍 <b>Sugerencia de destino</b>');
   blocks.push(pre(suggestionPreLines));
   blocks.push('────────────────────────────────');
 
+  console.log('[fondoAdvisor][Proyección] Calculando bloque de proyección.');
   const comparadorColchon = projection.colchonPost >= cushionTarget ? '≥' : '<';
   const proyeccion = [
     '🧾 <b>Proyección post-venta</b>',
-    `• Negativos: ${fmtCup(projection.negativosPost)} CUP`,
-    `• Colchón proyectado: ${fmtCup(projection.colchonPost)} CUP ${cmp(comparadorColchon)} ${fmtCup(cushionTarget)}`,
+    `• Negativos: ${fmtCupUsdPair(projection.negativosPost)}`,
+    `• Colchón proyectado: ${fmtCupUsdPair(projection.colchonPost)} ${cmp(comparadorColchon)} ${fmtCupUsdPair(cushionTarget)}`,
   ];
   blocks.push(proyeccion.join('\n'));
 
@@ -1078,20 +1165,17 @@ function renderAdvice(result) {
   } else {
     liquidityEntries.forEach((item) => {
       if (hasBuyRate) {
-        const usdEquiv = item.amount / resolvedBuyRate;
         console.log(
           `[fondoAdvisor] Liquidez banco ${item.bank} => ${Math.round(item.amount)} CUP ≈ ${(Math.round(
-            (Number(usdEquiv) || 0) * 100
+            (Number(item.amount / resolvedBuyRate) || 0) * 100
           ) / 100).toFixed(2)} USD`
         );
-        liquidityBlock.push(
-          `• ${h(item.bank)}: ${fmtCup(item.amount)} CUP (≈ ${fmtUsdDetailed(usdEquiv)} USD)`
-        );
+        liquidityBlock.push(`• ${h(item.bank)}: ${fmtCupUsdPair(item.amount)}`);
       } else {
         console.log(
           `[fondoAdvisor] Liquidez banco ${item.bank} => ${Math.round(item.amount)} CUP (sin tasa de compra)`
         );
-        liquidityBlock.push(`• ${h(item.bank)}: ${fmtCup(item.amount)} CUP`);
+        liquidityBlock.push(`• ${h(item.bank)}: ${fmtCupUsdPair(item.amount)}`);
       }
     });
   }
@@ -1107,7 +1191,16 @@ function renderAdvice(result) {
       resolvedSellSource
     )})  fee: ${(config.sellFeePct * 100).toFixed(2)}%`,
   ];
+  if (hasBuyRate) {
+    explicacion.push(
+      `• Conversión: USD ≈ CUP / ${fmtUsdDetailed(resolvedBuyRate)} (fuente ${h(buySourceLabel)})`
+    );
+  }
   blocks.push(explicacion.join('\n'));
+
+  if (!hasBuyRate) {
+    blocks.push('ℹ️ No se mostró equivalente en USD porque no hay tasa de compra configurada.');
+  }
 
   return blocks;
 }
@@ -1369,4 +1462,5 @@ module.exports = {
   sumNonBolsaDepositCap,
   computeHeadlineSeverity,
   normalizeBankCode,
+  createFmtCupUsdPair,
 };

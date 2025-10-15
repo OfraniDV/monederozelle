@@ -228,10 +228,10 @@ describe('fondoAdvisor monthly limits and allocation', () => {
     expect(text).toContain('<pre>');
     expect(text).toContain('⛔️');
     expect(text).toContain('🟡 ampliable');
-    expect(text).toContain('📍 <b>Sugerencia de destino del CUP</b>');
+    expect(text).toContain('📍 <b>Sugerencia de destino</b>');
     expect(text).toContain('🟡');
     const limitPre = (text.match(/Límite mensual por tarjeta<\/b>\n<pre>([\s\S]*?)<\/pre>/) || [])[1] || '';
-    const suggestionPre = (text.match(/Sugerencia de destino del CUP<\/b>\n<pre>([\s\S]*?)<\/pre>/) || [])[1] || '';
+    const suggestionPre = (text.match(/Sugerencia de destino<\/b>\n<pre>([\s\S]*?)<\/pre>/) || [])[1] || '';
     [limitPre, suggestionPre].forEach((segment) => {
       expect(segment).not.toContain('BANCA');
       expect(segment).not.toContain('WESTERU');
