@@ -121,7 +121,9 @@ describe('renderAdvice output formatting', () => {
   test('estado actual elimina sufijo de tasa de compra en equivalentes USD', () => {
     const result = buildBaseResult();
     const message = renderAdvice(result).join('\n\n');
-    expect(message).toContain('📊 <b>Estado actual CUP</b>');
+    expect(message).toContain('📊 <b>Estado actual</b>');
+    expect(message).not.toContain('📊 <b>Estado actual CUP</b>');
+    expect(message).toContain('ℹ️ <b>Indicadores</b>');
     expect(message).not.toContain('@ compra');
   });
 

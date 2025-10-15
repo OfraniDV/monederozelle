@@ -4,6 +4,7 @@
 - [ ] Localizar los botones `💾 Salvar` / `❌ Salir` en escenas multilingües para los demás idiomas soportados (revisar helpers y escenas). 
 - [ ] Revisar la accesibilidad de emojis en lectores de pantalla y aportar alternativas textuales en los mensajes largos.
 - [ ] Implementar un modo compacto para chats grupales de alto volumen (revisar paginación y helpers de navegación).
+- [ ] Recoger feedback de usuarias/os sobre el nuevo formato `CUP (≈ USD)` y la columna `≈USD(LIBRE)` del asesor para ajustar textos o precisiones si fuera necesario.
 
 ## Auditoría de comandos financieros
 - [ ] Restringir las tablas que puede consultar `/resumen` para evitar interpolar nombres arbitrarios en SQL y prevenir inyección. 【F:commands/resumen.js†L13-L18】

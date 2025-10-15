@@ -23,6 +23,9 @@
 - Cuando el inventario USD no alcanza el mínimo configurado se muestra la alerta “⚠️ inventario menor al mínimo…”, y se omite cualquier sugerencia de ciclos de compra.
 - El informe expone ahora la tasa de compra proveniente de `moneda.tasa_usd`, la tasa de venta configurada y las equivalencias en USD para Activos y Neto usando esa tasa de compra.
 - La sección 🏦 Liquidez rápida disponible añade el equivalente en USD por banco cuando hay tasa de compra válida; si no, conserva solo los montos en CUP.
+- Todos los valores en CUP visibles en el informe siguen la convención `valor CUP (≈ USD)` mediante el helper `fmtCupUsdPair`; si no existe tasa de compra se omite el componente USD y se agrega una nota informativa al final.
+- La tabla de límites agrega la columna `≈USD(LIBRE)` y muestra una línea de totales aproximados en USD debajo de la fila `TOTAL` cuando hay tasa válida.
+- Se añaden métricas derivadas (`Deuda/Activos`, progreso del colchón con barra ASCII y meses cubiertos) justo después del bloque de estado cuando existen los datos necesarios.
 
 ## Monitor
 
