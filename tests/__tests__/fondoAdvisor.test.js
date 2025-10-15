@@ -105,10 +105,11 @@ describe('fondoAdvisor core calculations', () => {
       sellRateSource: 'env',
     });
     const projection = computeProjection(161654, -168764, plan.sellNow.cupIn);
+    const netoTrasColchon = 161654 - 168764 - config.cushion;
     const result = {
       activosCup: 161654,
       deudasCup: -168764,
-      netoCup: 161654 - 168764,
+      netoCup: netoTrasColchon,
       ...needs,
       plan,
       projection,
