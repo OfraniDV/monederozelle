@@ -26,6 +26,8 @@ const CARD_W = 6; // Tarjeta (#1234)
 const VAL_W = 8;  // Números (SAL, SALDO, LIBRE, CAP)
 const ASSIGN_W = 7; // ↦ CUP en distribución
 const CAP_W = VAL_W * 2 + 1; // "antes→desp"
+const AGENT_W = 16; // Nombre de agente en bloque de deudas
+const DEBT_VAL_W = 10; // Columnas de montos de deuda
 
 // Fees constantes de BOLSA (no vienen de .env)
 const BOLSA_TO_BOLSA_FEE_CUP = 1;     // mover de bolsa a bolsa
@@ -449,6 +451,12 @@ function formatInteger(value) {
   });
 }
 
+function formatUsdDetailedPlain(value) {
+  const num = Number(value) || 0;
+  const rounded = Math.round(num * 100) / 100;
+  return rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 // ——— Severidad del encabezado (según necesidad en CUP y cobertura con USD) ———
 function sumNonBolsaDepositCap(monthlyLimits) {
   const cards = (monthlyLimits?.cards || []).filter((c) => !c.isBolsa && c.bank !== 'MITRANSFER');
@@ -574,6 +582,8 @@ function aggregateBalances(rows = [], liquidityBanks = []) {
     OTHER: { count: 0, total: 0 },
   };
 
+  const debtsDetail = [];
+
   rows.forEach((r) => {
     const saldoRaw = Number(r.saldo) || 0;
     const moneda = (r.moneda || '').toUpperCase();
@@ -611,6 +621,18 @@ function aggregateBalances(rows = [], liquidityBanks = []) {
         }
       } else {
         activos.deudas += saldoRaw;
+        debtsDetail.push({
+          agente,
+          banco,
+          numero,
+          tasaUsd,
+          saldoCup: saldoRaw,
+        });
+        console.log(
+          `[fondoAdvisor][Debts] Detectada deuda CUP => agente=${cmp(agente)} banco=${cmp(bancoRaw)} tarjeta=${maskCardNumber(
+            numero
+          )} saldo=${Math.round(saldoRaw)} tasaUsd=${tasaUsd}`
+        );
         if (liquiditySet.has(banco)) {
           liquidityByBank[banco] = (liquidityByBank[banco] || 0);
         }
@@ -644,6 +666,7 @@ function aggregateBalances(rows = [], liquidityBanks = []) {
         : []
     );
   console.log(`[fondoAdvisor] Saldos por moneda => ${diagParts.join(' • ')}.`);
+  console.log(`[fondoAdvisor][Debts] Total de deudas registradas => ${debtsDetail.length}`);
 
   return {
     activosCup: activos.cup,
@@ -652,6 +675,7 @@ function aggregateBalances(rows = [], liquidityBanks = []) {
     usdInventory,
     liquidityByBank,
     liquidityTotal,
+    debtsDetail,
   };
 }
 
@@ -797,6 +821,7 @@ function renderAdvice(result) {
     buyRateCup,
     buyRateSource,
     sellRateSource,
+    debtsDetail = [],
   } = result;
 
   const blocks = [];
@@ -842,6 +867,102 @@ function renderAdvice(result) {
     `• Neto: ${fmtCupUsdPair(netoCup)}`,
   ];
   blocks.push(estado.join('\n'));
+
+  const debtEntries = Array.isArray(debtsDetail) ? debtsDetail : [];
+  const debtLines = [];
+  const headerCells = [
+    'Agente'.padEnd(AGENT_W),
+    'Banco'.padEnd(BANK_W),
+    'Tarjeta'.padEnd(CARD_W),
+    'DEUDA(CUP)'.padStart(DEBT_VAL_W),
+  ];
+  if (hasBuyRate) {
+    headerCells.push('≈USD'.padStart(DEBT_VAL_W));
+  }
+  const header = headerCells.join(' ').trimEnd();
+  const dash = '─'.repeat(header.length);
+  debtLines.push(header, dash);
+
+  if (!debtEntries.length) {
+    console.log('[fondoAdvisor][Debts] Sin deudas para detallar.');
+    debtLines.push('—');
+  } else {
+    console.log(`[fondoAdvisor][Debts] Renderizando bloque con ${debtEntries.length} deudas.`);
+    const groupedByAgent = new Map();
+    debtEntries.forEach((entry) => {
+      const agentKey = entry.agente || 'SIN AGENTE';
+      if (!groupedByAgent.has(agentKey)) {
+        groupedByAgent.set(agentKey, []);
+      }
+      groupedByAgent.get(agentKey).push(entry);
+    });
+
+    const sortedAgents = Array.from(groupedByAgent.keys()).sort((a, b) => a.localeCompare(b));
+    sortedAgents.forEach((agentName, agentIdx) => {
+      const rows = groupedByAgent.get(agentName) || [];
+      const sortedRows = rows.slice().sort((a, b) => {
+        const bankA = (a.banco || '').localeCompare(b.banco || '');
+        if (bankA !== 0) return bankA;
+        return (a.numero || '').localeCompare(b.numero || '');
+      });
+      let agentCupTotal = 0;
+
+      sortedRows.forEach((entry, entryIdx) => {
+        const bankCode = entry.banco || '—';
+        const mask = maskCardNumber(entry.numero);
+        const debtAbsRaw = Math.abs(Number(entry.saldoCup) || 0);
+        const debtAbsRounded = Math.round(debtAbsRaw);
+        agentCupTotal += debtAbsRaw;
+        const cells = [
+          (entryIdx === 0 ? agentName : '').padEnd(AGENT_W),
+          bankCode.padEnd(BANK_W),
+          mask.padEnd(CARD_W),
+          formatInteger(debtAbsRounded).padStart(DEBT_VAL_W),
+        ];
+        if (hasBuyRate) {
+          const usdVal = debtAbsRaw / resolvedBuyRate;
+          cells.push(formatUsdDetailedPlain(usdVal).padStart(DEBT_VAL_W));
+        }
+        debtLines.push(cells.join(' ').trimEnd());
+      });
+
+      const agentTotalCup = Math.round(agentCupTotal);
+      const totalCells = [
+        `TOTAL ${agentName}`.padEnd(AGENT_W),
+        ''.padEnd(BANK_W),
+        ''.padEnd(CARD_W),
+        formatInteger(agentTotalCup).padStart(DEBT_VAL_W),
+      ];
+      if (hasBuyRate) {
+        totalCells.push(formatUsdDetailedPlain(agentCupTotal / resolvedBuyRate).padStart(DEBT_VAL_W));
+      }
+      debtLines.push(totalCells.join(' ').trimEnd());
+      if (agentIdx < sortedAgents.length - 1) {
+        debtLines.push('');
+      }
+    });
+  }
+
+  const totalGeneralCupRaw = Math.abs(Number(deudasCup) || 0);
+  const totalGeneralLine = [
+    '─'.repeat(header.length),
+    [
+      'TOTAL GENERAL'.padEnd(AGENT_W),
+      ''.padEnd(BANK_W),
+      ''.padEnd(CARD_W),
+      formatInteger(Math.round(totalGeneralCupRaw)).padStart(DEBT_VAL_W),
+      hasBuyRate
+        ? formatUsdDetailedPlain(totalGeneralCupRaw / resolvedBuyRate).padStart(DEBT_VAL_W)
+        : null,
+    ]
+      .filter((cell) => cell != null)
+      .join(' ')
+      .trimEnd(),
+  ];
+  debtLines.push(...totalGeneralLine);
+
+  blocks.push('📉 <b>Detalle de deudas por agente/subcuenta</b>');
+  blocks.push(pre(debtLines));
 
   const indicadores = [];
   if (Number.isFinite(deudaAbs) && Number.isFinite(activosCup) && Math.abs(activosCup) > 0) {

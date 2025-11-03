@@ -69,6 +69,14 @@ describe('fondoAdvisor core calculations', () => {
     expect(totals.deudasCup).toBe(-5000);
     expect(Math.round(totals.usdInventory)).toBe(1000);
     expect(totals.liquidityByBank.BANDEC || 0).toBe(0);
+    expect(totals.debtsDetail).toHaveLength(1);
+    expect(totals.debtsDetail[0]).toEqual({
+      agente: 'CLIENTE DEUDA',
+      banco: 'BANDEC',
+      numero: 'CUENTA DEBE',
+      tasaUsd: 1,
+      saldoCup: -5000,
+    });
   });
 
   test('renderAdvice genera mensaje en español sin etiquetas prohibidas', () => {
@@ -131,5 +139,98 @@ describe('fondoAdvisor core calculations', () => {
     expect(message).not.toContain('ciclos');
     expect(message).not.toContain('<br>');
     expect(message).not.toContain('<ul>');
+  });
+});
+
+describe('Detalle de deudas en renderAdvice', () => {
+  const baseConfig = {
+    cushion: 0,
+    sellRate: 452,
+    minSellUsd: 0,
+    liquidityBanks: ['BANDEC'],
+    sellFeePct: 0,
+    fxMarginPct: 0,
+    sellRoundToUsd: 1,
+    minKeepUsd: 0,
+    limitMonthlyDefaultCup: 0,
+    limitMonthlyBpaCup: 0,
+    extendableBanks: [],
+    assessableBanks: [],
+    allocationBankOrder: [],
+  };
+
+  function buildMinimalResult(overrides = {}) {
+    const plan = overrides.plan || {
+      sellNow: { cupIn: 0, usd: 0 },
+      sellTarget: { cupIn: 0, usd: 0 },
+      remainingCup: 0,
+      remainingUsd: 0,
+    };
+    return {
+      activosCup: overrides.activosCup ?? 0,
+      deudasCup: overrides.deudasCup ?? -1000,
+      netoCup: overrides.netoCup ?? -1000,
+      cushionTarget: overrides.cushionTarget ?? 0,
+      needCup: overrides.needCup ?? 0,
+      disponibles: overrides.disponibles ?? 0,
+      plan,
+      projection: overrides.projection || { negativosPost: 0, colchonPost: 0 },
+      liquidityByBank: overrides.liquidityByBank || {},
+      config: { ...baseConfig, ...(overrides.config || {}) },
+      deudaAbs: overrides.deudaAbs ?? 1000,
+      urgency: overrides.urgency || '🟢 NORMAL',
+      monthlyLimits: overrides.monthlyLimits || { cards: [], totals: { blocked: 0, extendable: 0 } },
+      distributionNow: overrides.distributionNow || { assignments: [], leftover: 0, totalAssigned: 0 },
+      distributionTarget: overrides.distributionTarget || { assignments: [], leftover: 0, totalAssigned: 0 },
+      buyRateCup: overrides.buyRateCup,
+      buyRateSource: overrides.buyRateSource,
+      sellRateSource: overrides.sellRateSource || 'ENV',
+      usdInventory: overrides.usdInventory ?? 0,
+      debtsDetail: overrides.debtsDetail || [],
+    };
+  }
+
+  test('incluye columna USD y totales por agente cuando hay tasa de compra', () => {
+    const debtsDetail = [
+      { agente: 'CLAUDIA', banco: 'METRO', numero: '0000392', tasaUsd: 1, saldoCup: -3750 },
+      { agente: 'CLAUDIA', banco: 'BANDEC', numero: '0008731', tasaUsd: 1, saldoCup: -116 },
+      { agente: 'LILI', banco: 'METRO', numero: '0000000', tasaUsd: 1, saldoCup: -35600 },
+    ];
+    const result = buildMinimalResult({
+      deudasCup: -39466,
+      deudaAbs: 39466,
+      buyRateCup: 452,
+      buyRateSource: 'db',
+      config: { buyRateCup: 452, buyRateSource: 'db' },
+      debtsDetail,
+    });
+    const blocks = renderAdvice(result);
+    const message = blocks.join('\n\n');
+    expect(message).toContain('📉 <b>Detalle de deudas por agente/subcuenta</b>');
+    expect(message).toContain('≈USD');
+    expect(message).toContain('TOTAL CLAUDIA');
+    expect(message).toContain('TOTAL LILI');
+    expect(message).toContain('TOTAL GENERAL');
+    expect(message).toContain('39,466');
+  });
+
+  test('omite columna USD cuando no hay tasa de compra', () => {
+    const debtsDetail = [
+      { agente: 'CLAUDIA', banco: 'METRO', numero: '0000392', tasaUsd: 1, saldoCup: -3750 },
+    ];
+    const result = buildMinimalResult({
+      deudasCup: -3750,
+      deudaAbs: 3750,
+      buyRateCup: null,
+      buyRateSource: 'none',
+      config: { buyRateCup: 0, buyRateSource: 'none' },
+      debtsDetail,
+    });
+    const blocks = renderAdvice(result);
+    const message = blocks.join('\n\n');
+    expect(message).toContain('📉 <b>Detalle de deudas por agente/subcuenta</b>');
+    expect(message).not.toContain('≈USD');
+    expect(message).toContain('TOTAL GENERAL');
+    expect(message).toContain('3,750');
   });
 });
