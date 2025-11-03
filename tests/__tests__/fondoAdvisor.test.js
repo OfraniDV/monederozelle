@@ -207,11 +207,12 @@ describe('Detalle de deudas en renderAdvice', () => {
     const blocks = renderAdvice(result);
     const message = blocks.join('\n\n');
     expect(message).toContain('📉 <b>Detalle de deudas por agente/subcuenta</b>');
-    expect(message).toContain('≈USD');
-    expect(message).toContain('TOTAL CLAUDIA');
-    expect(message).toContain('TOTAL LILI');
-    expect(message).toContain('TOTAL GENERAL');
-    expect(message).toContain('39,466');
+    expect(message).toContain('CLAUDIA · 0000392: 3,750 CUP / 8.30 USD');
+    expect(message).toContain('CLAUDIA · 0008731: 116 CUP / 0.26 USD');
+    expect(message).toContain('TOTAL CLAUDIA: 3,866 CUP / 8.55 USD');
+    expect(message).toContain('LILI · 0000000: 35,600 CUP / 78.76 USD');
+    expect(message).toContain('TOTAL LILI: 35,600 CUP / 78.76 USD');
+    expect(message).toContain('TOTAL GENERAL: 39,466 CUP / 87.31 USD');
   });
 
   test('omite columna USD cuando no hay tasa de compra', () => {
@@ -229,8 +230,8 @@ describe('Detalle de deudas en renderAdvice', () => {
     const blocks = renderAdvice(result);
     const message = blocks.join('\n\n');
     expect(message).toContain('📉 <b>Detalle de deudas por agente/subcuenta</b>');
-    expect(message).not.toContain('≈USD');
-    expect(message).toContain('TOTAL GENERAL');
-    expect(message).toContain('3,750');
+    expect(message).toContain('CLAUDIA · 0000392: 3,750 CUP');
+    expect(message).not.toContain('CLAUDIA · 0000392: 3,750 CUP /');
+    expect(message).toContain('TOTAL GENERAL: 3,750 CUP');
   });
 });

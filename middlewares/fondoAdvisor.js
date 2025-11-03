@@ -870,18 +870,6 @@ function renderAdvice(result) {
 
   const debtEntries = Array.isArray(debtsDetail) ? debtsDetail : [];
   const debtLines = [];
-  const headerCells = [
-    'Agente'.padEnd(AGENT_W),
-    'Banco'.padEnd(BANK_W),
-    'Tarjeta'.padEnd(CARD_W),
-    'DEUDA(CUP)'.padStart(DEBT_VAL_W),
-  ];
-  if (hasBuyRate) {
-    headerCells.push('≈USD'.padStart(DEBT_VAL_W));
-  }
-  const header = headerCells.join(' ').trimEnd();
-  const dash = '─'.repeat(header.length);
-  debtLines.push(header, dash);
 
   if (!debtEntries.length) {
     console.log('[fondoAdvisor][Debts] Sin deudas para detallar.');
@@ -900,43 +888,31 @@ function renderAdvice(result) {
     const sortedAgents = Array.from(groupedByAgent.keys()).sort((a, b) => a.localeCompare(b));
     sortedAgents.forEach((agentName, agentIdx) => {
       const rows = groupedByAgent.get(agentName) || [];
-      const sortedRows = rows.slice().sort((a, b) => {
-        const bankA = (a.banco || '').localeCompare(b.banco || '');
-        if (bankA !== 0) return bankA;
-        return (a.numero || '').localeCompare(b.numero || '');
-      });
+      const sortedRows = rows
+        .slice()
+        .sort((a, b) => (a.numero || '').localeCompare(b.numero || ''));
       let agentCupTotal = 0;
 
-      sortedRows.forEach((entry, entryIdx) => {
-        const bankCode = entry.banco || '—';
-        const mask = maskCardNumber(entry.numero);
+      sortedRows.forEach((entry) => {
         const debtAbsRaw = Math.abs(Number(entry.saldoCup) || 0);
         const debtAbsRounded = Math.round(debtAbsRaw);
         agentCupTotal += debtAbsRaw;
-        const cells = [
-          (entryIdx === 0 ? agentName : '').padEnd(AGENT_W),
-          bankCode.padEnd(BANK_W),
-          mask.padEnd(CARD_W),
-          formatInteger(debtAbsRounded).padStart(DEBT_VAL_W),
-        ];
-        if (hasBuyRate) {
-          const usdVal = debtAbsRaw / resolvedBuyRate;
-          cells.push(formatUsdDetailedPlain(usdVal).padStart(DEBT_VAL_W));
-        }
-        debtLines.push(cells.join(' ').trimEnd());
+        const agentLabel = agentName;
+        const cardLabel = entry.numero || 'SIN TARJETA';
+        const cupLabel = `${formatInteger(debtAbsRounded)} CUP`;
+        const usdLabel = hasBuyRate
+          ? ` / ${formatUsdDetailedPlain(debtAbsRaw / resolvedBuyRate)} USD`
+          : '';
+        debtLines.push(`${agentLabel} · ${cardLabel}: ${cupLabel}${usdLabel}`.trim());
       });
 
       const agentTotalCup = Math.round(agentCupTotal);
-      const totalCells = [
-        `TOTAL ${agentName}`.padEnd(AGENT_W),
-        ''.padEnd(BANK_W),
-        ''.padEnd(CARD_W),
-        formatInteger(agentTotalCup).padStart(DEBT_VAL_W),
-      ];
-      if (hasBuyRate) {
-        totalCells.push(formatUsdDetailedPlain(agentCupTotal / resolvedBuyRate).padStart(DEBT_VAL_W));
-      }
-      debtLines.push(totalCells.join(' ').trimEnd());
+      const agentTotalUsd = hasBuyRate
+        ? ` / ${formatUsdDetailedPlain(agentCupTotal / resolvedBuyRate)} USD`
+        : '';
+      debtLines.push(
+        `TOTAL ${agentName}: ${formatInteger(agentTotalCup)} CUP${agentTotalUsd}`.trim()
+      );
       if (agentIdx < sortedAgents.length - 1) {
         debtLines.push('');
       }
@@ -944,22 +920,14 @@ function renderAdvice(result) {
   }
 
   const totalGeneralCupRaw = Math.abs(Number(deudasCup) || 0);
-  const totalGeneralLine = [
-    '─'.repeat(header.length),
-    [
-      'TOTAL GENERAL'.padEnd(AGENT_W),
-      ''.padEnd(BANK_W),
-      ''.padEnd(CARD_W),
-      formatInteger(Math.round(totalGeneralCupRaw)).padStart(DEBT_VAL_W),
-      hasBuyRate
-        ? formatUsdDetailedPlain(totalGeneralCupRaw / resolvedBuyRate).padStart(DEBT_VAL_W)
-        : null,
-    ]
-      .filter((cell) => cell != null)
-      .join(' ')
-      .trimEnd(),
-  ];
-  debtLines.push(...totalGeneralLine);
+  if (debtLines.length && debtLines[debtLines.length - 1] !== '') {
+    debtLines.push('');
+  }
+  const totalGeneralCup = formatInteger(Math.round(totalGeneralCupRaw));
+  const totalGeneralUsd = hasBuyRate
+    ? ` / ${formatUsdDetailedPlain(totalGeneralCupRaw / resolvedBuyRate)} USD`
+    : '';
+  debtLines.push(`TOTAL GENERAL: ${totalGeneralCup} CUP${totalGeneralUsd}`.trim());
 
   blocks.push('📉 <b>Detalle de deudas por agente/subcuenta</b>');
   blocks.push(pre(debtLines));
