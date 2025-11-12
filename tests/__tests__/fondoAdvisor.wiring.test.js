@@ -111,6 +111,8 @@ describe('fondoAdvisor wiring', () => {
     expect(message).toContain('Venta requerida (Zelle)');
     expect(message).toContain('Faltante tras venta');
     expect(message).toContain('Liquidez rápida disponible');
+    expect(message).toContain('⏱️ <b>Comparativo temporal</b>');
+    expect(message).toContain('Δ 0 CUP');
     expect(message).toContain('BANDEC: 100,000 CUP (≈ 250.00 USD)');
     expect(message).not.toContain('Compra (DB)');
     expect(message).not.toContain('@ compra');

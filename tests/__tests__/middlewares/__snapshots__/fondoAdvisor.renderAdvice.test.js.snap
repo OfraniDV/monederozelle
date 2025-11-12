@@ -13,6 +13,16 @@ exports[`renderAdvice output formatting snapshot completo mantiene formato HTML 
 • Colchón actual: 137,779 CUP (≈ 344.45 USD)
 • Neto: 137,779 CUP (≈ 344.45 USD)
 
+⏱️ <b>Comparativo temporal</b>
+• Cierre ayer: 160,000 CUP (≈ 400.00 USD) → 137,779 CUP (≈ 344.45 USD) 📉 (Δ −22,221 CUP (≈ −55.55 USD))
+• Fin mes pasado: 190,000 CUP (≈ 475.00 USD) → 137,779 CUP (≈ 344.45 USD) 📉 (Δ −52,221 CUP (≈ −130.55 USD))
+
+📉 <b>Detalle de deudas por agente/subcuenta</b>
+
+<pre>—
+
+TOTAL GENERAL: 275,000 CUP / 687.50 USD</pre>
+
 ℹ️ <b>Indicadores</b>
 • Deuda/Activos: 66.6%
 • Avance colchón: 77% ▓▓▓▓▓▓▓▓░░

@@ -49,6 +49,24 @@ function buildBaseResult(overrides = {}) {
     buyRateSource: 'db',
     sellRateSource: 'env',
     usdInventory: 180,
+    history: {
+      prevDay: {
+        activosCup: 430000,
+        deudasCup: -270000,
+        netoCup: 160000,
+        netoTrasColchon: -20000,
+        disponibles: 160000,
+        usdInventory: 190,
+      },
+      prevMonth: {
+        activosCup: 450000,
+        deudasCup: -260000,
+        netoCup: 190000,
+        netoTrasColchon: 10000,
+        disponibles: 190000,
+        usdInventory: 205,
+      },
+    },
   };
 
   const merged = {

@@ -124,6 +124,24 @@ describe('fondoAdvisor core calculations', () => {
       liquidityByBank: liquidity,
       config,
       urgency: '🟠 PRIORITARIO',
+      history: {
+        prevDay: {
+          activosCup: 150000,
+          deudasCup: -160000,
+          netoCup: -10000,
+          netoTrasColchon: -10000 - config.cushion,
+          disponibles: -10000,
+          usdInventory: 180,
+        },
+        prevMonth: {
+          activosCup: 180000,
+          deudasCup: -120000,
+          netoCup: 60000,
+          netoTrasColchon: 60000 - config.cushion,
+          disponibles: 60000,
+          usdInventory: 220,
+        },
+      },
     };
     const blocks = renderAdvice(result);
     const message = blocks.join('\n\n');
@@ -136,6 +154,9 @@ describe('fondoAdvisor core calculations', () => {
     expect(message).toContain('🧾 <b>Proyección post-venta</b>');
     expect(message).toContain('Colchón proyectado: 83,290 CUP');
     expect(message).toContain('🏦 <b>Liquidez rápida disponible</b>');
+    expect(message).toContain('⏱️ <b>Comparativo temporal</b>');
+    expect(message).toContain('Cierre ayer');
+    expect(message).toContain('Fin mes pasado');
     expect(message).not.toContain('ciclos');
     expect(message).not.toContain('<br>');
     expect(message).not.toContain('<ul>');
