@@ -521,16 +521,40 @@ function createFmtCupUsdPair({ hasBuyRate, resolvedBuyRate }) {
 
 async function getLatestBalances() {
   const sql = `
+    WITH referencias AS (
+      SELECT
+        date_trunc('day', (now() at time zone 'America/Havana'))   AS inicio_hoy,
+        date_trunc('month', (now() at time zone 'America/Havana')) AS inicio_mes
+    )
     SELECT COALESCE(m.codigo,'—')  AS moneda,
            COALESCE(b.codigo,'SIN BANCO') AS banco,
            COALESCE(a.nombre,'SIN AGENTE') AS agente,
            COALESCE(t.numero,'SIN NUMERO') AS numero,
            COALESCE(m.tasa_usd,1)  AS tasa_usd,
-           COALESCE(mv.saldo_nuevo,0) AS saldo
+           COALESCE(mv.saldo_nuevo,0) AS saldo,
+           COALESCE(cierre_dia.saldo_cierre, 0)  AS saldo_cierre_ayer,
+           COALESCE(cierre_mes.saldo_cierre, 0)  AS saldo_cierre_mes
       FROM tarjeta t
+      JOIN referencias ref ON TRUE
       LEFT JOIN banco b ON b.id = t.banco_id
       LEFT JOIN moneda m ON m.id = t.moneda_id
       LEFT JOIN agente a ON a.id = t.agente_id
+      LEFT JOIN LATERAL (
+        SELECT saldo_nuevo AS saldo_cierre
+          FROM movimiento
+         WHERE tarjeta_id = t.id
+           AND creado_en < ref.inicio_hoy
+         ORDER BY creado_en DESC
+         LIMIT 1
+      ) cierre_dia ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT saldo_nuevo AS saldo_cierre
+          FROM movimiento
+         WHERE tarjeta_id = t.id
+           AND creado_en < ref.inicio_mes
+         ORDER BY creado_en DESC
+         LIMIT 1
+      ) cierre_mes ON TRUE
       LEFT JOIN LATERAL (
         SELECT saldo_nuevo
           FROM movimiento
@@ -679,6 +703,49 @@ function aggregateBalances(rows = [], liquidityBanks = []) {
   };
 }
 
+function computeDisponiblesSaldo(activosCup = 0, deudasCup = 0) {
+  const activos = Number(activosCup) || 0;
+  const deudasAbs = Math.abs(Number(deudasCup) || 0);
+  return Math.round(activos - deudasAbs);
+}
+
+function buildHistorySnapshots(balances = [], liquidityBanks = [], cushionTarget = 0) {
+  const mapWithSaldo = (field) =>
+    (balances || []).map((row) => {
+      const value =
+        row && Object.prototype.hasOwnProperty.call(row, field) && row[field] != null
+          ? row[field]
+          : row?.saldo;
+      return {
+        ...row,
+        saldo: value == null ? 0 : value,
+      };
+    });
+
+  const dayTotals = aggregateBalances(mapWithSaldo('saldo_cierre_ayer'), liquidityBanks);
+  const monthTotals = aggregateBalances(mapWithSaldo('saldo_cierre_mes'), liquidityBanks);
+
+  const toSnapshot = (totals) => {
+    const activos = Math.round(Number(totals.activosCup) || 0);
+    const deudas = Math.round(Number(totals.deudasCup) || 0);
+    const neto = Math.round(Number(totals.netoCup) || 0);
+    const cushion = Math.round(Number(cushionTarget) || 0);
+    return {
+      activosCup: activos,
+      deudasCup: deudas,
+      netoCup: neto,
+      netoTrasColchon: Math.round(neto - cushion),
+      disponibles: computeDisponiblesSaldo(activos, deudas),
+      usdInventory: Number(totals.usdInventory) || 0,
+    };
+  };
+
+  return {
+    prevDay: toSnapshot(dayTotals),
+    prevMonth: toSnapshot(monthTotals),
+  };
+}
+
 function computeNeeds({ activosCup = 0, deudasCup = 0, cushionTarget = DEFAULT_CONFIG.cushion }) {
   const cushion = Math.round(cushionTarget || 0);
   const deudaAbsRaw = Math.abs(deudasCup || 0);
@@ -822,6 +889,7 @@ function renderAdvice(result) {
     buyRateSource,
     sellRateSource,
     debtsDetail = [],
+    history = {},
   } = result;
 
   const blocks = [];
@@ -867,6 +935,70 @@ function renderAdvice(result) {
     `• Neto: ${fmtCupUsdPair(netoCup)}`,
   ];
   blocks.push(estado.join('\n'));
+
+  const formatSignedInteger = (value) => {
+    const num = Math.round(Number(value) || 0);
+    if (num === 0) return '0';
+    const abs = Math.abs(num).toLocaleString('en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    });
+    const sign = num > 0 ? '+' : '−';
+    return `${sign}${abs}`;
+  };
+
+  const formatSignedUsd = (value) => {
+    const numRaw = Number(value) || 0;
+    const num = Math.round(numRaw * 100) / 100;
+    if (!Number.isFinite(num) || num === 0) {
+      return '0.00';
+    }
+    const abs = Math.abs(num).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    const sign = num > 0 ? '+' : '−';
+    return `${sign}${abs}`;
+  };
+
+  const formatDeltaPair = (value) => {
+    const cupBase = (() => {
+      const raw = formatSignedInteger(value);
+      if (raw === '0') return '0 CUP';
+      return `${raw} CUP`;
+    })();
+    if (!hasBuyRate) {
+      return `Δ ${h(cupBase)}`;
+    }
+    const usdRaw = (Number(value) || 0) / resolvedBuyRate;
+    const usdBase = (() => {
+      const raw = formatSignedUsd(usdRaw);
+      if (raw === '0.00') return '0.00 USD';
+      return `${raw} USD`;
+    })();
+    return `Δ ${h(cupBase)} (≈ ${h(usdBase)})`;
+  };
+
+  const currentDisponibles = Math.round(Number(disponibles) || 0);
+  const historyLines = [];
+  const addHistoryLine = (label, snapshot) => {
+    if (!snapshot || typeof snapshot !== 'object') return;
+    const prevDisponibles = Math.round(Number(snapshot.disponibles) || 0);
+    const delta = currentDisponibles - prevDisponibles;
+    const trend = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
+    const prevText = fmtCupUsdPair(prevDisponibles);
+    const currentText = fmtCupUsdPair(currentDisponibles);
+    const deltaText = formatDeltaPair(delta);
+    historyLines.push(
+      `• ${h(label)}: ${prevText} → ${currentText} ${trend} (${deltaText})`
+    );
+  };
+
+  addHistoryLine('Cierre ayer', history.prevDay);
+  addHistoryLine('Fin mes pasado', history.prevMonth);
+  if (historyLines.length) {
+    blocks.push(['⏱️ <b>Comparativo temporal</b>', ...historyLines].join('\n'));
+  }
 
   const debtEntries = Array.isArray(debtsDetail) ? debtsDetail : [];
   const debtLines = [];
@@ -1361,6 +1493,14 @@ async function runFondo(ctx, opts = {}) {
       deudasCup: totals.deudasCup,
       cushionTarget: config.cushion,
     });
+    const history = buildHistorySnapshots(
+      balances,
+      config.liquidityBanks,
+      needs.cushionTarget
+    );
+    console.log(
+      `[fondoAdvisor] Historial colchón => ayer=${history.prevDay.disponibles} mes=${history.prevMonth.disponibles}`
+    );
     const plan = computePlan({
       needCup: needs.needCup,
       usdInventory: totals.usdInventory,
@@ -1436,6 +1576,7 @@ async function runFondo(ctx, opts = {}) {
       buyRateCup: buyRateCup || null,
       buyRateSource,
       sellRateSource: sellSource,
+      history,
     };
 
     const blocks = renderAdvice(result);

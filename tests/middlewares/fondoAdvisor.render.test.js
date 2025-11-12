@@ -177,6 +177,24 @@ function buildBaseResult(overrides = {}) {
     buyRateSource: 'db',
     sellRateSource: 'db',
     usdInventory: 260,
+    history: {
+      prevDay: {
+        activosCup: 240000,
+        deudasCup: -140000,
+        netoCup: 100000,
+        netoTrasColchon: -20000,
+        disponibles: 100000,
+        usdInventory: 240,
+      },
+      prevMonth: {
+        activosCup: 255000,
+        deudasCup: -110000,
+        netoCup: 145000,
+        netoTrasColchon: 25000,
+        disponibles: 145000,
+        usdInventory: 280,
+      },
+    },
   };
 
   return deepMerge(base, overrides);

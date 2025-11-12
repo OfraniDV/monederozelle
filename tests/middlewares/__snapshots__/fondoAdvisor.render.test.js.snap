@@ -13,6 +13,16 @@ exports[`renderAdvice snapshots caso base con tasa 325 1`] = `
 • Colchón actual: 90,000 CUP (≈ 276.92 USD)
 • Neto: 170,000 CUP (≈ 523.08 USD)
 
+⏱️ <b>Comparativo temporal</b>
+• Cierre ayer: 100,000 CUP (≈ 307.69 USD) → 90,000 CUP (≈ 276.92 USD) 📉 (Δ −10,000 CUP (≈ −30.77 USD))
+• Fin mes pasado: 145,000 CUP (≈ 446.15 USD) → 90,000 CUP (≈ 276.92 USD) 📉 (Δ −55,000 CUP (≈ −169.23 USD))
+
+📉 <b>Detalle de deudas por agente/subcuenta</b>
+
+<pre>—
+
+TOTAL GENERAL: 80,000 CUP / 246.15 USD</pre>
+
 ℹ️ <b>Indicadores</b>
 • Deuda/Activos: 32.0%
 • Avance colchón: 75% ▓▓▓▓▓▓▓▓░░
@@ -104,6 +114,16 @@ exports[`renderAdvice snapshots caso con escenarios y leftover destacados 1`] = 
 • Colchón actual: 90,000 CUP (≈ 276.92 USD)
 • Neto: 170,000 CUP (≈ 523.08 USD)
 
+⏱️ <b>Comparativo temporal</b>
+• Cierre ayer: 100,000 CUP (≈ 307.69 USD) → 90,000 CUP (≈ 276.92 USD) 📉 (Δ −10,000 CUP (≈ −30.77 USD))
+• Fin mes pasado: 145,000 CUP (≈ 446.15 USD) → 90,000 CUP (≈ 276.92 USD) 📉 (Δ −55,000 CUP (≈ −169.23 USD))
+
+📉 <b>Detalle de deudas por agente/subcuenta</b>
+
+<pre>—
+
+TOTAL GENERAL: 80,000 CUP / 246.15 USD</pre>
+
 ℹ️ <b>Indicadores</b>
 • Deuda/Activos: 32.0%
 • Avance colchón: 75% ▓▓▓▓▓▓▓▓░░
@@ -193,6 +213,16 @@ exports[`renderAdvice snapshots caso sin tasa de compra 1`] = `
 • Deudas: -80,000 CUP
 • Colchón actual: 90,000 CUP
 • Neto: 170,000 CUP
+
+⏱️ <b>Comparativo temporal</b>
+• Cierre ayer: 100,000 CUP → 90,000 CUP 📉 (Δ −10,000 CUP)
+• Fin mes pasado: 145,000 CUP → 90,000 CUP 📉 (Δ −55,000 CUP)
+
+📉 <b>Detalle de deudas por agente/subcuenta</b>
+
+<pre>—
+
+TOTAL GENERAL: 80,000 CUP</pre>
 
 ℹ️ <b>Indicadores</b>
 • Deuda/Activos: 32.0%
