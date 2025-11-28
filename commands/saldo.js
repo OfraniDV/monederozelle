@@ -23,6 +23,7 @@ const moment = require('moment-timezone');
 const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { enterAssistMenu } = require('../helpers/assistMenu');
 const { withExitHint } = require('../helpers/ui');
+const { parseUserAmount } = require('../helpers/money');
 
 /* ───────── helpers ───────── */
 const kbBackOrCancel = Markup.inlineKeyboard([
@@ -219,15 +220,23 @@ const saldoWizard = new Scenes.WizardScene(
         if (ok) return ctx.wizard.selectStep(2);
         return;
       }
-      return ctx.reply(withExitHint('Usa los botones o escribe el saldo.'), kbBackOrCancel);
+      return ctx.reply(
+        withExitHint('Usa los botones o escribe el saldo.'),
+        kbBackOrCancel
+      );
     }
-    const num = parseFloat((ctx.message?.text || '').replace(',', '.'));
-    if (isNaN(num)) {
-      return ctx.reply(withExitHint('Valor inválido, escribe solo el saldo numérico.'), kbBackOrCancel);
+
+    // 🔢 Parsear el saldo introducido por el usuario usando el helper reutilizable
+    const num = parseUserAmount(ctx.message?.text);
+    if (!Number.isFinite(num)) {
+      return ctx.reply(
+        withExitHint('Valor inválido, escribe solo el saldo numérico.'),
+        kbBackOrCancel
+      );
     }
 
     const { tarjeta } = ctx.wizard.state.data;
-    const saldoNuevo = parseFloat(num);
+    const saldoNuevo = num;
 
     let saldoAnterior;
     let delta;
@@ -263,7 +272,12 @@ const saldoWizard = new Scenes.WizardScene(
         [tarjeta.id, saldoAnterior, delta, saldoNuevo, descripcion]
       );
 
-      recordChange(ctx.wizard.state.data.agente_id, tarjeta.id, saldoAnterior, saldoNuevo);
+      recordChange(
+        ctx.wizard.state.data.agente_id,
+        tarjeta.id,
+        saldoAnterior,
+        saldoNuevo
+      );
 
       // Construir historial del día para la tarjeta
       const tz = 'America/Havana';
@@ -278,12 +292,14 @@ const saldoWizard = new Scenes.WizardScene(
           [tarjeta.id, start.toDate(), end.toDate()]
         )
       ).rows;
+
       const lines = histRows.map((r) => {
         const hora = moment(r.creado_en).tz(tz).format('HH:mm');
         const d = parseFloat(r.saldo_nuevo) - parseFloat(r.saldo_anterior);
         const e = d > 0 ? '📈' : d < 0 ? '📉' : '➖';
         return `• ${hora} ${e} <code>${(d >= 0 ? '+' : '') + fmtMoney(d)}</code> → <code>${fmtMoney(r.saldo_nuevo)}</code>`;
       });
+
       const saldoIniDia = histRows.length
         ? parseFloat(histRows[0].saldo_anterior)
         : saldoAnterior;
@@ -292,6 +308,7 @@ const saldoWizard = new Scenes.WizardScene(
         : saldoNuevo;
       const deltaDia = saldoFinDia - saldoIniDia;
       const emojiDia = deltaDia > 0 ? '📈' : deltaDia < 0 ? '📉' : '➖';
+
       lines.push(
         `Saldo inicial del día: <code>${fmtMoney(saldoIniDia)}</code> → Saldo final del día: <code>${fmtMoney(saldoFinDia)}</code> (Δ <code>${(deltaDia >= 0 ? '+' : '') + fmtMoney(deltaDia)}</code>) ${emojiDia}`,
       );
@@ -299,6 +316,7 @@ const saldoWizard = new Scenes.WizardScene(
       const emojiDelta = delta > 0 ? '📈' : delta < 0 ? '📉' : '➖';
       const signo = delta > 0 ? 'Aumentó' : delta < 0 ? 'Disminuyó' : 'Sin cambio';
       const header = `${boldHeader('💰', 'Saldo actualizado')}\n`;
+
       const txt = withExitHint(
         header +
           `Saldo anterior: <code>${fmtMoney(saldoAnterior)}</code>\n` +
@@ -308,16 +326,11 @@ const saldoWizard = new Scenes.WizardScene(
           lines.join('\n') +
           '\n\n¿Deseas actualizar otra tarjeta?'
       );
-      // ⚙️  DEPURACIÓN: muestra exactamente qué opciones se envían
+
       console.log('[SALDO_WIZ] sendAndLog extra →', kbContinue);
 
-      // Markup.inlineKeyboard() **ya** devuelve { reply_markup: { … } }.
-      // No hay que volver a envolverlo en otra clave reply_markup
-      // o Telegram descarta el teclado.
-      // ⒈ mensaje interactivo SOLO en el chat actual
       const sent = await sendAndLog(ctx, txt, { ...kbContinue, noForward: true });
 
-      // ⒉ mensaje de registro para los grupos (sin teclado)
       const now = new Date();
       const fecha = now.toLocaleString('es-ES', {
         day: '2-digit',
@@ -326,26 +339,30 @@ const saldoWizard = new Scenes.WizardScene(
         hour: '2-digit',
         minute: '2-digit',
       });
+
       const logTxt =
         `💳 <b>Movimiento – ${fecha}</b>\n` +
         `👤 Usuario: @${escapeHtml(ctx.from.username || ctx.from.id)} (ID: ${ctx.from.id})\n` +
         `• Tarjeta: <b>${escapeHtml(tarjeta.numero)}</b>\n` +
         `• Saldo anterior → Saldo informado: <code>${fmtMoney(saldoAnterior)}</code> → <code>${fmtMoney(saldoNuevo)}</code> (Δ <code>${(delta >= 0 ? '+' : '') + fmtMoney(delta)}</code>) ${emojiDelta}`;
 
-      await sendAndLog(ctx, logTxt); // se reenvía a stats / comerciales
+      await sendAndLog(ctx, logTxt);
 
-      // Actualizamos el mensaje que se editará en los siguientes pasos
       if (sent?.message_id) {
         ctx.wizard.state.data.msgId = sent.message_id;
       }
     } catch (e) {
       console.error('[SALDO_WIZ] error insert movimiento:', e);
-      await ctx.reply(withExitHint('❌ No se pudo registrar el movimiento.'), kbBackOrCancel);
+      await ctx.reply(
+        withExitHint('❌ No se pudo registrar el movimiento.'),
+        kbBackOrCancel
+      );
       return ctx.scene.leave();
     }
 
     return ctx.wizard.next();
   },
+
 
   /* 4 – decidir si continuar o salir */
   async ctx => {
