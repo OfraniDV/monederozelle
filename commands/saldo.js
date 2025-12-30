@@ -24,6 +24,11 @@ const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCa
 const { enterAssistMenu } = require('../helpers/assistMenu');
 const { withExitHint } = require('../helpers/ui');
 const { parseUserAmount } = require('../helpers/money');
+const {
+  buildCurrencyTotals,
+  renderCurrencyTotalsHtml,
+  loadCurrencyRateMap,
+} = require('../helpers/saldoSummary');
 
 /* ───────── helpers ───────── */
 const kbBackOrCancel = Markup.inlineKeyboard([
@@ -38,12 +43,54 @@ const kbContinue = Markup.inlineKeyboard([
 ]);
 
 async function showAgentes(ctx) {
-  const agentes = (
-    await pool.query('SELECT id,nombre FROM agente ORDER BY nombre')
-  ).rows;
+  let agentes = [];
+  let totalsBlock = '';
+
+  try {
+    agentes = (
+      await pool.query('SELECT id,nombre FROM agente ORDER BY nombre')
+    ).rows;
+  } catch (error) {
+    console.error('[SALDO_WIZ] Error consultando agentes:', error);
+    await ctx.reply(withExitHint('❌ Ocurrió un error al cargar los agentes.'), kbBackOrCancel);
+    return false;
+  }
+
   if (!agentes.length) {
     await ctx.reply(withExitHint('⚠️ No hay agentes registrados.'), kbBackOrCancel);
     return false;
+  }
+
+  // Resumen global de saldos por moneda (todas las tarjetas).
+  try {
+    const rateMap = ctx.wizard.state.data?.rateMap || await loadCurrencyRateMap(pool);
+    ctx.wizard.state.data = { ...(ctx.wizard.state.data || {}), rateMap };
+
+    const allBalances = (
+      await pool.query(
+        `
+        SELECT COALESCE(mv.saldo_nuevo,0) AS saldo,
+               COALESCE(m.codigo,'')       AS moneda
+        FROM tarjeta t
+        LEFT JOIN moneda m ON m.id = t.moneda_id
+        LEFT JOIN LATERAL (
+          SELECT saldo_nuevo
+            FROM movimiento
+           WHERE tarjeta_id = t.id
+           ORDER BY creado_en DESC
+           LIMIT 1
+        ) mv ON true
+        `
+      )
+    ).rows;
+
+    const totals = buildCurrencyTotals(allBalances, rateMap);
+    totalsBlock = renderCurrencyTotalsHtml(totals, 'Totales globales por moneda');
+    if (totalsBlock) totalsBlock += '\n\n';
+    console.log('[SALDO_WIZ] Totales globales por moneda =>', totals);
+  } catch (error) {
+    console.error('[SALDO_WIZ] Error generando totales globales:', error);
+    totalsBlock = '<i>No se pudo calcular el resumen global.</i>\n\n';
   }
 
   const kb = [];
@@ -58,47 +105,60 @@ async function showAgentes(ctx) {
   }
   kb.push([Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]);
 
-  const txt = withExitHint(`${boldHeader('👥', 'Agentes disponibles')}\nSeleccione uno:`);
+  const txt = withExitHint(
+    `${boldHeader('👥', 'Agentes disponibles')}\n` +
+      `${totalsBlock}Seleccione uno:`
+  );
   const inline = Markup.inlineKeyboard(kb);
   const extra = { parse_mode: 'HTML', reply_markup: inline.reply_markup };
 
   const msgId = ctx.wizard.state.data?.msgId;
   if (msgId) {
     await ctx.telegram.editMessageText(ctx.chat.id, msgId, undefined, txt, extra);
-    ctx.wizard.state.data = { msgId, agentes };
+    ctx.wizard.state.data = { ...(ctx.wizard.state.data || {}), msgId, agentes };
   } else {
     const msg = await ctx.reply(txt, extra);
-    ctx.wizard.state.data = { msgId: msg.message_id, agentes };
+    ctx.wizard.state.data = { ...(ctx.wizard.state.data || {}), msgId: msg.message_id, agentes };
   }
   return true;
 }
 
 async function showTarjetas(ctx) {
   const { agente_id, agente_nombre } = ctx.wizard.state.data;
-  const tarjetas = (
-    await pool.query(
-      `
-      SELECT t.id, t.numero,
-             COALESCE(mv.saldo_nuevo,0) AS saldo,
-             COALESCE(m.codigo,'')       AS moneda,
-             COALESCE(m.emoji,'')        AS moneda_emoji,
-             COALESCE(b.nombre,'')       AS banco,
-             COALESCE(b.emoji,'')        AS banco_emoji
-      FROM tarjeta t
-      LEFT JOIN moneda m  ON m.id = t.moneda_id
-      LEFT JOIN banco  b  ON b.id = t.banco_id
-      LEFT JOIN LATERAL (
-        SELECT saldo_nuevo
-          FROM movimiento
-          WHERE tarjeta_id = t.id
-          ORDER BY creado_en DESC
-          LIMIT 1
-      ) mv ON true
-      WHERE t.agente_id = $1
-      ORDER BY t.numero;`,
-      [agente_id]
-    )
-  ).rows;
+  let tarjetas = [];
+  let totalsBlock = '';
+
+  try {
+    tarjetas = (
+      await pool.query(
+        `
+        SELECT t.id, t.numero,
+               COALESCE(mv.saldo_nuevo,0) AS saldo,
+               COALESCE(m.codigo,'')       AS moneda,
+               COALESCE(m.emoji,'')        AS moneda_emoji,
+               COALESCE(b.nombre,'')       AS banco,
+               COALESCE(b.emoji,'')        AS banco_emoji
+        FROM tarjeta t
+        LEFT JOIN moneda m  ON m.id = t.moneda_id
+        LEFT JOIN banco  b  ON b.id = t.banco_id
+        LEFT JOIN LATERAL (
+          SELECT saldo_nuevo
+            FROM movimiento
+            WHERE tarjeta_id = t.id
+            ORDER BY creado_en DESC
+            LIMIT 1
+        ) mv ON true
+        WHERE t.agente_id = $1
+        ORDER BY t.numero;`,
+        [agente_id]
+      )
+    ).rows;
+  } catch (error) {
+    console.error('[SALDO_WIZ] Error consultando tarjetas:', error);
+    await ctx.reply(withExitHint('❌ Ocurrió un error al cargar las tarjetas.'), kbBackOrCancel);
+    await ctx.scene.leave();
+    return false;
+  }
 
   if (!tarjetas.length) {
     await ctx.telegram.editMessageText(
@@ -122,7 +182,24 @@ async function showTarjetas(ctx) {
     Markup.button.callback('👥 Agentes', 'OTROS_AG'),
     Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')
   ]);
-  const txt = withExitHint(`💳 <b>Tarjetas de ${escapeHtml(agente_nombre)}</b>`);
+  // Totales por moneda para el agente seleccionado.
+  try {
+    const rateMap = ctx.wizard.state.data?.rateMap || await loadCurrencyRateMap(pool);
+    ctx.wizard.state.data = { ...(ctx.wizard.state.data || {}), rateMap };
+
+    const totals = buildCurrencyTotals(tarjetas, rateMap);
+    totalsBlock = renderCurrencyTotalsHtml(totals, 'Totales por moneda');
+    if (totalsBlock) totalsBlock += '\n\n';
+    console.log(`[SALDO_WIZ] Totales por moneda (${agente_nombre}) =>`, totals);
+  } catch (error) {
+    console.error('[SALDO_WIZ] Error generando totales del agente:', error);
+    totalsBlock = '<i>No se pudo calcular el resumen del agente.</i>\n\n';
+  }
+
+  const txt = withExitHint(
+    `💳 <b>Tarjetas de ${escapeHtml(agente_nombre)}</b>\n` +
+      `${totalsBlock}Selecciona una tarjeta:`
+  );
   await ctx.telegram.editMessageText(
     ctx.chat.id,
     ctx.wizard.state.data.msgId,
