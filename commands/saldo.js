@@ -36,12 +36,6 @@ const kbBackOrCancel = Markup.inlineKeyboard([
   [Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]
 ]);
 
-const kbContinue = Markup.inlineKeyboard([
-  [Markup.button.callback('🔄 Otra tarjeta', 'OTRA_TA')],
-  [Markup.button.callback('👥 Otros agentes', 'OTROS_AG')],
-  [Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]
-]);
-
 async function showAgentes(ctx) {
   let agentes = [];
   let totalsBlock = '';
@@ -285,7 +279,7 @@ const saldoWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
 
-  /* 3 – registrar movimiento y preguntar continuación */
+  /* 3 – registrar movimiento y volver al menú de tarjetas */
   async ctx => {
     console.log('[SALDO_WIZ] paso 3: registrar movimiento');
     if (await handleGlobalCancel(ctx)) return;
@@ -401,12 +395,10 @@ const saldoWizard = new Scenes.WizardScene(
           `${emojiDelta} ${signo} <code>${fmtMoney(Math.abs(delta))}</code> ${escapeHtml(tarjeta.moneda)}\n\n` +
           '📆 Historial de hoy:\n' +
           lines.join('\n') +
-          '\n\n¿Deseas actualizar otra tarjeta?'
+          '\n\nSelecciona otra tarjeta en el menú.'
       );
 
-      console.log('[SALDO_WIZ] sendAndLog extra →', kbContinue);
-
-      const sent = await sendAndLog(ctx, txt, { ...kbContinue, noForward: true });
+      await sendAndLog(ctx, txt, { noForward: true });
 
       const now = new Date();
       const fecha = now.toLocaleString('es-ES', {
@@ -425,9 +417,6 @@ const saldoWizard = new Scenes.WizardScene(
 
       await sendAndLog(ctx, logTxt);
 
-      if (sent?.message_id) {
-        ctx.wizard.state.data.msgId = sent.message_id;
-      }
     } catch (e) {
       console.error('[SALDO_WIZ] error insert movimiento:', e);
       await ctx.reply(
@@ -437,31 +426,9 @@ const saldoWizard = new Scenes.WizardScene(
       return ctx.scene.leave();
     }
 
-    return ctx.wizard.next();
-  },
-
-
-  /* 4 – decidir si continuar o salir */
-  async ctx => {
-    console.log('[SALDO_WIZ] paso 4: continuar o salir');
-    if (await handleGlobalCancel(ctx)) return;
-    if (!ctx.callbackQuery) return;
-    const { data } = ctx.callbackQuery;
-    await ctx.answerCbQuery().catch(() => {});
-
-    if (data === 'OTRA_TA') {
-      const ok = await showTarjetas(ctx);
-      if (ok) return ctx.wizard.selectStep(2);
-      return;
-    }
-
-    if (data === 'OTROS_AG') {
-      const ok = await showAgentes(ctx);
-      if (ok) return ctx.wizard.selectStep(1);
-      return;
-    }
-
-    return ctx.reply(withExitHint('Usa los botones para continuar.'), kbBackOrCancel);
+    const ok = await showTarjetas(ctx);
+    if (ok) return ctx.wizard.selectStep(2);
+    return;
   }
 );
 
