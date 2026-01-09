@@ -117,7 +117,8 @@ async function showAgentes(ctx) {
   return true;
 }
 
-async function showTarjetas(ctx) {
+async function showTarjetas(ctx, options = {}) {
+  const { sendNewMessage = false } = options;
   const { agente_id, agente_nombre } = ctx.wizard.state.data;
   let tarjetas = [];
   let totalsBlock = '';
@@ -194,13 +195,20 @@ async function showTarjetas(ctx) {
     `💳 <b>Tarjetas de ${escapeHtml(agente_nombre)}</b>\n` +
       `${totalsBlock}Selecciona una tarjeta:`
   );
-  await ctx.telegram.editMessageText(
-    ctx.chat.id,
-    ctx.wizard.state.data.msgId,
-    undefined,
-    txt,
-    { parse_mode: 'HTML', ...Markup.inlineKeyboard(kb) }
-  );
+  const inline = Markup.inlineKeyboard(kb);
+  const extra = { parse_mode: 'HTML', reply_markup: inline.reply_markup };
+  const msgId = ctx.wizard.state.data.msgId;
+  if (sendNewMessage || !msgId) {
+    if (sendNewMessage && msgId) {
+      await ctx.telegram
+        .editMessageReplyMarkup(ctx.chat.id, msgId, undefined, { inline_keyboard: [] })
+        .catch(() => {});
+    }
+    const msg = await ctx.reply(txt, extra);
+    ctx.wizard.state.data.msgId = msg.message_id;
+  } else {
+    await ctx.telegram.editMessageText(ctx.chat.id, msgId, undefined, txt, extra);
+  }
   ctx.wizard.state.data.tarjetas = tarjetas; // caché
   return true;
 }
@@ -426,7 +434,7 @@ const saldoWizard = new Scenes.WizardScene(
       return ctx.scene.leave();
     }
 
-    const ok = await showTarjetas(ctx);
+    const ok = await showTarjetas(ctx, { sendNewMessage: true });
     if (ok) return ctx.wizard.selectStep(2);
     return;
   }
