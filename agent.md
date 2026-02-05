@@ -34,3 +34,15 @@
 - Las tarjetas creadas dentro del rango arrancan con `saldo_ini_period = 0`; movimientos fuera del rango no inflan ese inicio.
 - Se registran en los logs `cardsInRange`, `cardsBornInRange` y ejemplos de tarjetas cuyo inicio se fuerza a 0.
 - Las equivalencias en USD usan la tasa actual almacenada en `moneda.tasa_usd`.
+
+<!-- CODEx:POWERSHELL_GIT_FLOW -->
+## Flujo obligatorio de guardado (PowerShell)
+Al terminar cualquier tarea en este repositorio, ejecutar siempre en PowerShell y en este orden:
+
+```powershell
+git add .
+git commit -m "<mensaje claro del cambio>"
+git push
+```
+
+No dar por finalizada la tarea sin completar los tres pasos.
