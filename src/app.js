@@ -49,11 +49,12 @@ const extractoAssist  = require('./commands/extracto_assist');
 const fondoConfigAssist = require('./commands/fondo_config_assist');
 const assistMenu      = require('./commands/assist_menu');
 const {
-  buildStartMainKeyboard,
   buildStartHelpKeyboard,
+  buildCategoryMenuKeyboard,
   resolveStartSceneFromCallback,
   getMenuItems,
   START_CALLBACKS,
+  CATEGORY_CALLBACK_PREFIX,
 } = require('./helpers/assistMenu');
 const { registerFondoAdvisor, runFondo } = require('./middlewares/fondoAdvisor');
 
@@ -255,6 +256,14 @@ bot.command('start', safe(async (ctx) => {
 
 bot.action(/^NOOP:CATEGORY:/, safe(async (ctx) => {
   await ctx.answerCbQuery('Elige un botón del bloque para continuar.').catch(() => {});
+}));
+
+bot.action(new RegExp(`^${CATEGORY_CALLBACK_PREFIX}`), safe(async (ctx) => {
+  const categoryId = ctx.callbackQuery.data.slice(CATEGORY_CALLBACK_PREFIX.length);
+  await ctx.answerCbQuery().catch(() => {});
+  const text = buildStartHomeHtml(ctx) + `\n\n📂 <b>Categoría:</b> ${categoryId}`;
+  const keyboard = buildCategoryMenuKeyboard(ctx, categoryId);
+  await editStartMessage(ctx, text, { parse_mode: 'HTML', reply_markup: keyboard.reply_markup });
 }));
 
 bot.action(/^START:(?:SCENE:|HOME|HELP|MENU|CLOSE)/, safe(async (ctx) => {

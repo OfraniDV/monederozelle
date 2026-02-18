@@ -127,15 +127,42 @@ function buildNavKeyboard({
 }
 
 /**
- * Organiza un arreglo plano de botones en filas de dos.
- * @param {Array} buttons Lista de botones (Markup.button.callback).
- * @returns {Array} Matriz con máximo dos botones por fila.
+ * Organiza un arreglo plano de botones en filas.
+ * Por defecto usa 2 botones por fila, pero si un botón tiene un texto
+ * muy largo, se le asigna su propia fila.
+ *
+ * @param {Array} buttons Lista de botones.
+ * @param {number} [maxPerRow=2] Máximo de botones por fila.
+ * @param {number} [threshold=20] Umbral de longitud para forzar fila única.
+ * @returns {Array} Matriz de botones.
  */
-function arrangeInlineButtons(buttons = []) {
+function arrangeInlineButtons(buttons = [], maxPerRow = 2, threshold = 18) {
   const rows = [];
-  for (let i = 0; i < buttons.length; i += 2) {
-    rows.push(buttons.slice(i, i + 2));
+  let currentRow = [];
+
+  buttons.forEach((btn) => {
+    const text = btn.text || '';
+    const isLong = text.length > threshold;
+
+    if (isLong) {
+      if (currentRow.length > 0) {
+        rows.push(currentRow);
+        currentRow = [];
+      }
+      rows.push([btn]);
+    } else {
+      currentRow.push(btn);
+      if (currentRow.length >= maxPerRow) {
+        rows.push(currentRow);
+        currentRow = [];
+      }
+    }
+  });
+
+  if (currentRow.length > 0) {
+    rows.push(currentRow);
   }
+
   return rows;
 }
 

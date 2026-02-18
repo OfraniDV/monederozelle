@@ -2,7 +2,9 @@ const { Markup } = require('telegraf');
 const { arrangeInlineButtons, withExitHint } = require('./ui');
 const { ownerIds } = require('../config');
 
-const CATEGORY_CALLBACK_PREFIX = 'NOOP:CATEGORY:';
+const CATEGORY_CALLBACK_PREFIX = 'CAT_NAV:';
+const SCENE_CALLBACK_PREFIX = 'START:SCENE:';
+const START_HOME_CB = 'START:HOME';
 
 const MENU_ITEMS = [
   { scene: 'SALDO_WIZ', label: '💰 Saldo', category: 'OPERACION', ownerOnly: false },
@@ -98,23 +100,46 @@ function buildMenuKeyboard(ctx, { includeExit = true, extraItems = [] } = {}) {
 }
 
 function buildStartMainKeyboard(ctx) {
-  const items = getMenuItems(ctx);
-  const allowedScenes = isOwner(ctx)
-    ? new Set([...START_BASE_SCENES, ...START_OWNER_EXTRA_SCENES])
-    : new Set(START_BASE_SCENES);
+  const allowOwner = isOwner(ctx);
+  const categories = MENU_CATEGORIES.filter(c => !c.ownerOnly || allowOwner);
 
-  const rows = buildCategoryRows(ctx, {
-    items,
-    scenePrefix: START_CALLBACKS.scenePrefix,
-    includeHeaders: true,
-    allowedScenes,
-  });
+  const buttons = categories.map((cat) =>
+    Markup.button.callback(cat.header.replace(/──/g, '').trim(), `${CATEGORY_CALLBACK_PREFIX}${cat.id}`)
+  );
+
+  const rows = arrangeInlineButtons(buttons, 1); // Una categoría por fila para que se vea limpio
 
   rows.push([
     Markup.button.callback('🧭 Menú completo', START_CALLBACKS.fullMenu),
     Markup.button.callback('📜 Comandos', START_CALLBACKS.help),
   ]);
   rows.push([Markup.button.callback('❌ Cerrar', START_CALLBACKS.close)]);
+
+  return Markup.inlineKeyboard(rows);
+}
+
+function buildCategoryMenuKeyboard(ctx, categoryId) {
+  const items = getMenuItems(ctx);
+  const category = MENU_CATEGORIES.find(c => c.id === categoryId);
+  if (!category) return buildStartMainKeyboard(ctx);
+
+  const allowedScenes = isOwner(ctx)
+    ? new Set([...START_BASE_SCENES, ...START_OWNER_EXTRA_SCENES])
+    : new Set(START_BASE_SCENES);
+
+  const categoryItems = items
+    .filter(item => item.category === categoryId)
+    .filter(item => allowedScenes.has(item.scene));
+
+  const buttons = categoryItems.map(item =>
+    Markup.button.callback(item.label, `${START_CALLBACKS.scenePrefix}${item.scene}`)
+  );
+
+  const rows = arrangeInlineButtons(buttons, 2);
+  rows.push([
+    Markup.button.callback('🔙 Volver', START_CALLBACKS.home),
+    Markup.button.callback('❌ Cerrar', START_CALLBACKS.close)
+  ]);
 
   return Markup.inlineKeyboard(rows);
 }
@@ -155,6 +180,7 @@ module.exports = {
   getMenuItems,
   buildStartMainKeyboard,
   buildStartHelpKeyboard,
+  buildCategoryMenuKeyboard,
   resolveStartSceneFromCallback,
   START_CALLBACKS,
   CATEGORY_CALLBACK_PREFIX,
