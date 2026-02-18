@@ -125,14 +125,24 @@ const getAllDDLs = () => [
     ON movimiento(tarjeta_id, creado_en);
   `,
 
-  // 7. Compatibilidad / migración: añadir columnas que falten.
+  // 7. Configuración persistente del asesor de fondo (override sobre .env).
+  `
+  CREATE TABLE IF NOT EXISTS advisor_setting (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    updated_by  BIGINT,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  `,
+
+  // 8. Compatibilidad / migración: añadir columnas que falten.
   `ALTER TABLE moneda  ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '';`,
   `ALTER TABLE banco   ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '';`,
   `ALTER TABLE agente  ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '';`,
   `ALTER TABLE tarjeta ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '';`,
   `ALTER TABLE tarjeta ADD COLUMN IF NOT EXISTS banco_id INTEGER REFERENCES banco(id);`,
 
-  // 8. Índices únicos de respaldo
+  // 9. Índices únicos de respaldo
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_moneda_codigo ON moneda(codigo);`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_banco_codigo  ON banco(codigo);`
 ];

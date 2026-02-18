@@ -14,4 +14,8 @@
 
 ## Documentación y procesos
 - [ ] Documentar en `docs/auditorias/` el nuevo protocolo de contribución (documentar cambios, no tocar lógica/base sin orden, ubicación de tests) para dejar constancia histórica. 【F:AGENTS.md†L3-L23】【F:agent.md†L1-L11】
-- [ ] Mantener actualizado este `TODO.md` después de cada auditoría o cambio significativo.
+- [x] Mantener actualizado este `TODO.md` después de cada auditoría o cambio significativo.
+
+## Refactoring y DRY
+- [ ] Evaluar la unificación de los wizards de datos maestros (`agente.js`, `banco.js`, `moneda.js`) en un helper genérico `masterDataWizard.js` para reducir la duplicación de lógica de listado, edición y borrado.
+- [ ] Centralizar los IDs de emojis premium que aún aparecen como fallbacks hardcoded en `premiumEmojiText.js` (algunos ya fueron limpiados).

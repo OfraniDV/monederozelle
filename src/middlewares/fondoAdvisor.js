@@ -4,6 +4,7 @@ const path = require('path');
 const { escapeHtml } = require('../helpers/format');
 const { sendLargeMessage } = require('../helpers/sendLargeMessage');
 const { safeSendMessage, safeReply } = require('../helpers/telegram');
+const { loadAdvisorConfigOverrides } = require('../helpers/advisorSettings');
 
 // Escapa TODO texto dinámico para HTML
 function h(text = '') {
@@ -1435,17 +1436,27 @@ async function runFondo(ctx, opts = {}) {
   session.__fondoAdvisorRunning = true;
   try {
     const baseConfig = loadConfig();
+    const dbRuntime = await loadAdvisorConfigOverrides({ queryFn: query });
+    const dbOverrides = dbRuntime.overrides || {};
     const override = opts.config || {};
     const config = {
       ...baseConfig,
+      ...dbOverrides,
       ...override,
+      extendableBanks: Array.isArray(override.extendableBanks)
+        ? override.extendableBanks
+        : Array.isArray(dbOverrides.extendableBanks)
+          ? dbOverrides.extendableBanks
+          : baseConfig.extendableBanks,
       liquidityBanks: Array.isArray(override.liquidityBanks)
         ? override.liquidityBanks
         : baseConfig.liquidityBanks,
     };
     console.log('[fondoAdvisor] Configuración efectiva =>', JSON.stringify(config));
 
-    let sellSource = typeof override.sellRate === 'number' ? 'config' : 'env';
+    let sellSource = 'env';
+    if (typeof dbOverrides.sellRate === 'number') sellSource = 'db';
+    if (typeof override.sellRate === 'number') sellSource = 'config';
     let buyRateCup = null;
     let buyRateSource = 'none';
 

@@ -109,6 +109,12 @@ const comandos = [
     descripcion: 'Asistente para gestionar usuarios con acceso (agregar o eliminar).',
     permiso: 'Solo propietario',
     uso: '/acceso'
+  },
+  {
+    nombre: 'configfondo',
+    descripcion: 'Asistente para configurar parámetros del asesor de fondo desde la base de datos (con fallback a .env).',
+    permiso: 'Solo propietario',
+    uso: '/configfondo'
   }
 ];
 

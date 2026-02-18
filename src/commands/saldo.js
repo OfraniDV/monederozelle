@@ -379,6 +379,39 @@ async function showOperationMenu(ctx, tarjeta) {
   );
 }
 
+async function handleSaldoLeave(ctx) {
+  const chatType = ctx?.chat?.type;
+  const isGroup = chatType === 'group' || chatType === 'supergroup';
+
+  try {
+    if (isGroup) {
+      await runFondo(ctx, {
+        send: async (text) => {
+          const userId = ctx?.from?.id;
+          const telegram = ctx?.telegram;
+          if (!userId || !telegram?.sendMessage) {
+            return;
+          }
+          try {
+            await telegram.sendMessage(userId, text, { parse_mode: 'HTML' });
+            console.log('[SALDO_WIZ] fondoAdvisor enviado por DM a', userId);
+          } catch (err) {
+            console.log('[SALDO_WIZ] No se pudo enviar DM del fondoAdvisor:', err?.message || err);
+          }
+        },
+      });
+    } else {
+      await runFondo(ctx);
+    }
+  } catch (error) {
+    await handleError(error, ctx, 'saldo_leave_fondo');
+  } finally {
+    if (ctx?.wizard) {
+      ctx.wizard.state = {};
+    }
+  }
+}
+
 /* ───────── Wizard ───────── */
 const saldoWizard = new Scenes.WizardScene(
   'SALDO_WIZ',
@@ -386,14 +419,14 @@ const saldoWizard = new Scenes.WizardScene(
   /* 0 – mostrar agentes */
   async ctx => {
     console.log('[SALDO_WIZ] paso 0: mostrar agentes');
-    if (await handleGlobalCancel(ctx)) return;
-    if (ctx.callbackQuery) {
-      await ctx.answerCbQuery().catch(() => {});
-    }
     registerCancelHooks(ctx, {
       afterLeave: enterAssistMenu,
       notify: false, // evitamos mensaje genérico: mostramos fondo y luego menú
     });
+    if (await handleGlobalCancel(ctx)) return;
+    if (ctx.callbackQuery) {
+      await ctx.answerCbQuery().catch(() => {});
+    }
     const ok = await showAgentes(ctx);
     if (!ok) return;
     return ctx.wizard.next();
@@ -653,6 +686,12 @@ const saldoWizard = new Scenes.WizardScene(
     return;
   }
 );
+
+saldoWizard.leave(async (ctx, next) => {
+  await handleSaldoLeave(ctx);
+  return next();
+});
+saldoWizard.handleSaldoLeave = handleSaldoLeave;
 
 // ✔ probado con tarjeta 5278
 module.exports = saldoWizard;

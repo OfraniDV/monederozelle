@@ -10,6 +10,7 @@ const MENU_ITEMS = [
   { scene: 'MONITOR_ASSIST', label: '📈 Monitor', category: 'ANALISIS', ownerOnly: false },
   { scene: 'EXTRACTO_ASSIST', label: '📄 Extracto', category: 'ANALISIS', ownerOnly: false },
   { scene: 'ACCESO_ASSIST', label: '🔐 Accesos', category: 'ADMIN', ownerOnly: true },
+  { scene: 'FONDO_CONFIG_ASSIST', label: '⚙️ Config Fondo', category: 'ADMIN', ownerOnly: true },
   { scene: 'TARJETA_WIZ', label: '➕ Tarjeta', category: 'ADMIN', ownerOnly: true },
   { scene: 'AGENTE_WIZ', label: '🧑‍💼 Agentes', category: 'ADMIN', ownerOnly: true },
   { scene: 'BANCO_CREATE_WIZ', label: '🏦 Bancos', category: 'ADMIN', ownerOnly: true },
@@ -36,7 +37,7 @@ const START_BASE_SCENES = [
   'MONITOR_ASSIST',
   'EXTRACTO_ASSIST',
 ];
-const START_OWNER_EXTRA_SCENES = ['TARJETA_WIZ', 'ACCESO_ASSIST'];
+const START_OWNER_EXTRA_SCENES = ['TARJETA_WIZ', 'ACCESO_ASSIST', 'FONDO_CONFIG_ASSIST'];
 
 function isOwner(ctx) {
   const uid = Number(ctx.from?.id || 0);

@@ -11,6 +11,7 @@ const { escapeHtml, fmtMoney, boldHeader } = require('../helpers/format');
 const { getDefaultPeriod } = require('../helpers/period');
 const { buildEntityFilter } = require('../helpers/filters');
 const { sendLargeMessage } = require('../helpers/sendLargeMessage');
+const { loadAdvisorConfigOverrides } = require('../helpers/advisorSettings');
 
 let db;
 try {
@@ -128,7 +129,7 @@ async function getSellRate() {
   const fallbackSell = parseNumber(process.env.ADVISOR_SELL_RATE_CUP_PER_USD, 452);
   const feePct = clamp01(parseNumber(process.env.ADVISOR_SELL_FEE_PCT, 0));
   const marginPct = clamp01(parseNumber(process.env.ADVISOR_FX_MARGIN_PCT, 0));
-  const sellRate = fallbackSell;
+  let sellRate = fallbackSell;
   let source = 'env';
   let buyRate = null;
   let buySource = 'none';
@@ -145,6 +146,15 @@ async function getSellRate() {
     }
   } catch (err) {
     console.error('[monitor] Error leyendo tasa SELL de DB:', err.message);
+  }
+  try {
+    const runtime = await loadAdvisorConfigOverrides({ queryFn: db.query });
+    if (Number.isFinite(runtime?.overrides?.sellRate) && runtime.overrides.sellRate > 0) {
+      sellRate = runtime.overrides.sellRate;
+      source = 'db';
+    }
+  } catch (err) {
+    console.error('[monitor] Error leyendo override de tasa SELL:', err.message);
   }
   let sellNet = Math.floor(sellRate * (1 - feePct));
   if (!Number.isFinite(sellNet) || sellNet <= 0) sellNet = sellRate;

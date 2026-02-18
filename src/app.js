@@ -46,6 +46,7 @@ const tarjetasAssist  = require('./commands/tarjetas_assist');
 const monitorAssist   = require('./commands/monitor_assist');
 const accesoAssist    = require('./commands/acceso_assist');
 const extractoAssist  = require('./commands/extracto_assist');
+const fondoConfigAssist = require('./commands/fondo_config_assist');
 const assistMenu      = require('./commands/assist_menu');
 const {
   buildStartMainKeyboard,
@@ -76,6 +77,7 @@ const stage = new Scenes.Stage(
     monitorAssist,
     accesoAssist,
     extractoAssist,
+    fondoConfigAssist,
     assistMenu,
   ]
 );
@@ -327,6 +329,7 @@ bot.command('saldo',    (ctx) => ctx.scene.enter('SALDO_WIZ'));
 bot.command('tarjetas', (ctx) => ctx.scene.enter('TARJETAS_ASSIST'));
 bot.command('monitor',  (ctx) => ctx.scene.enter('MONITOR_ASSIST'));
 bot.command('acceso',   ownerOnly((ctx) => ctx.scene.enter('ACCESO_ASSIST')));
+bot.command('configfondo', ownerOnly((ctx) => ctx.scene.enter('FONDO_CONFIG_ASSIST')));
 bot.command('extracto', (ctx) => ctx.scene.enter('EXTRACTO_ASSIST'));
 bot.command('menu',     (ctx) => ctx.scene.enter('ASSISTANT_MENU'));
 bot.command('fondo',    safe(require('./commands/fondo')));
