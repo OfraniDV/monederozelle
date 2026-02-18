@@ -14,6 +14,7 @@ Monedero Zelle Bot es una solución integral de administración financiera pensa
 - `/tarjetas`, `/monitor`, `/extracto` y otros comandos ofrecen reportes y análisis filtrables.
 - Control de acceso para permitir solo usuarios autorizados y comandos legacy para sistemas previos.
 - Interfaz HTML segura con sanitización, listas compactas y teclados de dos botones por fila.
+- Capa global Premium UI para Telegram: reemplazo automático de emojis premium en texto, autoestilo de botones (`style` + `icon_custom_emoji_id`) y fallback seguro.
 - Arranque resiliente: verifica la base PostgreSQL, extensiones e índices antes de iniciar el bot.
 
 ## 🛠️ Tecnologías y arquitectura
@@ -96,6 +97,17 @@ Estas utilidades facilitan la creación de asistentes consistentes:
 - `sendReportWithKb(ctx, pages, kb)`: envía páginas largas y añade al final un teclado Save/Exit.
 - `handleGlobalCancel(ctx)`: helper centralizado (en `src/helpers/wizardCancel.js`) que responde a `/cancel`, `salir` y al botón `GLOBAL_CANCEL`, limpia la escena y confirma con “❌ Operación cancelada.”.
 
+### Premium UI Global
+
+El bot incorpora un controlador global para salida de Telegram:
+
+- `src/helpers/telegramGlobalController.js` envuelve `bot.telegram` y transforma mensajes/botones automáticamente.
+- `src/helpers/premiumEmojis.js` contiene el diccionario central de IDs premium.
+- `src/helpers/premiumEmojiText.js` convierte emojis Unicode y tokens `:CLAVE:` a `<tg-emoji ...>`.
+- `src/helpers/telegramButtonAutoStyle.js` aplica estilo automático a botones con `Markup`.
+
+Documentación técnica: `src/docs/telegram-premium-ui.md`.
+
 ## 🧮 Asesor de Fondo
 
 El middleware `src/middlewares/fondoAdvisor.js` genera un informe financiero cada vez que se cierran los asistentes de tarjetas,
@@ -138,12 +150,20 @@ await sendReportWithKb(ctx, paginas, kb);
 Cada comando se invoca escribiendo el texto en el chat del bot. Los asistentes muestran botones y confirmaciones según corresponda.
 
 ### 🟢 <span style="color:#27ae60;">/start</span>
-Saluda y confirma que el bot está activo.
+Abre un <b>main menu inline</b> con accesos rápidos a los asistentes principales:
+`/saldo`, `/monitor`, `/tarjetas`, `/extracto`, y para owners también accesos administrativos.
+Desde el mismo menú puedes:
+- Ir al asistente seleccionado.
+- Abrir `🧭 Menú completo` (`ASSISTANT_MENU`).
+- Ver `📜 Comandos`.
+- Cerrar con `❌`.
 
 **Ejemplo:**
 ```text
 /start
-Hola, ¡bienvenido al bot de Monedero Zelle!
+✨ Hola, {nombre}
+🎛️ Tienes N asistentes disponibles desde este menú.
+[botones inline de asistentes]
 ```
 
 ### 🛰️ <span style="color:#f1c40f;">/ping</span>

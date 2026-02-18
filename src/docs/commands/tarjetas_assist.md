@@ -1,19 +1,22 @@
 # /tarjetas (asistente)
 
 ## Descripción
-Asistente de navegación que permite explorar tarjetas sin generar nuevos mensajes: ofrece vistas por agente, por combinación moneda-banco, resumen global y detalle completo, reutilizando `sendLargeMessage` para bloques extensos y teclados inline para moverse entre rutas.【F:commands/tarjetas_assist.js†L1-L220】
+Asistente de consulta para ver tarjetas por distintas vistas: por agente, por moneda/banco, resumen global y listado completo.
 
-## Flujo principal
-1. Carga todos los saldos de tarjetas con metadatos de agente, banco y moneda, agrupando por agente y por moneda/banco para construir estructuras reutilizables.【F:commands/tarjetas_assist.js†L82-L168】
-2. Presenta un menú principal con opciones “Por moneda y banco”, “Por agente”, “Resumen USD global” y “Ver todas”, cada una navegable con botones `Volver`/`❌ Salir` y textos que recuerdan que escribir “salir” también cancela la escena.【F:commands/tarjetas_assist.js†L170-L210】
-3. Las rutas de agente muestran tarjetas y totales por moneda, mientras que las vistas por moneda+banco separan saldos positivos y negativos para resaltar capacidad versus deudas. Los bloques resultantes se normalizan con `chunkHtml` antes de reutilizarlos.【F:commands/tarjetas_assist.js†L51-L360】
-4. Todas las respuestas se envían editando el mensaje original mediante `editIfChanged`; para listados largos se usa `sendLargeMessage` o `sendReportWithKb` evitando errores 400 por contenido repetido y cerrando correctamente etiquetas HTML.【F:commands/tarjetas_assist.js†L25-L360】
+## Flujo
+1. Carga dataset de tarjetas con agente, banco y moneda.
+2. Muestra menú principal de vistas.
+3. Navega entre vistas con edición del mismo mensaje.
+4. Para salidas largas, pagina/envía bloques sin romper HTML.
 
-## Entradas relevantes
-- Interacción del operador mediante callbacks inline (`AG_*`, `MON_*`, etc.) y botones de navegación estándar (`Volver`, `Salir`).【F:commands/tarjetas_assist.js†L170-L220】
+## Navegación
+- Flujo basado en callbacks inline.
+- Controles de `Volver` y `Salir`.
+- Cancelación centralizada con `handleGlobalCancel`.
 
-## Salidas
-- Bloques HTML escapados con resúmenes por agente y moneda, enviados como mensaje editado o división automática cuando superan los 4096 caracteres.【F:commands/tarjetas_assist.js†L25-L220】
+## Premium UI
+- Botones de vista (`VIEW_*`) y navegación reciben icono premium automático.
+- Fallback premium para callbacks no mapeados evita botones sin icono.
 
-## Dependencias
-- Utiliza helpers de UI (`editIfChanged`, `arrangeInlineButtons`, `buildBackExitRow`), `chunkHtml`, `handleGlobalCancel` y `sendLargeMessage`/`sendAndLog` para reportes, además del pool PostgreSQL para obtener datos.【F:commands/tarjetas_assist.js†L22-L360】
+## Implementación
+- `src/commands/tarjetas_assist.js`

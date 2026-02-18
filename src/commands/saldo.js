@@ -5,8 +5,9 @@
 // constructores de texto y parse_mode en las llamadas a Telegram.
 //
 // 1) El usuario elige AGENTE.
-// 2) Se muestran sus tarjetas con el saldo actual  ➜ elige una.
-// 3) Escribe el SALDO ACTUAL (número).            ➜ el bot calcula ↑/↓ y registra
+// 2) Se muestran sus tarjetas con el saldo actual ➜ elige una.
+// 3) Selecciona operación: saldo actual / aumentar / retirar.
+// 4) Escribe el monto o saldo final (según operación) ➜ el bot calcula y registra.
 //
 // Se añade siempre un movimiento:  saldo_anterior • importe(+/-) • saldo_nuevo
 // Luego se informa si “aumentó” o “disminuyó” y en cuánto.
@@ -33,10 +34,85 @@ const {
 } = require('../helpers/saldoSummary');
 
 /* ───────── helpers ───────── */
-const kbBackOrCancel = Markup.inlineKeyboard([
-  [Markup.button.callback('🔙 Volver', 'VOLVER_TA')],
-  [Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]
-]);
+const OPERATIONS = {
+  SET: {
+    callback: 'OP_SET',
+    button: '🟣💎 Saldo actual',
+    title: '🟣 <b>Actualizar saldo actual</b>',
+    prompt: 'Ingresa el saldo final actual de la tarjeta.',
+    example: 'Ejemplo: 1500.50',
+    description: 'Saldo informado',
+  },
+  ADD: {
+    callback: 'OP_ADD',
+    button: '🟢✨ Aumentar saldo',
+    title: '🟢 <b>Agregar saldo</b>',
+    prompt: 'Ingresa cuánto deseas sumar al saldo actual.',
+    example: 'Ejemplo: 250',
+    description: 'Monto agregado',
+  },
+  SUB: {
+    callback: 'OP_SUB',
+    button: '🔴🔥 Retirar saldo',
+    title: '🔴 <b>Retirar saldo</b>',
+    prompt: 'Ingresa cuánto deseas retirar del saldo actual.',
+    example: 'Ejemplo: 100',
+    description: 'Monto retirado',
+  },
+};
+
+function buildBackCancelKeyboard(backCb = 'VOLVER_TA') {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('🔙 Volver', backCb)],
+    [Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')],
+  ]);
+}
+
+const kbBackTarjetasOrCancel = buildBackCancelKeyboard('VOLVER_TA');
+const kbBackModeOrCancel = buildBackCancelKeyboard('VOLVER_OP');
+
+function resolveOperationByCallback(data = '') {
+  return Object.values(OPERATIONS).find((op) => op.callback === data) || null;
+}
+
+function buildMovement({
+  operation = OPERATIONS.SET,
+  amount,
+  saldoAnterior,
+  hadPreviousBalance,
+}) {
+  if (operation === OPERATIONS.SET) {
+    if (!hadPreviousBalance) {
+      return {
+        saldoNuevo: amount,
+        delta: 0,
+        descripcion: 'Saldo inicial',
+      };
+    }
+    const delta = amount - saldoAnterior;
+    return {
+      saldoNuevo: amount,
+      delta,
+      descripcion: delta >= 0 ? 'Actualización +' : 'Actualización –',
+    };
+  }
+
+  if (operation === OPERATIONS.ADD) {
+    const delta = Math.abs(amount);
+    return {
+      saldoNuevo: saldoAnterior + delta,
+      delta,
+      descripcion: 'Aumento +',
+    };
+  }
+
+  const delta = -Math.abs(amount);
+  return {
+    saldoNuevo: saldoAnterior + delta,
+    delta,
+    descripcion: 'Retiro –',
+  };
+}
 
 async function showAgentes(ctx) {
   let agentes = [];
@@ -52,7 +128,7 @@ async function showAgentes(ctx) {
   }
 
   if (!agentes.length) {
-    await ctx.reply(withExitHint('⚠️ No hay agentes registrados.'), kbBackOrCancel);
+    await ctx.reply(withExitHint('⚠️ No hay agentes registrados.'), kbBackTarjetasOrCancel);
     return false;
   }
 
@@ -84,7 +160,7 @@ async function showAgentes(ctx) {
     if (totalsBlock) totalsBlock += '\n\n';
     console.log('[SALDO_WIZ] Totales globales por moneda =>', totals);
   } catch (error) {
-    console.error('[SALDO_WIZ] Error generando totales globales:', error);
+    await handleError(error, ctx, 'saldo_totales_globales');
     totalsBlock = '<i>No se pudo calcular el resumen global.</i>\n\n';
   }
 
@@ -161,7 +237,7 @@ async function showTarjetas(ctx, options = {}) {
       ctx.wizard.state.data.msgId,
       undefined,
       withExitHint('Este agente todavía no tiene tarjetas.'),
-      { parse_mode: 'HTML', reply_markup: kbBackOrCancel.reply_markup }
+      { parse_mode: 'HTML', reply_markup: kbBackTarjetasOrCancel.reply_markup }
     );
     await ctx.scene.leave();
     return false;
@@ -187,7 +263,7 @@ async function showTarjetas(ctx, options = {}) {
     if (totalsBlock) totalsBlock += '\n\n';
     console.log(`[SALDO_WIZ] Totales por moneda (${agente_nombre}) =>`, totals);
   } catch (error) {
-    console.error('[SALDO_WIZ] Error generando totales del agente:', error);
+    await handleError(error, ctx, 'saldo_totales_agente');
     totalsBlock = '<i>No se pudo calcular el resumen del agente.</i>\n\n';
   }
 
@@ -214,18 +290,60 @@ async function showTarjetas(ctx, options = {}) {
 }
 
 async function askSaldo(ctx, tarjeta) {
+  const op = OPERATIONS.SET;
   const txt = withExitHint(
-    `✏️ <b>Introduce el saldo actual de tu tarjeta</b>\n\n` +
+    `${op.title}\n\n` +
       `Tarjeta ${escapeHtml(tarjeta.numero)} (saldo actual: <code>${fmtMoney(tarjeta.saldo)}</code>).\n` +
-      'Por favor coloca el saldo actual de tu tarjeta. No te preocupes, te diré si ha aumentado o disminuido y en cuánto.\n\n' +
-      'Ejemplo: 1500.50'
+      `${op.prompt}\n\n` +
+      `${op.example}`
   );
   await ctx.telegram.editMessageText(
     ctx.chat.id,
     ctx.wizard.state.data.msgId,
     undefined,
     txt,
-    { parse_mode: 'HTML', ...kbBackOrCancel }
+    { parse_mode: 'HTML', ...kbBackModeOrCancel }
+  );
+}
+
+async function askOperationAmount(ctx, tarjeta, operation) {
+  const txt = withExitHint(
+    `${operation.title}\n\n` +
+      `Tarjeta ${escapeHtml(tarjeta.numero)} (saldo actual: <code>${fmtMoney(tarjeta.saldo)}</code>).\n` +
+      `${operation.prompt}\n\n` +
+      `${operation.example}`
+  );
+  await ctx.telegram.editMessageText(
+    ctx.chat.id,
+    ctx.wizard.state.data.msgId,
+    undefined,
+    txt,
+    { parse_mode: 'HTML', ...kbBackModeOrCancel }
+  );
+}
+
+async function showOperationMenu(ctx, tarjeta) {
+  const kb = [
+    [Markup.button.callback(OPERATIONS.SET.button, OPERATIONS.SET.callback)],
+    [Markup.button.callback(OPERATIONS.ADD.button, OPERATIONS.ADD.callback)],
+    [Markup.button.callback(OPERATIONS.SUB.button, OPERATIONS.SUB.callback)],
+    [
+      Markup.button.callback('🔙 Volver', 'VOLVER_TA'),
+      Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL'),
+    ],
+  ];
+  const txt = withExitHint(
+    `🧭 <b>Selecciona tipo de operación</b>\n\n` +
+      `Tarjeta ${escapeHtml(tarjeta.numero)}\n` +
+      `Saldo actual: <code>${fmtMoney(tarjeta.saldo)}</code>\n\n` +
+      'Puedes actualizar el saldo final o aplicar un aumento/retiro directo.'
+  );
+  await ctx.telegram.editMessageText(
+    ctx.chat.id,
+    ctx.wizard.state.data.msgId,
+    undefined,
+    txt,
+    { parse_mode: 'HTML', reply_markup: { inline_keyboard: kb } }
   );
 }
 
@@ -249,8 +367,13 @@ const saldoWizard = new Scenes.WizardScene(
   async ctx => {
     console.log('[SALDO_WIZ] paso 1: elegir tarjeta');
     if (await handleGlobalCancel(ctx)) return;
+    if (ctx.callbackQuery?.data === 'VOLVER_TA') {
+      await ctx.answerCbQuery().catch(() => {});
+      await showAgentes(ctx);
+      return;
+    }
     if (!ctx.callbackQuery?.data.startsWith('AG_')) {
-      return ctx.reply(withExitHint('Usa los botones para seleccionar agente.'), kbBackOrCancel);
+      return ctx.reply(withExitHint('Usa los botones para seleccionar agente.'), kbBackTarjetasOrCancel);
     }
     await ctx.answerCbQuery().catch(() => {});
     const agente_id = +ctx.callbackQuery.data.split('_')[1];
@@ -263,12 +386,17 @@ const saldoWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
 
-  /* 2 – pedir saldo actual */
+  /* 2 – elegir tarjeta y mostrar operaciones */
   async ctx => {
-    console.log('[SALDO_WIZ] paso 2: pedir saldo actual');
+    console.log('[SALDO_WIZ] paso 2: seleccionar tarjeta');
     if (await handleGlobalCancel(ctx)) return;
     if (ctx.callbackQuery) {
       const { data } = ctx.callbackQuery;
+      if (data === 'VOLVER_TA') {
+        await ctx.answerCbQuery().catch(() => {});
+        await showTarjetas(ctx);
+        return;
+      }
       if (data === 'OTROS_AG') {
         await ctx.answerCbQuery().catch(() => {});
         const ok = await showAgentes(ctx);
@@ -276,25 +404,26 @@ const saldoWizard = new Scenes.WizardScene(
         return;
       }
       if (!data.startsWith('TA_')) {
-        return ctx.reply(withExitHint('Usa los botones para elegir la tarjeta.'), kbBackOrCancel);
+        return ctx.reply(withExitHint('Usa los botones para elegir la tarjeta.'), kbBackTarjetasOrCancel);
       }
       await ctx.answerCbQuery().catch(() => {});
       const tarjeta_id = +data.split('_')[1];
       const tarjeta = ctx.wizard.state.data.tarjetas.find(t => t.id === tarjeta_id);
 
       ctx.wizard.state.data.tarjeta = tarjeta;
-      await askSaldo(ctx, tarjeta);
+      ctx.wizard.state.data.operation = null;
+      await showOperationMenu(ctx, tarjeta);
       return ctx.wizard.next();
     }
     // If it's not a callback query, it means the user sent a message, which is not expected here.
     // This case should ideally not be reached if the flow is strictly button-driven.
     // However, to be safe, we can prompt the user to use buttons or cancel.
-    return ctx.reply(withExitHint('Por favor, selecciona una tarjeta usando los botones.'), kbBackOrCancel);
+    return ctx.reply(withExitHint('Por favor, selecciona una tarjeta usando los botones.'), kbBackTarjetasOrCancel);
   },
 
-  /* 3 – registrar movimiento y volver al menú de tarjetas */
+  /* 3 – elegir tipo de operación */
   async ctx => {
-    console.log('[SALDO_WIZ] paso 3: registrar movimiento');
+    console.log('[SALDO_WIZ] paso 3: elegir operación');
     if (await handleGlobalCancel(ctx)) return;
     if (ctx.callbackQuery) {
       const { data } = ctx.callbackQuery;
@@ -304,44 +433,80 @@ const saldoWizard = new Scenes.WizardScene(
         if (ok) return ctx.wizard.selectStep(2);
         return;
       }
+      const operation = resolveOperationByCallback(data);
+      if (!operation) {
+        return ctx.reply(
+          withExitHint('Usa los botones para elegir tipo de operación.'),
+          kbBackTarjetasOrCancel
+        );
+      }
+      await ctx.answerCbQuery().catch(() => {});
+      ctx.wizard.state.data.operation = operation.callback;
+      if (operation === OPERATIONS.SET) {
+        await askSaldo(ctx, ctx.wizard.state.data.tarjeta);
+      } else {
+        await askOperationAmount(ctx, ctx.wizard.state.data.tarjeta, operation);
+      }
+      return ctx.wizard.next();
+    }
+    return ctx.reply(
+      withExitHint('Selecciona primero el tipo de operación con los botones.'),
+      kbBackTarjetasOrCancel
+    );
+  },
+
+  /* 4 – registrar movimiento y volver al menú de tarjetas */
+  async ctx => {
+    console.log('[SALDO_WIZ] paso 4: registrar movimiento');
+    if (await handleGlobalCancel(ctx)) return;
+    if (ctx.callbackQuery) {
+      const { data } = ctx.callbackQuery;
+      if (data === 'VOLVER_OP') {
+        await ctx.answerCbQuery().catch(() => {});
+        await showOperationMenu(ctx, ctx.wizard.state.data.tarjeta);
+        return ctx.wizard.selectStep(3);
+      }
+      if (data === 'VOLVER_TA') {
+        await ctx.answerCbQuery().catch(() => {});
+        const ok = await showTarjetas(ctx);
+        if (ok) return ctx.wizard.selectStep(2);
+        return;
+      }
       return ctx.reply(
-        withExitHint('Usa los botones o escribe el saldo.'),
-        kbBackOrCancel
+        withExitHint('Usa los botones o escribe el monto/saldo.'),
+        kbBackModeOrCancel
       );
     }
+
+    const selectedOperation =
+      resolveOperationByCallback(ctx.wizard.state.data.operation) || OPERATIONS.SET;
+    const inputName = selectedOperation === OPERATIONS.SET ? 'saldo' : 'monto';
 
     // 🔢 Parsear el saldo introducido por el usuario usando el helper reutilizable
     const num = parseUserAmount(ctx.message?.text);
     if (!Number.isFinite(num)) {
       return ctx.reply(
-        withExitHint('Valor inválido, escribe solo el saldo numérico.'),
-        kbBackOrCancel
+        withExitHint(`Valor inválido, escribe solo el ${inputName} numérico.`),
+        kbBackModeOrCancel
       );
     }
 
     const { tarjeta } = ctx.wizard.state.data;
-    const saldoNuevo = num;
-
-    let saldoAnterior;
-    let delta;
-    let descripcion;
-
-    const { rows: ult } = await pool.query(
-      'SELECT saldo_nuevo FROM movimiento WHERE tarjeta_id = $1 ORDER BY creado_en DESC LIMIT 1',
-      [tarjeta.id]
-    );
-
-    if (ult.length === 0) {
-      saldoAnterior = saldoNuevo;
-      delta = 0;
-      descripcion = 'Saldo inicial';
-    } else {
-      saldoAnterior = parseFloat(ult[0].saldo_nuevo) || 0;
-      delta = saldoNuevo - saldoAnterior;
-      descripcion = delta >= 0 ? 'Actualización +' : 'Actualización –';
-    }
 
     try {
+      const { rows: ult } = await pool.query(
+        'SELECT saldo_nuevo FROM movimiento WHERE tarjeta_id = $1 ORDER BY creado_en DESC LIMIT 1',
+        [tarjeta.id]
+      );
+      const hadPreviousBalance = ult.length > 0;
+      const saldoAnterior = hadPreviousBalance ? (parseFloat(ult[0].saldo_nuevo) || 0) : 0;
+      const { saldoNuevo, delta, descripcion } = buildMovement({
+        operation: selectedOperation,
+        amount: num,
+        saldoAnterior,
+        hadPreviousBalance,
+      });
+
       await pool.query(
         `
         INSERT INTO movimiento (tarjeta_id, saldo_anterior, importe, saldo_nuevo, descripcion)
@@ -403,8 +568,10 @@ const saldoWizard = new Scenes.WizardScene(
 
       const txt = withExitHint(
         header +
+          `Operación: <b>${escapeHtml(selectedOperation.button)}</b>\n` +
           `Saldo anterior: <code>${fmtMoney(saldoAnterior)}</code>\n` +
-          `Saldo informado: <code>${fmtMoney(saldoNuevo)}</code>\n` +
+          `${escapeHtml(selectedOperation.description)}: <code>${fmtMoney(selectedOperation === OPERATIONS.SET ? saldoNuevo : Math.abs(delta))}</code>\n` +
+          `Saldo final: <code>${fmtMoney(saldoNuevo)}</code>\n` +
           `${emojiDelta} ${signo} <code>${fmtMoney(Math.abs(delta))}</code> ${escapeHtml(tarjeta.moneda)}\n\n` +
           '📆 Historial de hoy:\n' +
           lines.join('\n') +
@@ -425,8 +592,9 @@ const saldoWizard = new Scenes.WizardScene(
       const logTxt =
         `💳 <b>Movimiento – ${fecha}</b>\n` +
         `👤 Usuario: @${escapeHtml(ctx.from.username || ctx.from.id)} (ID: ${ctx.from.id})\n` +
+        `• Operación: <b>${escapeHtml(selectedOperation.button)}</b>\n` +
         `• Tarjeta: <b>${escapeHtml(tarjeta.numero)}</b>\n` +
-        `• Saldo anterior → Saldo informado: <code>${fmtMoney(saldoAnterior)}</code> → <code>${fmtMoney(saldoNuevo)}</code> (Δ <code>${(delta >= 0 ? '+' : '') + fmtMoney(delta)}</code>) ${emojiDelta}`;
+        `• Saldo anterior → Saldo final: <code>${fmtMoney(saldoAnterior)}</code> → <code>${fmtMoney(saldoNuevo)}</code> (Δ <code>${(delta >= 0 ? '+' : '') + fmtMoney(delta)}</code>) ${emojiDelta}`;
 
       await sendAndLog(ctx, logTxt);
 

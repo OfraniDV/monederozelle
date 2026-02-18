@@ -14,10 +14,12 @@ const { escapeHtml } = require('../helpers/format');
  * @param {string} contextInfo - Información adicional del contexto (ej: nombre del comando).
  */
 async function handleError(error, ctx = null, contextInfo = 'unknown') {
+  const normalizedError =
+    error instanceof Error ? error : new Error(error ? String(error) : 'Error desconocido');
   const timestamp = new Date().toISOString();
-  const errorCode = error.code || 'NO_CODE';
-  const errorMessage = error.message || 'Error desconocido';
-  const errorStack = error.stack || 'No hay stack trace disponible';
+  const errorCode = normalizedError.code || 'NO_CODE';
+  const errorMessage = normalizedError.message || 'Error desconocido';
+  const errorStack = normalizedError.stack || 'No hay stack trace disponible';
 
   // 1. Logging detallado en consola
   console.error(`[ERR] [${timestamp}] [${contextInfo}]`);
@@ -44,16 +46,7 @@ async function handleError(error, ctx = null, contextInfo = 'unknown') {
     `<b>Stack:</b>\n<pre>${escapeHtml(errorStack.substring(0, 1000))}</pre>`;
 
   try {
-    // Si tenemos ctx, usamos notifyOwners que ya conoce los ownerIds
-    if (ctx) {
-      await notifyOwners(ctx, reportHtml);
-    } else {
-      // Fallback si no hay ctx (errores globales)
-      // Nota: notifyOwners requiere ctx para acceder a ctx.telegram,
-      // pero podríamos importar el bot directamente si fuera necesario.
-      // Por ahora, asumimos que la mayoría de errores relevantes tienen ctx.
-      console.warn('[errorController] Error sin contexto de Telegram, no se puede notificar por bot.');
-    }
+    await notifyOwners(ctx, reportHtml);
   } catch (err) {
     console.error('[errorController] Error al intentar notificar a owners:', err.message);
   }

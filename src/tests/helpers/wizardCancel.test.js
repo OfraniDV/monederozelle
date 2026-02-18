@@ -58,6 +58,18 @@ test('callback GLOBAL_CANCEL con escena activa limpia estado y responde', async 
   expect(sanitizeAllowedHtml).toHaveBeenCalledWith('❌ Operación cancelada.');
 });
 
+test('callback EXIT usa la misma cancelación global', async () => {
+  const ctx = baseCtx();
+  ctx.callbackQuery = { data: 'EXIT' };
+
+  await expect(handleGlobalCancel(ctx)).resolves.toBe(true);
+
+  expect(ctx.answerCbQuery).toHaveBeenCalledTimes(1);
+  expect(flushOnExit).toHaveBeenCalledWith(ctx);
+  expect(ctx.scene.leave).toHaveBeenCalledTimes(1);
+  expect(ctx.wizard.state).toEqual({});
+});
+
 test('comando /cancel sin escena activa responde de forma idempotente', async () => {
   const ctx = {
     from: { id: 10 },

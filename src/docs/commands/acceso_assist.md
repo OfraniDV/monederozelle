@@ -1,19 +1,21 @@
 # /acceso (asistente)
 
 ## Descripción
-Asistente interactivo basado en escenas de Telegraf para gestionar la tabla de usuarios autorizados. Permite listar, agregar y eliminar identificadores de Telegram con acceso al bot, actualizando el mensaje en sitio para evitar duplicados y manteniendo formato HTML seguro.【F:commands/acceso_assist.js†L1-L125】
+Asistente de administración de usuarios autorizados. Permite listar, agregar y eliminar IDs de Telegram con acceso al bot.
 
-## Flujo principal
-1. La primera escena responde con “Cargando…” (incluyendo la leyenda “Puedes pulsar «Salir» o escribir "salir"…”) y guarda el `message_id` para ediciones posteriores; a continuación muestra la lista actual de usuarios con botones para eliminar, añadir o salir.【F:commands/acceso_assist.js†L87-L103】
-2. Al pulsar “➕” cambia la ruta interna a `ADD` y solicita el ID del usuario mediante un mensaje editado con teclado inline de salida.【F:commands/acceso_assist.js†L95-L101】
-3. Los botones de la lista disparan eliminaciones inmediatas usando `eliminarUsuario`, mientras que introducir un ID nuevo ejecuta `agregarUsuario` tras verificar duplicados con `usuarioExiste`. Luego se recarga la lista para reflejar cambios.【F:commands/acceso_assist.js†L103-L121】
-4. El botón “❌ Salir” edita el mensaje original con un aviso de cancelación y todos los mensajes recuerdan que también basta escribir “salir”, reutilizando `handleGlobalCancel`, que centraliza la limpieza del wizard.【F:commands/acceso_assist.js†L28-L41】【F:commands/acceso_assist.js†L87-L120】
+## Flujo
+1. Muestra lista de accesos actuales.
+2. Permite eliminar desde botones `DEL_*`.
+3. Permite agregar entrando en modo `ADD` e introduciendo ID.
+4. Refresca la lista tras cada operación.
 
-## Entradas relevantes
-- Identificadores numéricos de Telegram ingresados manualmente por el operador o seleccionados en botones inline.【F:commands/acceso_assist.js†L95-L121】
+## Navegación
+- Interacción inline en un solo mensaje.
+- Salida por botón `❌ Salir` o cancelación global.
 
-## Salidas
-- Mensajes HTML actualizados con listados de usuarios y confirmaciones de alta/baja, evitando enviar mensajes adicionales gracias a `editIfChanged`.【F:commands/acceso_assist.js†L65-L79】【F:commands/acceso_assist.js†L95-L121】
+## Premium UI
+- Botones de gestión (`ADD`, `DEL_*`, `GLOBAL_CANCEL`) con icono premium automático.
+- Mapeo por callback garantiza cobertura en botones dinámicos.
 
-## Dependencias
-- Reutiliza los helpers `agregarUsuario`, `eliminarUsuario`, `usuarioExiste` y `listarUsuarios` para operar sobre la tabla `usuarios`.【F:commands/acceso_assist.js†L16-L21】
+## Implementación
+- `src/commands/acceso_assist.js`

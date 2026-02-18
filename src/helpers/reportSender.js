@@ -10,15 +10,38 @@
 const { comercialesGroupId, ownerIds } = require('../config');
 const { escapeHtml } = require('./format');
 const { safeReply, safeSendMessage, sanitizeAllowedHtml } = require('./telegram');
+const { Telegram } = require('telegraf');
+const { wrapTelegramForPremium } = require('./telegramGlobalController');
+
+let fallbackTelegram = null;
+
+function getFallbackTelegram() {
+  if (fallbackTelegram) return fallbackTelegram;
+  const token = process.env.BOT_TOKEN;
+  if (!token) return null;
+  fallbackTelegram = new Telegram(token);
+  wrapTelegramForPremium(fallbackTelegram, { label: 'reportSender.fallback' });
+  return fallbackTelegram;
+}
+
+function resolveTelegram(ctx) {
+  if (ctx?.telegram?.sendMessage) return ctx.telegram;
+  return getFallbackTelegram();
+}
 
 /* -------------------------------------------------------------------------- */
 /* Owners                                                                     */
 /* -------------------------------------------------------------------------- */
 async function notifyOwners(ctx, html, extra = {}) {
+  const telegram = resolveTelegram(ctx);
+  if (!telegram) {
+    console.warn('[reportSender] No hay instancia de Telegram para notificar owners.');
+    return;
+  }
   for (const id of ownerIds) {
     try {
       await safeSendMessage(
-        ctx.telegram,
+        telegram,
         id,
         html,
         {

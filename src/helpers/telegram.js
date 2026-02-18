@@ -11,7 +11,16 @@
 
 const ENTITY_PARSE_RE = /can't parse entities/i;
 const UNSUPPORTED_TAG_RE = /unsupported start tag/i;
+const INVALID_PREMIUM_RE = /invalid custom emoji identifier|document_invalid|file_id_invalid|wrong file identifier|entity_text_invalid/i;
 const ALLOWED_TAGS = ['b', 'i', 'pre', 'code'];
+const {
+  styleMessageOptions,
+  transformMessageText,
+  transformCaptionOptions,
+  stripTgEmojiTags,
+  normalizeOutgoingText,
+} = require('./telegramOutboundFilter');
+const { stripPremiumEmojiTags } = require('./premiumEmojiText');
 
 function normalizeErrorMessage(err = {}) {
   return (
@@ -24,7 +33,7 @@ function normalizeErrorMessage(err = {}) {
 
 function isEntityParseError(err) {
   const message = normalizeErrorMessage(err);
-  return ENTITY_PARSE_RE.test(message) || UNSUPPORTED_TAG_RE.test(message);
+  return ENTITY_PARSE_RE.test(message) || UNSUPPORTED_TAG_RE.test(message) || INVALID_PREMIUM_RE.test(message);
 }
 
 function sanitizeAllowedHtml(html = '') {
@@ -68,13 +77,27 @@ function buildFallbackExtra(extra = {}) {
   const fallback = { ...extra };
   delete fallback.parse_mode;
   delete fallback.entities;
+  if (fallback.reply_markup && typeof fallback.reply_markup === 'object') {
+    const sanitizeMarkup = (node) => {
+      if (!node || typeof node !== 'object') return node;
+      if (Array.isArray(node)) return node.map(sanitizeMarkup);
+      const next = {};
+      for (const [key, value] of Object.entries(node)) {
+        if (key === 'icon_custom_emoji_id' || key === 'style') continue;
+        next[key] = sanitizeMarkup(value);
+      }
+      return next;
+    };
+    fallback.reply_markup = sanitizeMarkup(fallback.reply_markup);
+  }
   return fallback;
 }
 
 async function safeReply(ctx, text, extra = {}, { transformText } = {}) {
-  const options = { ...extra };
+  const options = styleMessageOptions({ ...extra });
   const transform = typeof transformText === 'function' ? transformText : null;
-  const prepared = transform ? transform(text, options) : text;
+  const preparedSource = transform ? transform(text, options) : text;
+  const prepared = transformMessageText(preparedSource, options, { forcePremium: true });
   try {
     return await ctx.reply(prepared, options);
   } catch (err) {
@@ -85,16 +108,19 @@ async function safeReply(ctx, text, extra = {}, { transformText } = {}) {
     );
     logHtmlErrorSnippet('[telegram] ctx.reply', prepared);
     const fallbackSource = typeof prepared === 'string' ? prepared : String(prepared || '');
-    const fallbackText = htmlToPlainText(fallbackSource);
+    const fallbackText = normalizeOutgoingText(
+      stripPremiumEmojiTags(stripTgEmojiTags(htmlToPlainText(fallbackSource))),
+    );
     const fallbackExtra = buildFallbackExtra(options);
     return ctx.reply(fallbackText, fallbackExtra);
   }
 }
 
 async function safeSendMessage(telegram, chatId, text, extra = {}, { transformText } = {}) {
-  const options = { ...extra };
+  const options = styleMessageOptions({ ...extra });
   const transform = typeof transformText === 'function' ? transformText : null;
-  const prepared = transform ? transform(text, options) : text;
+  const preparedSource = transform ? transform(text, options) : text;
+  const prepared = transformMessageText(preparedSource, options, { forcePremium: true });
   try {
     return await telegram.sendMessage(chatId, prepared, options);
   } catch (err) {
@@ -105,7 +131,9 @@ async function safeSendMessage(telegram, chatId, text, extra = {}, { transformTe
     );
     logHtmlErrorSnippet(`[telegram] sendMessage ${chatId}`, prepared);
     const fallbackSource = typeof prepared === 'string' ? prepared : String(prepared || '');
-    const fallbackText = htmlToPlainText(fallbackSource);
+    const fallbackText = normalizeOutgoingText(
+      stripPremiumEmojiTags(stripTgEmojiTags(htmlToPlainText(fallbackSource))),
+    );
     const fallbackExtra = buildFallbackExtra(options);
     return telegram.sendMessage(chatId, fallbackText, fallbackExtra);
   }

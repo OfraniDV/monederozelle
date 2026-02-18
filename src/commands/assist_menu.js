@@ -6,7 +6,7 @@ const { withExitHint } = require('../helpers/ui');
 const assistMenu = new Scenes.WizardScene(
   'ASSISTANT_MENU',
   async (ctx) => {
-    const msg = await ctx.reply(withExitHint('Selecciona un asistente para continuar:'), {
+    const msg = await ctx.reply(withExitHint('Selecciona una categoría y luego el asistente que quieres abrir:'), {
       parse_mode: 'HTML',
       reply_markup: buildMenuKeyboard(ctx).reply_markup,
     });

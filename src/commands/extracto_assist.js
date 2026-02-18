@@ -26,6 +26,7 @@ const {
 const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { enterAssistMenu } = require('../helpers/assistMenu');
 const pool = require('../psql/db.js');
+const { handleError } = require('../controllers/errorController');
 
 /* Helpers ----------------------------------------------------------------- */
 
@@ -137,7 +138,7 @@ function addRunAndExit(kb) {
     Markup.button.callback('⬅️ Anterior', 'BACK_TO_FILTER'),
     Markup.button.callback('🏠 Menú Inicial', 'GO_HOME'),
   ]);
-  kb.push(buildBackExitRow('BACK', 'EXIT'));
+  kb.push(buildBackExitRow('BACK', 'GLOBAL_CANCEL'));
   return kb;
 }
 
@@ -153,7 +154,7 @@ async function showFilterMenu(ctx) {
   ];
   const kb = arrangeInlineButtons(buttons);
   kb.push([Markup.button.callback('📄 Generar informe', 'RUN')]);
-  kb.push(buildBackExitRow('BACK', 'EXIT'));
+  kb.push(buildBackExitRow('BACK', 'GLOBAL_CANCEL'));
   await editIfChanged(ctx, header(ctx.wizard.state.filters) + 'Elige filtro:', {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: kb },
@@ -293,7 +294,7 @@ async function showDayMenu(ctx) {
     Markup.button.callback('⬅️ Anterior', 'BACK_TO_FILTER'),
     Markup.button.callback('🏠 Menú Inicial', 'GO_HOME'),
   ]);
-  kb.push(buildBackExitRow('BACK', 'EXIT'));
+  kb.push(buildBackExitRow('BACK', 'GLOBAL_CANCEL'));
   await editIfChanged(ctx, header(ctx.wizard.state.filters) + 'Elige día:', {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: kb },
@@ -316,7 +317,7 @@ async function showMonthMenu(ctx) {
     Markup.button.callback('⬅️ Anterior', 'BACK_TO_FILTER'),
     Markup.button.callback('🏠 Menú Inicial', 'GO_HOME'),
   ]);
-  kb.push(buildBackExitRow('BACK', 'EXIT'));
+  kb.push(buildBackExitRow('BACK', 'GLOBAL_CANCEL'));
   await editIfChanged(ctx, header(ctx.wizard.state.filters) + 'Elige mes:', {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: kb },
@@ -564,7 +565,7 @@ async function showExtract(ctx) {
     await sendReportWithKb(ctx, pages, kb); // UX-2025
     st.route = 'AFTER_RUN';
   } catch (err) {
-    console.error('[extracto] showExtract error', err);
+    await handleError(err, ctx, 'extracto_showExtract');
     await ctx.reply('⚠️ Error generando extracto.', { parse_mode: 'HTML' });
   }
 }
@@ -734,7 +735,7 @@ async function handleAction(ctx) {
           }
           const kb = [
             [Markup.button.callback('Sí', 'AGAIN')],
-            [Markup.button.callback('No', 'EXIT')],
+            [Markup.button.callback('No', 'GLOBAL_CANCEL')],
           ];
           await ctx.editMessageText('¿Otro extracto?', {
             parse_mode: 'HTML',

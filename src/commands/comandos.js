@@ -3,7 +3,7 @@
 const comandos = [
   {
     nombre: 'start',
-    descripcion: 'Saluda y prueba que el bot está activo.',
+    descripcion: 'Abre el menú principal inline con accesos rápidos a asistentes.',
     permiso: 'Cualquiera',
     uso: '/start'
   },

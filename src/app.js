@@ -47,7 +47,13 @@ const monitorAssist   = require('./commands/monitor_assist');
 const accesoAssist    = require('./commands/acceso_assist');
 const extractoAssist  = require('./commands/extracto_assist');
 const assistMenu      = require('./commands/assist_menu');
-const { enterAssistMenu } = require('./helpers/assistMenu');
+const {
+  buildStartMainKeyboard,
+  buildStartHelpKeyboard,
+  resolveStartSceneFromCallback,
+  getMenuItems,
+  START_CALLBACKS,
+} = require('./helpers/assistMenu');
 const { registerFondoAdvisor, runFondo } = require('./middlewares/fondoAdvisor');
 
 /* ───────── 6. Inicializar BD (idempotente) ───────── */
@@ -101,7 +107,18 @@ const verificarAcceso = async (ctx, next) => {
 /* EL ORDEN IMPORTA: todo lo que viene después requerirá permiso */
 bot.use(verificarAcceso);
 /* La Stage debe ir después del guard para que hears/leave no lo evadan */
-bot.use(stage.middleware());
+const stageMiddleware = stage.middleware();
+bot.use(async (ctx, next) => {
+  try {
+    await stageMiddleware(ctx, next);
+  } catch (e) {
+    const sceneId = ctx?.scene?.current?.id || 'unknown_scene';
+    await handleError(e, ctx, `stage_${sceneId}`);
+    if (ctx?.scene?.current) {
+      await ctx.scene.leave().catch(() => {});
+    }
+  }
+});
 
 /* Wizards que se auto-registran en el stage (requieren ctx.scene listo) */
 registerMoneda(bot, stage);
@@ -131,18 +148,167 @@ const ownerOnly = (fn) => async (ctx) => {
 };
 
 /* ───────── 10. Comando /start ───────── */
-bot.command('start', (ctx) => {
-  const nombre = ctx.from.first_name || 'Usuario';
-  ctx.reply(`¡Hola, ${nombre}! 🤖`);
-});
+function buildComandosHtml() {
+  let msg = '📜 <b>Comandos disponibles</b>\n\n';
+  comandosMeta.forEach((c) => {
+    msg += `• <b>${escapeHtml(c.nombre)}</b> — ${escapeHtml(c.descripcion)}\n  <i>${escapeHtml(c.uso)}</i>\n\n`;
+  });
+  return msg;
+}
+
+const recentStartUpdates = [];
+
+function isDuplicateStartUpdate(ctx) {
+  const updateId = ctx?.update?.update_id;
+  if (typeof updateId !== 'number') return false;
+  if (recentStartUpdates.includes(updateId)) return true;
+  recentStartUpdates.push(updateId);
+  if (recentStartUpdates.length > 120) {
+    recentStartUpdates.shift();
+  }
+  return false;
+}
+
+function buildStartHomeHtml(ctx) {
+  const nombre = escapeHtml(ctx.from?.first_name || 'Usuario');
+  const totalAsistentes = getMenuItems(ctx).length;
+  const esOwner = ownerIds.includes(Number(ctx.from?.id || 0));
+  const ownerHint = esOwner
+    ? '\n🔐 <b>Modo owner:</b> asistentes avanzados habilitados.'
+    : '';
+  return (
+    `✨ <b>Hola, ${nombre}</b>\n` +
+    'Bienvenido al <b>Monedero Zelle Bot</b>.\n\n' +
+    `🎛️ Tienes <b>${totalAsistentes}</b> asistentes disponibles, organizados por categorías.\n` +
+    'Usa el menú inline para entrar directo al asistente que necesites.' +
+    ownerHint
+  );
+}
+
+function isMessageNotModified(err) {
+  const msg =
+    err?.response?.description ||
+    err?.description ||
+    err?.message ||
+    '';
+  return /message is not modified/i.test(msg);
+}
+
+async function editStartMessage(ctx, text, extra) {
+  if (!ctx.callbackQuery?.message?.message_id) return false;
+  try {
+    await ctx.telegram.editMessageText(
+      ctx.chat.id,
+      ctx.callbackQuery.message.message_id,
+      undefined,
+      text,
+      extra,
+    );
+    return true;
+  } catch (err) {
+    if (isMessageNotModified(err)) return true;
+    throw err;
+  }
+}
+
+async function renderStartHome(ctx, { asEdit = false } = {}) {
+  const text = buildStartHomeHtml(ctx);
+  const extra = {
+    parse_mode: 'HTML',
+    reply_markup: buildStartMainKeyboard(ctx).reply_markup,
+  };
+  if (asEdit) {
+    const edited = await editStartMessage(ctx, text, extra);
+    if (edited) return;
+  }
+  return ctx.reply(text, extra);
+}
+
+async function renderStartHelp(ctx, { asEdit = false } = {}) {
+  const text = buildComandosHtml();
+  const extra = {
+    parse_mode: 'HTML',
+    reply_markup: buildStartHelpKeyboard().reply_markup,
+  };
+  if (asEdit) {
+    const edited = await editStartMessage(ctx, text, extra);
+    if (edited) return;
+  }
+  return ctx.reply(text, extra);
+}
+
+bot.command('start', safe(async (ctx) => {
+  if (isDuplicateStartUpdate(ctx)) return;
+
+  const previousMenuId = Number(ctx.session?.startMenuMessageId || 0);
+  if (previousMenuId && ctx.chat?.id) {
+    await ctx.telegram.deleteMessage(ctx.chat.id, previousMenuId).catch(() => {});
+  }
+
+  const sent = await renderStartHome(ctx);
+  if (ctx.session && sent?.message_id) {
+    ctx.session.startMenuMessageId = sent.message_id;
+  }
+}));
+
+bot.action(/^NOOP:CATEGORY:/, safe(async (ctx) => {
+  await ctx.answerCbQuery('Elige un botón del bloque para continuar.').catch(() => {});
+}));
+
+bot.action(/^START:(?:SCENE:|HOME|HELP|MENU|CLOSE)/, safe(async (ctx) => {
+  const data = ctx.callbackQuery?.data || '';
+  await ctx.answerCbQuery().catch(() => {});
+
+  if (data === START_CALLBACKS.home) {
+    await renderStartHome(ctx, { asEdit: true });
+    return;
+  }
+  if (data === START_CALLBACKS.help) {
+    await renderStartHelp(ctx, { asEdit: true });
+    return;
+  }
+  if (data === START_CALLBACKS.fullMenu) {
+    if (ctx.callbackQuery?.message?.message_id) {
+      await ctx.telegram.deleteMessage(ctx.chat.id, ctx.callbackQuery.message.message_id).catch(() => {});
+    }
+    if (ctx.session) {
+      delete ctx.session.startMenuMessageId;
+    }
+    await ctx.scene.enter('ASSISTANT_MENU');
+    return;
+  }
+  if (data === START_CALLBACKS.close) {
+    await editStartMessage(
+      ctx,
+      '✅ Menú cerrado. Usa /start cuando quieras volver.',
+      { parse_mode: 'HTML' },
+    );
+    if (ctx.session) {
+      delete ctx.session.startMenuMessageId;
+    }
+    return;
+  }
+
+  const targetScene = resolveStartSceneFromCallback(data);
+  if (!targetScene) return;
+  const allowedItems = getMenuItems(ctx);
+  const allowed = allowedItems.some((item) => item.scene === targetScene);
+  if (!allowed) {
+    await ctx.reply('🚫 No tienes permisos para abrir ese asistente.');
+    return;
+  }
+  if (ctx.callbackQuery?.message?.message_id) {
+    await ctx.telegram.deleteMessage(ctx.chat.id, ctx.callbackQuery.message.message_id).catch(() => {});
+  }
+  if (ctx.session) {
+    delete ctx.session.startMenuMessageId;
+  }
+  await ctx.scene.enter(targetScene);
+}));
 
 /* ───────── 11. Legacy commands (protegidos) ───────── */
 bot.command('comandos',      safe((ctx) => {
-  let msg = '📜 <b>Comandos disponibles</b>\n\n';
-  comandosMeta.forEach(c => {
-    msg += `• <b>${escapeHtml(c.nombre)}</b> — ${escapeHtml(c.descripcion)}\n  <i>${escapeHtml(c.uso)}</i>\n\n`;
-  });
-  ctx.reply(msg, { parse_mode: 'HTML' });
+  ctx.reply(buildComandosHtml(), { parse_mode: 'HTML' });
 }));
 bot.command('crearcuenta',    safe(crearCuenta));
 bot.command('miscuentas',     safe(listarCuentas));

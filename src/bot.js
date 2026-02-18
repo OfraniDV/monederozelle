@@ -8,6 +8,8 @@ if (!token) {
 }
 
 const bot = new Telegraf(token);
+const { installGlobalTelegramControllers } = require('./helpers/telegramGlobalController');
+installGlobalTelegramControllers(bot);
 
 // Middleware: logging detallado + timing con alta resolución
 bot.use(async (ctx, next) => {

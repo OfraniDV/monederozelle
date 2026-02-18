@@ -4,6 +4,7 @@ const { flushOnExit } = require('./sessionSummary');
 const { safeReply, sanitizeAllowedHtml } = require('./telegram');
 
 const GLOBAL_CANCEL_TEXTS = ['/cancel', '/salir', 'salir'];
+const GLOBAL_CANCEL_CALLBACKS = new Set(['GLOBAL_CANCEL', 'EXIT']);
 
 function normalizeText(text = '') {
   return String(text).trim().toLowerCase();
@@ -11,7 +12,7 @@ function normalizeText(text = '') {
 
 function isGlobalCancel(ctx = {}) {
   const data = ctx.callbackQuery?.data;
-  if (data === 'GLOBAL_CANCEL') {
+  if (GLOBAL_CANCEL_CALLBACKS.has(data)) {
     return true;
   }
   const messageText = normalizeText(ctx.message?.text);

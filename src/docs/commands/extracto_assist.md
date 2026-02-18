@@ -1,19 +1,21 @@
 # /extracto (asistente)
 
 ## Descripción
-Wizard que guía al usuario para generar un extracto bancario filtrando por agente, moneda, banco, tarjeta y periodo. Cada pantalla reutiliza el mismo mensaje con `editIfChanged`, ofrece botón para generar informe y mantiene un encabezado con filtros actuales.【F:commands/extracto_assist.js†L1-L220】
+Asistente para generar extractos bancarios con filtros por agente, moneda, banco, tarjeta y periodo.
 
-## Flujo principal
-1. Carga catálogos (agentes, bancos, monedas, tarjetas) mediante consultas parametrizadas y helpers de filtrado `buildEntityFilter` para combinar criterios seleccionados.【F:commands/extracto_assist.js†L72-L138】【F:commands/extracto_assist.js†L148-L220】
-2. Presenta menú de filtros jerárquico con opción “Generar informe” en cada paso y navegación `Anterior/Menú inicial/Salir`. Los reportes largos se fraccionan con `chunkHtml` antes de ser enviados.【F:commands/extracto_assist.js†L31-L220】
-3. Al ejecutar `RUN`, obtiene movimientos del periodo especificado, formatea los montos con `fmtMoney`, arma un encabezado HTML con los filtros activos y envía el extracto usando `sendReportWithKb` o `sendAndLog` según corresponda.【F:commands/extracto_assist.js†L161-L220】
-4. El asistente registra acciones en consola y permite cancelar en cualquier momento reutilizando `handleGlobalCancel`, que encapsula la limpieza de sesión y el mensaje de cancelación.【F:commands/extracto_assist.js†L26-L112】【F:commands/extracto_assist.js†L566-L638】
+## Flujo
+1. Carga catálogos y estado inicial de filtros.
+2. Navega entre menús de filtro.
+3. Ejecuta `RUN` para construir el extracto.
+4. Envía reporte paginado y opciones de continuidad.
 
-## Entradas relevantes
-- Selecciones realizadas a través de callbacks (`FIL_*`, `AG_*`, `MO_*`, `BK_*`, etc.) y definiciones de periodo/día/mes controladas con `moment-timezone`.【F:commands/extracto_assist.js†L13-L220】
+## Navegación
+- Menús inline con `Anterior`, `Menú inicial` y `Salir`.
+- Manejo de `Volver` y cancelación global sin duplicar mensajes.
 
-## Salidas
-- Bloques HTML paginados con encabezado y lista de movimientos, enviados en uno o varios mensajes según el tamaño del texto final.【F:commands/extracto_assist.js†L31-L220】
+## Premium UI
+- Autoemoji premium para callbacks de filtros (`FIL_*`, `AG_*`, `MO_*`, `BK_*`, `TA_*`, `PER_*`).
+- Navegación y acciones (`RUN`, `GLOBAL_CANCEL`) con estilo/ícono automático.
 
-## Dependencias
-- Utiliza helpers de UI (`editIfChanged`, `arrangeInlineButtons`, `buildBackExitRow`, `buildSaveExitRow`, `sendReportWithKb`), utilidades de formato (`fmtMoney`, `boldHeader`, `chunkHtml`) y la conexión PostgreSQL para cargar tarjetas y movimientos.【F:commands/extracto_assist.js†L13-L220】
+## Implementación
+- `src/commands/extracto_assist.js`
