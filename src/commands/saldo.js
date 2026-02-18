@@ -23,7 +23,7 @@ const pool = require('../psql/db.js');
 const moment = require('moment-timezone');
 const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { enterAssistMenu } = require('../helpers/assistMenu');
-const { withExitHint } = require('../helpers/ui');
+const { withExitHint, editIfChanged } = require('../helpers/ui');
 const { parseUserAmount } = require('../helpers/money');
 const { handleError } = require('../controllers/errorController');
 
@@ -134,11 +134,13 @@ async function showAgentes(ctx) {
     });
     const txt = withExitHint('⚠️ No hay agentes registrados.');
     const extra = { parse_mode: 'HTML', reply_markup: kbBackTarjetasOrCancel.reply_markup };
-    const msgId = ctx.wizard.state.data?.msgId;
+    const msgId = ctx.wizard.state.msgId || ctx.wizard.state.data?.msgId;
     if (msgId) {
-      await ctx.telegram.editMessageText(ctx.chat.id, msgId, undefined, txt, extra);
+      ctx.wizard.state.msgId = msgId;
+      await editIfChanged(ctx, txt, extra);
     } else {
       const msg = await ctx.reply(txt, extra);
+      ctx.wizard.state.msgId = msg.message_id;
       ctx.wizard.state.data = { ...(ctx.wizard.state.data || {}), msgId: msg.message_id };
     }
     return false;
@@ -195,12 +197,14 @@ async function showAgentes(ctx) {
   const inline = Markup.inlineKeyboard(kb);
   const extra = { parse_mode: 'HTML', reply_markup: inline.reply_markup };
 
-  const msgId = ctx.wizard.state.data?.msgId;
+  const msgId = ctx.wizard.state.msgId || ctx.wizard.state.data?.msgId;
   if (msgId) {
-    await ctx.telegram.editMessageText(ctx.chat.id, msgId, undefined, txt, extra);
+    ctx.wizard.state.msgId = msgId;
+    await editIfChanged(ctx, txt, extra);
     ctx.wizard.state.data = { ...(ctx.wizard.state.data || {}), msgId, agentes };
   } else {
     const msg = await ctx.reply(txt, extra);
+    ctx.wizard.state.msgId = msg.message_id;
     ctx.wizard.state.data = { ...(ctx.wizard.state.data || {}), msgId: msg.message_id, agentes };
   }
   return true;
@@ -253,11 +257,13 @@ async function showTarjetas(ctx, options = {}) {
     });
     const txt = withExitHint('Este agente todavía no tiene tarjetas.');
     const extra = { parse_mode: 'HTML', reply_markup: kbBackTarjetasOrCancel.reply_markup };
-    const msgId = ctx.wizard.state.data?.msgId;
+    const msgId = ctx.wizard.state.msgId || ctx.wizard.state.data?.msgId;
     if (msgId) {
-      await ctx.telegram.editMessageText(ctx.chat.id, msgId, undefined, txt, extra);
+      ctx.wizard.state.msgId = msgId;
+      await editIfChanged(ctx, txt, extra);
     } else {
       const msg = await ctx.reply(txt, extra);
+      ctx.wizard.state.msgId = msg.message_id;
       ctx.wizard.state.data.msgId = msg.message_id;
     }
     return false;
@@ -305,7 +311,7 @@ async function showTarjetas(ctx, options = {}) {
   );
   const inline = Markup.inlineKeyboard(kb);
   const extra = { parse_mode: 'HTML', reply_markup: inline.reply_markup };
-  const msgId = ctx.wizard.state.data.msgId;
+  const msgId = ctx.wizard.state.msgId || ctx.wizard.state.data.msgId;
   if (sendNewMessage || !msgId) {
     if (sendNewMessage && msgId) {
       await ctx.telegram
@@ -313,9 +319,11 @@ async function showTarjetas(ctx, options = {}) {
         .catch(() => {});
     }
     const msg = await ctx.reply(txt, extra);
+    ctx.wizard.state.msgId = msg.message_id;
     ctx.wizard.state.data.msgId = msg.message_id;
   } else {
-    await ctx.telegram.editMessageText(ctx.chat.id, msgId, undefined, txt, extra);
+    ctx.wizard.state.msgId = msgId;
+    await editIfChanged(ctx, txt, extra);
   }
   ctx.wizard.state.data.tarjetas = tarjetas; // caché
   return true;
@@ -329,13 +337,8 @@ async function askSaldo(ctx, tarjeta) {
       `${op.prompt}\n\n` +
       `${op.example}`
   );
-  await ctx.telegram.editMessageText(
-    ctx.chat.id,
-    ctx.wizard.state.data.msgId,
-    undefined,
-    txt,
-    { parse_mode: 'HTML', ...kbBackModeOrCancel }
-  );
+  const extra = { parse_mode: 'HTML', ...kbBackModeOrCancel };
+  await editIfChanged(ctx, txt, extra);
 }
 
 async function askOperationAmount(ctx, tarjeta, operation) {
@@ -345,13 +348,8 @@ async function askOperationAmount(ctx, tarjeta, operation) {
       `${operation.prompt}\n\n` +
       `${operation.example}`
   );
-  await ctx.telegram.editMessageText(
-    ctx.chat.id,
-    ctx.wizard.state.data.msgId,
-    undefined,
-    txt,
-    { parse_mode: 'HTML', ...kbBackModeOrCancel }
-  );
+  const extra = { parse_mode: 'HTML', ...kbBackModeOrCancel };
+  await editIfChanged(ctx, txt, extra);
 }
 
 async function showOperationMenu(ctx, tarjeta) {
@@ -370,13 +368,7 @@ async function showOperationMenu(ctx, tarjeta) {
       `Saldo actual: <code>${fmtMoney(tarjeta.saldo)}</code>\n\n` +
       'Puedes actualizar el saldo final o aplicar un aumento/retiro directo.'
   );
-  await ctx.telegram.editMessageText(
-    ctx.chat.id,
-    ctx.wizard.state.data.msgId,
-    undefined,
-    txt,
-    { parse_mode: 'HTML', reply_markup: { inline_keyboard: kb } }
-  );
+  await editIfChanged(ctx, txt, { parse_mode: 'HTML', reply_markup: { inline_keyboard: kb } });
 }
 
 async function handleSaldoLeave(ctx) {

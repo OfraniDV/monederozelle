@@ -18,9 +18,9 @@ const MENU_ITEMS = [
 ];
 
 const MENU_CATEGORIES = [
-  { id: 'OPERACION', header: '💼 Operación diaria', ownerOnly: false },
-  { id: 'ANALISIS', header: '📊 Análisis y reportes', ownerOnly: false },
-  { id: 'ADMIN', header: '🛠 Administración', ownerOnly: true },
+  { id: 'OPERACION', header: '── 💼 Operación diaria ──', ownerOnly: false },
+  { id: 'ANALISIS', header: '── 📊 Análisis y reportes ──', ownerOnly: false },
+  { id: 'ADMIN', header: '── 🛠 Administración ──', ownerOnly: true },
 ];
 
 const START_CALLBACKS = {
