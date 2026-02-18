@@ -33,25 +33,11 @@ bot.use(async (ctx, next) => {
   }
 });
 
+const { handleError } = require('./controllers/errorController');
+
 // Controlador de errores global
 bot.catch(async (err, ctx) => {
-  // Log completo para diagnóstico
-  console.error(
-    `[${new Date().toISOString()}] Error en el bot (updateType=${ctx.updateType}):`,
-    {
-      error: err?.stack || err,
-      user: ctx.from ? { id: ctx.from.id, username: ctx.from.username } : null,
-      chat: ctx.chat ? { id: ctx.chat.id, type: ctx.chat.type } : null,
-      update: ctx.update,
-    }
-  );
-
-  // Intentar notificar al usuario, pero no fallar si no se puede
-  try {
-    await ctx.reply('⚠️ Ocurrió un error interno. Por favor inténtalo de nuevo más tarde.');
-  } catch (e) {
-    console.warn('No se pudo enviar el mensaje de error al usuario:', e);
-  }
+  await handleError(err, ctx, `bot_catch_${ctx.updateType}`);
 });
 
 // Comando auxiliar de salud/respuesta rápida

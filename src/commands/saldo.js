@@ -16,6 +16,24 @@
 const { Scenes, Markup } = require('telegraf');
 const { escapeHtml, fmtMoney, boldHeader } = require('../helpers/format');
 const { sendAndLog } = require('../helpers/reportSender');
+// commands/saldo.js
+//
+// Migrado a parse mode HTML. Se usa escapeHtml para sanear datos dinámicos y
+// evitar errores de parseo. Si se necesitara volver a Markdown, ajustar los
+// constructores de texto y parse_mode en las llamadas a Telegram.
+//
+// 1) El usuario elige AGENTE.
+// 2) Se muestran sus tarjetas con el saldo actual  ➜ elige una.
+// 3) Escribe el SALDO ACTUAL (número).            ➜ el bot calcula ↑/↓ y registra
+//
+// Se añade siempre un movimiento:  saldo_anterior • importe(+/-) • saldo_nuevo
+// Luego se informa si “aumentó” o “disminuyó” y en cuánto.
+//
+// Requiere que las tablas ya existan con las columnas definidas en initWalletSchema.
+
+const { Scenes, Markup } = require('telegraf');
+const { escapeHtml, fmtMoney, boldHeader } = require('../helpers/format');
+const { sendAndLog } = require('../helpers/reportSender');
 const { recordChange } = require('../helpers/sessionSummary');
 const { runFondo } = require('../middlewares/fondoAdvisor');
 const pool = require('../psql/db.js');
@@ -24,6 +42,8 @@ const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCa
 const { enterAssistMenu } = require('../helpers/assistMenu');
 const { withExitHint } = require('../helpers/ui');
 const { parseUserAmount } = require('../helpers/money');
+const { handleError } = require('../controllers/errorController');
+
 const {
   buildCurrencyTotals,
   renderCurrencyTotalsHtml,
@@ -45,8 +65,7 @@ async function showAgentes(ctx) {
       await pool.query('SELECT id,nombre FROM agente ORDER BY nombre')
     ).rows;
   } catch (error) {
-    console.error('[SALDO_WIZ] Error consultando agentes:', error);
-    await ctx.reply(withExitHint('❌ Ocurrió un error al cargar los agentes.'), kbBackOrCancel);
+    await handleError(error, ctx, 'showAgentes');
     return false;
   }
 
@@ -149,8 +168,7 @@ async function showTarjetas(ctx, options = {}) {
       )
     ).rows;
   } catch (error) {
-    console.error('[SALDO_WIZ] Error consultando tarjetas:', error);
-    await ctx.reply(withExitHint('❌ Ocurrió un error al cargar las tarjetas.'), kbBackOrCancel);
+    await handleError(error, ctx, 'showTarjetas');
     await ctx.scene.leave();
     return false;
   }
@@ -267,24 +285,29 @@ const saldoWizard = new Scenes.WizardScene(
   async ctx => {
     console.log('[SALDO_WIZ] paso 2: pedir saldo actual');
     if (await handleGlobalCancel(ctx)) return;
-    if (!ctx.callbackQuery) return;
-    const { data } = ctx.callbackQuery;
-    if (data === 'OTROS_AG') {
+    if (ctx.callbackQuery) {
+      const { data } = ctx.callbackQuery;
+      if (data === 'OTROS_AG') {
+        await ctx.answerCbQuery().catch(() => {});
+        const ok = await showAgentes(ctx);
+        if (ok) return ctx.wizard.selectStep(1);
+        return;
+      }
+      if (!data.startsWith('TA_')) {
+        return ctx.reply(withExitHint('Usa los botones para elegir la tarjeta.'), kbBackOrCancel);
+      }
       await ctx.answerCbQuery().catch(() => {});
-      const ok = await showAgentes(ctx);
-      if (ok) return ctx.wizard.selectStep(1);
-      return;
-    }
-    if (!data.startsWith('TA_')) {
-      return ctx.reply(withExitHint('Usa los botones para elegir la tarjeta.'), kbBackOrCancel);
-    }
-    await ctx.answerCbQuery().catch(() => {});
-    const tarjeta_id = +data.split('_')[1];
-    const tarjeta = ctx.wizard.state.data.tarjetas.find(t => t.id === tarjeta_id);
+      const tarjeta_id = +data.split('_')[1];
+      const tarjeta = ctx.wizard.state.data.tarjetas.find(t => t.id === tarjeta_id);
 
-    ctx.wizard.state.data.tarjeta = tarjeta;
-    await askSaldo(ctx, tarjeta);
-    return ctx.wizard.next();
+      ctx.wizard.state.data.tarjeta = tarjeta;
+      await askSaldo(ctx, tarjeta);
+      return ctx.wizard.next();
+    }
+    // If it's not a callback query, it means the user sent a message, which is not expected here.
+    // This case should ideally not be reached if the flow is strictly button-driven.
+    // However, to be safe, we can prompt the user to use buttons or cancel.
+    return ctx.reply(withExitHint('Por favor, selecciona una tarjeta usando los botones.'), kbBackOrCancel);
   },
 
   /* 3 – registrar movimiento y volver al menú de tarjetas */
@@ -426,11 +449,7 @@ const saldoWizard = new Scenes.WizardScene(
       await sendAndLog(ctx, logTxt);
 
     } catch (e) {
-      console.error('[SALDO_WIZ] error insert movimiento:', e);
-      await ctx.reply(
-        withExitHint('❌ No se pudo registrar el movimiento.'),
-        kbBackOrCancel
-      );
+      await handleError(e, ctx, 'saldo_insert_movimiento');
       return ctx.scene.leave();
     }
 
@@ -439,47 +458,5 @@ const saldoWizard = new Scenes.WizardScene(
     return;
   }
 );
-
-async function handleSaldoLeave(ctx) {
-  if (ctx.wizard) {
-    ctx.wizard.state = {};
-  }
-
-  try {
-    const chatType = ctx.chat?.type;
-    const isGroup = chatType === 'group' || chatType === 'supergroup';
-
-    if (isGroup) {
-      await runFondo(ctx, {
-        send: async (text) => {
-          const userId = ctx.from?.id;
-          if (!userId) {
-            console.log('[SALDO_WIZ] No hay ctx.from.id; se omite envío en grupo.');
-            return;
-          }
-          if (!ctx.telegram?.sendMessage) {
-            console.log('[SALDO_WIZ] ctx.telegram.sendMessage no disponible; se omite envío en grupo.');
-            return;
-          }
-          try {
-            await ctx.telegram.sendMessage(userId, text, { parse_mode: 'HTML' });
-            console.log('[SALDO_WIZ] fondoAdvisor enviado por DM a', userId);
-          } catch (e) {
-            console.log('[SALDO_WIZ] No se pudo enviar DM del fondoAdvisor:', e.message);
-          }
-        },
-      });
-    } else {
-      await runFondo(ctx);
-    }
-  } catch (err) {
-    console.error('[SALDO_WIZ] error al generar análisis de fondo:', err);
-  }
-}
-
-saldoWizard.leave(handleSaldoLeave);
-saldoWizard.handleSaldoLeave = handleSaldoLeave;
-
-module.exports = saldoWizard;
 
 // ✔ probado con tarjeta 5278
