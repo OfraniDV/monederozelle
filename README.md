@@ -24,10 +24,19 @@ Monedero Zelle Bot es una solución integral de administración financiera pensa
 
 ## 📂 Estructura del proyecto
 
-- `commands/`: comandos y asistentes de Telegram.
-- `helpers/`: funciones reutilizables.
-- `scripts/`: tareas y utilidades ejecutables con `npm run`.
-- `tests/`: suite de pruebas dividida en `tests/commands/`, `tests/helpers/` y `tests/scenes/`.
+El código fuente se encuentra organizado en la carpeta `src/` para mantener un directorio raíz limpio y modular:
+
+- `src/commands/`: comandos y asistentes de Telegram.
+- `src/controllers/`: lógica de negocio y controladores (ej. errorController).
+- `src/helpers/`: funciones reutilizables.
+- `src/middlewares/`: middlewares de Telegraf.
+- `src/psql/`: configuración y conexión a PostgreSQL.
+- `src/scripts/`: tareas y utilidades ejecutables con `npm run`.
+- `src/tests/`: suite de pruebas dividida en subcarpetas.
+- `src/docs/`: documentación técnica detallada por módulo.
+- `src/app.js`: punto de entrada principal del bot.
+- `src/bot.js`: configuración de la instancia de Telegraf.
+- `src/config.js`: variables de configuración y manejo de entornos.
 
 ## 🚀 Instalación
 
@@ -35,7 +44,7 @@ Monedero Zelle Bot es una solución integral de administración financiera pensa
 git clone <repositorio>
 cd monederozelle
 npm install
-node bot.js
+node app.js
 ```
 
 ## 🧪 Pruebas
@@ -85,11 +94,11 @@ Estas utilidades facilitan la creación de asistentes consistentes:
 - `arrangeInlineButtons(buttons)`: organiza botones en filas de dos para teclados más elegantes.
 - `buildSaveExitRow()`: crea una fila única con botones 💾 Salvar / ❌ Salir.
 - `sendReportWithKb(ctx, pages, kb)`: envía páginas largas y añade al final un teclado Save/Exit.
-- `handleGlobalCancel(ctx)`: helper centralizado (en `helpers/wizardCancel.js`) que responde a `/cancel`, `salir` y al botón `GLOBAL_CANCEL`, limpia la escena y confirma con “❌ Operación cancelada.”.
+- `handleGlobalCancel(ctx)`: helper centralizado (en `src/helpers/wizardCancel.js`) que responde a `/cancel`, `salir` y al botón `GLOBAL_CANCEL`, limpia la escena y confirma con “❌ Operación cancelada.”.
 
 ## 🧮 Asesor de Fondo
 
-El middleware `middlewares/fondoAdvisor.js` genera un informe financiero cada vez que se cierran los asistentes de tarjetas,
+El middleware `src/middlewares/fondoAdvisor.js` genera un informe financiero cada vez que se cierran los asistentes de tarjetas,
 monitor o extracto (hook en el evento `leave`). El asistente de `/saldo` dispara el análisis desde su propio
 `leaveMiddleware` para garantizar que, incluso si no se registra el middleware global, se envíe el reporte al finalizar. Además
 puede ejecutarse manualmente mediante el comando `/fondo`. El análisis:
@@ -110,7 +119,7 @@ puede ejecutarse manualmente mediante el comando `/fondo`. El análisis:
 - Clasifica la urgencia en 🟥/🟡/🟢, explica la fórmula y parámetros en un mensaje HTML sin `<br>` ni `<ul>` usando `sendLargeMessage`.
 - Emite logs con prefijo `[fondoAdvisor]` para config, tasas, totales, necesidad, ventas y urgencia para facilitar auditorías.
 - Añade un bloque de indicadores con métricas derivadas (ratio Deuda/Activos, barra de avance del colchón y meses cubiertos por el colchón) cuando los datos están disponibles.
-- Está cubierto por pruebas en `tests/__tests__/fondoAdvisor.calc.test.js` y `tests/__tests__/fondoAdvisor.test.js` con una cobertura superior al 95 % en la lógica pura.
+- Está cubierto por pruebas en `src/tests/__tests__/fondoAdvisor.calc.test.js` y `src/tests/__tests__/fondoAdvisor.test.js` con una cobertura superior al 95 % en la lógica pura.
 
 ## UX de teclados
 

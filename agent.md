@@ -3,7 +3,7 @@
 ## Protocolo de contribución
 - Documenta en la carpeta pertinente cada ajuste o hallazgo (README, docs, auditorías, TODO, etc.).
 - Mantén intactas las lógicas vigentes y la base de datos salvo que una instrucción explícita indique lo contrario.
-- Ubica las pruebas nuevas en `tests/` dentro de la subcarpeta correspondiente.
+- Ubica las pruebas nuevas en `src/tests/` dentro de la subcarpeta correspondiente.
 
 - `buildSaveExitRow()` genera una sola fila con los botones `💾 Salvar` y `❌ Salir`.
 - `buildSaveBackExitKeyboard()` genera el teclado estándar con `💾 Salvar`, `🔙 Volver` y `❌ Salir` en dos filas para mantener la escena abierta.
@@ -11,7 +11,7 @@
   final con esos botones.
 - Los asistentes deben enviar primero el reporte y **después** un mensaje con el teclado;
   nunca se edita un mensaje largo para insertar botones.
-- Usa `helpers/wizardCancel.js` para todas las salidas: registra hooks opcionales con `registerCancelHooks(ctx, { beforeLeave, afterLeave })` y deja que `handleGlobalCancel(ctx)` limpie escena, estado y envíe “❌ Operación cancelada.” (responde a `/cancel`, `/salir`, `salir` y al botón `GLOBAL_CANCEL`).
+- Usa `src/helpers/wizardCancel.js` para todas las salidas: registra hooks opcionales con `registerCancelHooks(ctx, { beforeLeave, afterLeave })` y deja que `handleGlobalCancel(ctx)` limpie escena, estado y envíe “❌ Operación cancelada.” (responde a `/cancel`, `/salir`, `salir` y al botón `GLOBAL_CANCEL`).
 
 ## Asesor de Fondo
 

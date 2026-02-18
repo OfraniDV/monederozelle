@@ -2,14 +2,14 @@
   "name": "walletadrian",
   "version": "1.0.0",
     "scripts": {
-    "pretest": "node scripts/ensureTestDb.js",
+    "pretest": "node src/scripts/ensureTestDb.js",
     "test": "jest --runInBand",
-    "test:extracto": "jest tests/commands/extracto.test.js",
-    "lint": "eslint . --ext .js",
-      "db:bootstrap": "node scripts/ensureIndexesAndExtensions.js",
-      "db:init": "node scripts/initWalletSchema.js",
-      "db:seed": "node scripts/seedMinimal.js",
-      "db:create-users": "node scripts/tablausuarios.js"
+    "test:extracto": "jest src/tests/commands/extracto.test.js",
+    "lint": "eslint src --ext .js",
+      "db:bootstrap": "node src/scripts/ensureIndexesAndExtensions.js",
+      "db:init": "node src/scripts/initWalletSchema.js",
+      "db:seed": "node src/scripts/seedMinimal.js",
+      "db:create-users": "node src/scripts/tablausuarios.js"
     },
   "dependencies": {
     "date-fns": "^4.1.0",
@@ -26,8 +26,8 @@
   },
     "jest": {
       "testEnvironment": "node",
-      "setupFilesAfterEnv": ["<rootDir>/tests/setup.js"],
-      "testMatch": ["**/tests/**/*.test.js"],
+      "setupFilesAfterEnv": ["<rootDir>/src/tests/setup.js"],
+      "testMatch": ["**/src/tests/**/*.test.js"],
       "verbose": true
     }
   }
