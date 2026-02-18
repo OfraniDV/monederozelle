@@ -16,24 +16,6 @@
 const { Scenes, Markup } = require('telegraf');
 const { escapeHtml, fmtMoney, boldHeader } = require('../helpers/format');
 const { sendAndLog } = require('../helpers/reportSender');
-// commands/saldo.js
-//
-// Migrado a parse mode HTML. Se usa escapeHtml para sanear datos dinámicos y
-// evitar errores de parseo. Si se necesitara volver a Markdown, ajustar los
-// constructores de texto y parse_mode en las llamadas a Telegram.
-//
-// 1) El usuario elige AGENTE.
-// 2) Se muestran sus tarjetas con el saldo actual  ➜ elige una.
-// 3) Escribe el SALDO ACTUAL (número).            ➜ el bot calcula ↑/↓ y registra
-//
-// Se añade siempre un movimiento:  saldo_anterior • importe(+/-) • saldo_nuevo
-// Luego se informa si “aumentó” o “disminuyó” y en cuánto.
-//
-// Requiere que las tablas ya existan con las columnas definidas en initWalletSchema.
-
-const { Scenes, Markup } = require('telegraf');
-const { escapeHtml, fmtMoney, boldHeader } = require('../helpers/format');
-const { sendAndLog } = require('../helpers/reportSender');
 const { recordChange } = require('../helpers/sessionSummary');
 const { runFondo } = require('../middlewares/fondoAdvisor');
 const pool = require('../psql/db.js');
@@ -460,3 +442,4 @@ const saldoWizard = new Scenes.WizardScene(
 );
 
 // ✔ probado con tarjeta 5278
+module.exports = saldoWizard;
