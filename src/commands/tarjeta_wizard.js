@@ -8,19 +8,17 @@ const { recordChange, flushOnExit } = require('../helpers/sessionSummary');
 const {
   arrangeInlineButtons,
   editIfChanged,
-  buildBackExitRow,
+  buildNavRow,
   withExitHint,
 } = require('../helpers/ui');
 const { handleGlobalCancel } = require('../helpers/wizardCancel');
-const pool = require('../psql/db.js');
 
-/* Botones comunes */
 const kbCancel = Markup.inlineKeyboard([
-  Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')
+  buildNavRow({ back: null })
 ]);
 const kbSaldo = Markup.inlineKeyboard([
-  Markup.button.callback('0 ↩️ Iniciar en 0', 'SALDO_0'),
-  Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')
+  [Markup.button.callback('0 ↩️ Iniciar en 0', 'SALDO_0')],
+  buildNavRow({ back: null })
 ]);
 
 /* Helpers */

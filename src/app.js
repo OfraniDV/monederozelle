@@ -272,6 +272,9 @@ bot.action(/^START:(?:SCENE:|HOME|HELP|MENU|CLOSE)/, safe(async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
 
   if (data === START_CALLBACKS.home) {
+    if (ctx.scene?.current) {
+      await ctx.scene.leave();
+    }
     await renderStartHome(ctx, { asEdit: true });
     return;
   }

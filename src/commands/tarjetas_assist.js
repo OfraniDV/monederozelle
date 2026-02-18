@@ -27,7 +27,7 @@ const { sendLargeMessage } = require('../helpers/sendLargeMessage');
 const { sendAndLog } = require('../helpers/reportSender');
 const {
   editIfChanged,
-  buildBackExitRow,
+  buildNavRow,
   arrangeInlineButtons,
   buildSaveExitRow,
   buildSaveBackExitKeyboard,

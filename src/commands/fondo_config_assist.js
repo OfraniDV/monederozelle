@@ -2,7 +2,7 @@
 
 const { Scenes, Markup } = require('telegraf');
 const { escapeHtml } = require('../helpers/format');
-const { arrangeInlineButtons, editIfChanged, withExitHint } = require('../helpers/ui');
+const { arrangeInlineButtons, editIfChanged, withExitHint, buildNavRow } = require('../helpers/ui');
 const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { enterAssistMenu } = require('../helpers/assistMenu');
 const {

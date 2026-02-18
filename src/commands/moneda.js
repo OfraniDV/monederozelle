@@ -2,10 +2,10 @@
 const { Scenes, Markup } = require('telegraf');
 const pool = require('../psql/db.js'); // tu Pool de PostgreSQL
 const { handleGlobalCancel } = require('../helpers/wizardCancel');
-const { withExitHint } = require('../helpers/ui');
+const { withExitHint, buildNavRow } = require('../helpers/ui');
 
 /* Botón cancelar / salir */
-const cancelKb = Markup.inlineKeyboard([[Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]]);
+const cancelKb = Markup.inlineKeyboard([buildNavRow({ back: null })]);
 
 /* ------------------------------------------------------------------ *
  *  WIZARD 1 : CREAR MONEDA                                           *

@@ -24,7 +24,7 @@ const { escapeHtml, boldHeader, chunkHtml } = require('../helpers/format');
 const { getDefaultPeriod } = require('../helpers/period');
 const { sendAndLog } = require('../helpers/reportSender');
 const {
-  buildBackExitRow,
+  buildNavRow,
   arrangeInlineButtons,
   buildSaveBackExitKeyboard,
   sendReportWithKb,

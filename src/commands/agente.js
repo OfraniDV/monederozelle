@@ -2,12 +2,12 @@
 const { Scenes, Markup } = require('telegraf');
 const pool = require('../psql/db.js'); // tu Pool de PostgreSQL
 const { escapeHtml } = require('../helpers/format');
-const { renderWizardMenu, clearWizardMenu, withExitHint } = require('../helpers/ui');
+const { renderWizardMenu, clearWizardMenu, withExitHint, buildNavRow } = require('../helpers/ui');
 const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { enterAssistMenu } = require('../helpers/assistMenu');
 
 /* Tecla de cancelar / salir para wizards */
-const cancelKb = Markup.inlineKeyboard([[Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]]);
+const cancelKb = Markup.inlineKeyboard([buildNavRow({ back: null })]);
 
 async function fetchAgentsList() {
   const res = await pool.query('SELECT id,nombre,emoji FROM agente ORDER BY nombre');
@@ -33,7 +33,7 @@ function buildAgentsKeyboard(rows = [], { includeExit = false, includeRefresh = 
     kb.push([Markup.button.callback('🔄 Actualizar', 'AGENTE_REFRESH')]);
   }
   if (includeExit) {
-    kb.push([Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]);
+    kb.push(buildNavRow({ back: null }));
   }
   return kb;
 }

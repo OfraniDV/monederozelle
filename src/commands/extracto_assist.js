@@ -18,7 +18,7 @@ const { sendAndLog } = require('../helpers/reportSender');
 const { buildEntityFilter } = require('../helpers/filters');
 const {
   editIfChanged,
-  buildBackExitRow,
+  buildNavRow,
   arrangeInlineButtons,
   buildSaveExitRow,
   sendReportWithKb,

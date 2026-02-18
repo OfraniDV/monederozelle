@@ -23,7 +23,7 @@ const pool = require('../psql/db.js');
 const moment = require('moment-timezone');
 const { handleGlobalCancel, registerCancelHooks } = require('../helpers/wizardCancel');
 const { enterAssistMenu } = require('../helpers/assistMenu');
-const { withExitHint, editIfChanged } = require('../helpers/ui');
+const { withExitHint, editIfChanged, buildNavRow } = require('../helpers/ui');
 const { parseUserAmount } = require('../helpers/money');
 const { handleError } = require('../controllers/errorController');
 
@@ -32,6 +32,8 @@ const {
   renderCurrencyTotalsHtml,
   loadCurrencyRateMap,
 } = require('../helpers/saldoSummary');
+
+/* ───────── helpers ───────── */
 
 /* ───────── helpers ───────── */
 const OPERATIONS = {
@@ -63,8 +65,7 @@ const OPERATIONS = {
 
 function buildBackCancelKeyboard(backCb = 'VOLVER_TA') {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('🔙 Volver', backCb)],
-    [Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')],
+    buildNavRow({ back: backCb }),
   ]);
 }
 

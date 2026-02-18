@@ -62,16 +62,25 @@ async function editIfChanged(ctx, text, extra = {}, useCaption = false) {
 }
 
 /**
- * Fila estándar de navegación para volver o salir.
+ * Fila estándar de navegación para volver, ir al inicio o salir.
  * @param {string} [back='BACK']  Callback para volver.
+ * @param {string} [home='START:HOME'] Callback para el menú inicial.
  * @param {string} [exit='GLOBAL_CANCEL']  Callback para salir.
  * @returns {Array}
  */
-function buildBackExitRow(back = 'BACK', exit = 'GLOBAL_CANCEL') {
-  return [
-    Markup.button.callback('🔙 Volver', back),
-    Markup.button.callback('❌ Salir', exit),
-  ];
+function buildBackExitRow(back = 'BACK', home = 'START:HOME', exit = 'GLOBAL_CANCEL') {
+  const row = [];
+  if (back) row.push(Markup.button.callback('🔙 Volver', back));
+  if (home) row.push(Markup.button.callback('🏠 Inicio', home));
+  if (exit) row.push(Markup.button.callback('❌ Salir', exit));
+  return row;
+}
+
+/**
+ * Alias semántico para legibilidad.
+ */
+function buildNavRow({ back = 'BACK', home = 'START:HOME', exit = 'GLOBAL_CANCEL' } = {}) {
+  return buildBackExitRow(back, home, exit);
 }
 
 // UX-2025: fila estándar de guardado/salida en una sola fila
@@ -275,6 +284,7 @@ module.exports = {
   editIfChanged,
   buildNavKeyboard,
   buildBackExitRow,
+  buildNavRow,
   arrangeInlineButtons,
   buildSaveExitRow,
   buildSaveBackExitKeyboard,

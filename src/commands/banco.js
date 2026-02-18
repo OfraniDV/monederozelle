@@ -2,10 +2,10 @@
 const { Scenes, Markup } = require('telegraf');
 const pool = require('../psql/db.js'); // asegúrate de que psql/db.js exporte el Pool
 const { handleGlobalCancel } = require('../helpers/wizardCancel');
-const { withExitHint } = require('../helpers/ui');
+const { withExitHint, buildNavRow } = require('../helpers/ui');
 
 /* Tecla de cancelar / salir */
-const cancelKb = Markup.inlineKeyboard([[Markup.button.callback('❌ Salir', 'GLOBAL_CANCEL')]]);
+const cancelKb = Markup.inlineKeyboard([buildNavRow({ back: null })]);
 
 // ---------------------- WIZARD: crear banco ----------------------
 const crearBancoWizard = new Scenes.WizardScene(
