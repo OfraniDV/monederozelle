@@ -49,6 +49,7 @@ const extractoAssist  = require('./commands/extracto_assist');
 const fondoConfigAssist = require('./commands/fondo_config_assist');
 const assistMenu      = require('./commands/assist_menu');
 const {
+  buildStartMainKeyboard,
   buildStartHelpKeyboard,
   buildCategoryMenuKeyboard,
   resolveStartSceneFromCallback,
