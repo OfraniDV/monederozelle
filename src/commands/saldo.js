@@ -128,7 +128,19 @@ async function showAgentes(ctx) {
   }
 
   if (!agentes.length) {
-    await ctx.reply(withExitHint('⚠️ No hay agentes registrados.'), kbBackTarjetasOrCancel);
+    console.warn('[SALDO_WIZ] Sin agentes configurados para /saldo', {
+      userId: ctx.from?.id || null,
+      chatId: ctx.chat?.id || null,
+    });
+    const txt = withExitHint('⚠️ No hay agentes registrados.');
+    const extra = { parse_mode: 'HTML', reply_markup: kbBackTarjetasOrCancel.reply_markup };
+    const msgId = ctx.wizard.state.data?.msgId;
+    if (msgId) {
+      await ctx.telegram.editMessageText(ctx.chat.id, msgId, undefined, txt, extra);
+    } else {
+      const msg = await ctx.reply(txt, extra);
+      ctx.wizard.state.data = { ...(ctx.wizard.state.data || {}), msgId: msg.message_id };
+    }
     return false;
   }
 
@@ -206,6 +218,7 @@ async function showTarjetas(ctx, options = {}) {
         `
         SELECT t.id, t.numero,
                COALESCE(mv.saldo_nuevo,0) AS saldo,
+               mv.saldo_nuevo IS NOT NULL AS has_previous_balance,
                COALESCE(m.codigo,'')       AS moneda,
                COALESCE(m.emoji,'')        AS moneda_emoji,
                COALESCE(b.nombre,'')       AS banco,
@@ -232,15 +245,34 @@ async function showTarjetas(ctx, options = {}) {
   }
 
   if (!tarjetas.length) {
-    await ctx.telegram.editMessageText(
-      ctx.chat.id,
-      ctx.wizard.state.data.msgId,
-      undefined,
-      withExitHint('Este agente todavía no tiene tarjetas.'),
-      { parse_mode: 'HTML', reply_markup: kbBackTarjetasOrCancel.reply_markup }
-    );
-    await ctx.scene.leave();
+    console.warn('[SALDO_WIZ] Agente sin tarjetas configuradas', {
+      userId: ctx.from?.id || null,
+      chatId: ctx.chat?.id || null,
+      agenteId: agente_id || null,
+      agenteNombre: agente_nombre || '',
+    });
+    const txt = withExitHint('Este agente todavía no tiene tarjetas.');
+    const extra = { parse_mode: 'HTML', reply_markup: kbBackTarjetasOrCancel.reply_markup };
+    const msgId = ctx.wizard.state.data?.msgId;
+    if (msgId) {
+      await ctx.telegram.editMessageText(ctx.chat.id, msgId, undefined, txt, extra);
+    } else {
+      const msg = await ctx.reply(txt, extra);
+      ctx.wizard.state.data.msgId = msg.message_id;
+    }
     return false;
+  }
+
+  const noBalanceCount = tarjetas.filter((t) => !t.has_previous_balance).length;
+  if (noBalanceCount > 0) {
+    console.info('[SALDO_WIZ] Tarjetas sin saldo previo detectadas', {
+      userId: ctx.from?.id || null,
+      chatId: ctx.chat?.id || null,
+      agenteId: agente_id || null,
+      agenteNombre: agente_nombre || '',
+      tarjetasSinSaldo: noBalanceCount,
+      totalTarjetas: tarjetas.length,
+    });
   }
 
   const kb = tarjetas.map(t => [
@@ -354,12 +386,16 @@ const saldoWizard = new Scenes.WizardScene(
   /* 0 – mostrar agentes */
   async ctx => {
     console.log('[SALDO_WIZ] paso 0: mostrar agentes');
+    if (await handleGlobalCancel(ctx)) return;
+    if (ctx.callbackQuery) {
+      await ctx.answerCbQuery().catch(() => {});
+    }
     registerCancelHooks(ctx, {
       afterLeave: enterAssistMenu,
       notify: false, // evitamos mensaje genérico: mostramos fondo y luego menú
     });
     const ok = await showAgentes(ctx);
-    if (!ok) return ctx.scene.leave();
+    if (!ok) return;
     return ctx.wizard.next();
   },
 
@@ -382,7 +418,7 @@ const saldoWizard = new Scenes.WizardScene(
     ctx.wizard.state.data.agente_nombre = agente?.nombre || '';
 
     const ok = await showTarjetas(ctx);
-    if (!ok) return; // escena ya cerrada si no hay tarjetas
+    if (!ok) return;
     return ctx.wizard.next();
   },
 
@@ -499,6 +535,15 @@ const saldoWizard = new Scenes.WizardScene(
         [tarjeta.id]
       );
       const hadPreviousBalance = ult.length > 0;
+      if (!hadPreviousBalance) {
+        console.info('[SALDO_WIZ] Tarjeta sin saldo previo: se registrará saldo inicial', {
+          userId: ctx.from?.id || null,
+          chatId: ctx.chat?.id || null,
+          agenteId: ctx.wizard.state.data.agente_id || null,
+          tarjetaId: tarjeta.id,
+          tarjetaNumero: tarjeta.numero,
+        });
+      }
       const saldoAnterior = hadPreviousBalance ? (parseFloat(ult[0].saldo_nuevo) || 0) : 0;
       const { saldoNuevo, delta, descripcion } = buildMovement({
         operation: selectedOperation,
