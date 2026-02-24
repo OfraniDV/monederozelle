@@ -25,6 +25,7 @@ const { getDefaultPeriod } = require('../helpers/period');
 const { sendAndLog } = require('../helpers/reportSender');
 const {
   buildNavRow,
+  buildBackExitRow,
   arrangeInlineButtons,
   buildSaveBackExitKeyboard,
   sendReportWithKb,

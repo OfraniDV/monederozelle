@@ -19,6 +19,7 @@ const { buildEntityFilter } = require('../helpers/filters');
 const {
   editIfChanged,
   buildNavRow,
+  buildBackExitRow,
   arrangeInlineButtons,
   buildSaveExitRow,
   sendReportWithKb,

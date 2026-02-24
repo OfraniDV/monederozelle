@@ -28,6 +28,7 @@ const { sendAndLog } = require('../helpers/reportSender');
 const {
   editIfChanged,
   buildNavRow,
+  buildBackExitRow,
   arrangeInlineButtons,
   buildSaveExitRow,
   buildSaveBackExitKeyboard,
