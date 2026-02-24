@@ -4,11 +4,13 @@
 // Los teclados dinámicos usan arrangeInlineButtons para máximo dos botones por fila.
 const { Scenes, Markup } = require('telegraf');
 const { escapeHtml, fmtMoney } = require('../helpers/format');
+const pool = require('../psql/db.js');
 const { recordChange, flushOnExit } = require('../helpers/sessionSummary');
 const {
   arrangeInlineButtons,
   editIfChanged,
   buildNavRow,
+  buildBackExitRow,
   withExitHint,
 } = require('../helpers/ui');
 const { handleGlobalCancel } = require('../helpers/wizardCancel');
